@@ -30,8 +30,8 @@ task:
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
-  task_w:      [1, 0.2, 0.5, 0.0, 0]  # p, v, ang, angvel, success
-  task_w_eval: [1, 0, 1, 0.0, 0]
+  task_w:      [1, 0.2, 0.5, 0.0]  # p, v, ang, angvel, success
+  task_w_eval: [1, 0, 1, 0.0]
 
 
 feature:

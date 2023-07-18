@@ -20,16 +20,27 @@ class PointMass2D(VecEnv):
 
         self.ball_height = 2
         self.goal_lim = 10
+        self.vel_lim = 5
+        self.goal_vel_lim = 2
 
         super().__init__(cfg=cfg)
 
         # task specific buffers
-        self.goal_pos = (
-            (torch.rand((self.num_envs, 3), device=self.sim_device) - 0.5)
-            * 2
-            * self.goal_lim
+        self.goal_pos = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
         )
         self.goal_pos[..., 2] = self.ball_height
+
+        self.goal_lvel = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
+        self.goal_lvel[..., 2] = 0.0  # set vz zero
 
         # initialise envs and state tensors
         self.envs, self.num_bodies = self.create_envs()
@@ -109,13 +120,13 @@ class PointMass2D(VecEnv):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         # relative xyz pos
-        pos = self.goal_pos[env_ids] - self.rb_pos[env_ids, 0]
+        pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
 
         self.obs_buf[env_ids, 0] = pos[env_ids, 0]
         self.obs_buf[env_ids, 1] = pos[env_ids, 1]
 
         # relative xyz vel
-        vel = self.rb_lvels[env_ids, 0]
+        vel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
 
         self.obs_buf[env_ids, 2] = vel[env_ids, 0]
         self.obs_buf[env_ids, 3] = vel[env_ids, 1]
@@ -147,25 +158,35 @@ class PointMass2D(VecEnv):
             return
 
         # randomise initial positions and velocities
-        positions = torch.zeros(
-            (len(env_ids), self.num_bodies, 3), device=self.sim_device
+        positions = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device)
+                - 0.5
+            )
+            * self.goal_lim
         )
         positions[:, :, 2] = self.ball_height
 
-        velocities = 2 * (
-            torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device) - 0.5
+        velocities = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device)
+                - 0.5
+            )
+            * self.vel_lim
         )
 
         velocities[..., 2] = 0
 
         rotations = torch.zeros((len(env_ids), 3), device=self.sim_device)
 
-        pos_goals = (
-            (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
-            * 2
-            * self.goal_lim
-        )
-        pos_goals[:, 2] = self.ball_height
+        if self.train and self.rand_vel_targets:
+            self.goal_lvel[env_ids, :] = (
+                2
+                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+                * self.goal_vel_lim
+            )
 
         # set random pos, rot, vels
         self.rb_pos[env_ids, :] = positions[:]
@@ -175,7 +196,6 @@ class PointMass2D(VecEnv):
         )
 
         self.rb_lvels[env_ids, :] = velocities[:]
-        self.goal_pos[env_ids, :] = pos_goals[:]
 
         # selectively reset the environments
         env_ids_int32 = env_ids.to(dtype=torch.int32)

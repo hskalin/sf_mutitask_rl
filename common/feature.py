@@ -14,16 +14,12 @@ class pm_feature:
         self._pos_norm = combination[1]
         self._vel_err = combination[2]
         self._vel_norm = combination[3]
-        self._ang_err = combination[4]
-        self._angvel_err = combination[5]
 
         self.dim = (
             self.envdim * combination[0]  # pos
             + combination[1]  # pos_norm
             + self.envdim * combination[2]  # vel
             + combination[3]  # vel_norm
-            + self.envdim * combination[4]  # ang
-            + self.envdim * combination[5]  # angvel
         )
 
     def extract(self, s):

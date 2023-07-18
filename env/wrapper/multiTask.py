@@ -20,10 +20,7 @@ class MultiTaskEnv:
                 w_pos_norm = c[1] * [w[0]]
                 w_vel = c[2] * d * [w[1]]
                 w_vel_norm = c[3] * [w[1]]
-                w_ang = c[4] * d * [w[2]]
-                w_angvel = c[5] * d * [w[3]]
-
-                return w_pos + w_pos_norm + w_vel + w_vel_norm + w_ang + w_angvel
+                return w_pos + w_pos_norm + w_vel + w_vel_norm
 
             elif "pointer" in env_cfg["env_name"].lower():
                 w_pos_norm = c[0] * [w[0]]
