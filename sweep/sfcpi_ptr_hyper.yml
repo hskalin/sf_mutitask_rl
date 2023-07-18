@@ -17,10 +17,14 @@ parameters:
     values: [1024]
   env.single_task:
     values: [False]
+  env.task.rand_weights:
+    values: [False]
+  env.task.rand_vel_targets:
+    values: [False]
 
 command:
   - ${env}
   - python
   - ${program}
-  - agent=SAC
+  - agent=SFCPI
   - env=Pointer2D

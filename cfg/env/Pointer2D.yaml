@@ -1,17 +1,19 @@
 env_name: "Pointer2D"
-num_envs: 512
+num_envs: 1024
 dim: 2
-episode_max_step: 50
-total_episodes: 600
-max_episode_length: 700
-reward:
-  success: 
-    coeff": 1
-success_threshold: [1, 1, 1, 1]  # pos[m], vel[m/s], ang[rad], angvel[rad/s]
-single_task: False # overwrite all task_weight to nav_w
+episode_max_step: 500
+total_episodes: 150
+max_episode_length: 500
+# reward:
+#   success: 
+#     coeff": 1
+# success_threshold: [1, 1, 1, 1]  # pos[m], vel[m/s], ang[rad], angvel[rad/s]
 log_interval: 5
+
+mode: "train" # train or test
+
 eval: True
-eval_interval: 10
+eval_interval: 2
 eval_episodes: 1
 save_model: False  # save model after evaluation
 render: False  # render env
@@ -19,24 +21,24 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
 task:
-  target_vel: [1, 0]
-  single:
-    nav_w:      [1, 0.2, 0.0, 0.0, 0]  # p, v, ang, angvel, success
-    hov_w:      [0.2, 0.0, 0.8, 0.0, 0] 
-    nav_w_eval: [1, 0.2, 0.0, 0.0, 0]
-    hov_w_eval: [0.2, 0.0, 0.8, 0.0, 0] 
-  multi:
-    nav_w:      [1, 0, 0, 0, 0]  # p, v, ang, angvel, success
-    hov_w:      [0, 0, 0.8, 0.2, 10]
-    nav_w_eval: [1, 0, 0, 0, 0]
-    hov_w_eval: [1, 0, 1, 0, 0]
+  rand_weights:       True
+  rand_vel_targets:   True
+
+  # targets for play
+  target_pos:     [0, 0, 2] # x, y
+  target_vel:     [0, 0, 0] # vx, vy, vz
+  target_ang:     [0, 0, 0] # rpy
+  target_angvel:  [0, 0, 0] # wx, wy, wz
+
+  task_w:      [1, 0.2, 0.5, 0.0, 0]  # p, v, ang, angvel, success
+  task_w_eval: [1, 0, 1, 0.0, 0]
+
 
 feature:
-  pos_index: 3
+  pos_index: 3    # pos start index in obs space
   type: "regular"
-  simple: [True, False, False, False, False]
-  regular: [True, True, True, True, True]
-  augment: [True, True, True, True, False]
+  regular: [True, True, True, True]
+
   
 sim:
   sim_device: "cuda:0"

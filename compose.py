@@ -313,6 +313,7 @@ class CompositionAgent(IsaacAgent):
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"
+        print("saving model at ", path)
         Path(path).mkdir(parents=True, exist_ok=True)
         self.policy.save(path + "policy")
         self.sf.SF1.save(path + "sf1")

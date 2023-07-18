@@ -22,18 +22,48 @@ class Pointer(VecEnv):
 
         self.ball_height = 2
         self.goal_lim = 8
+        self.vel_lim = 5
+        self.goal_vel_lim = 2
 
         super().__init__(cfg=cfg)
 
         # task specific buffers
-        self.goal_pos = (
-            (torch.rand((self.num_envs, 3), device=self.sim_device) - 0.5)
-            * 2
-            * self.goal_lim
+        # the goal position and rotation are not randomized, instead
+        # the spawning pos and rot of the pointer is, since the network gets relative
+        # values, these are functionally the same
+        self.goal_pos = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
         )
         self.goal_pos[..., 2] = self.ball_height
 
-        self.goal_rot = torch.zeros((self.num_envs, 3), device=self.sim_device)
+        self.goal_rot = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
+        self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
+
+        self.goal_lvel = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
+        self.goal_lvel[..., 2] = 0.0  # set vz zero
+
+        self.goal_avel = torch.tile(
+            torch.tensor(
+                cfg["task"]["target_angvel"],
+                device=self.sim_device,
+                dtype=torch.float32,
+            ),
+            (self.num_envs, 1),
+        )
+        self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # initialise envs and state tensors
         self.envs, self.num_bodies = self.create_envs()
@@ -155,7 +185,7 @@ class Pointer(VecEnv):
         self.obs_buf[env_ids, 2] = cosine_z[env_ids]
 
         # relative xyz pos
-        pos = self.goal_pos[env_ids] - self.rb_pos[env_ids, 0]
+        pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
 
         xp, yp, zp = globalToLocalRot(
             roll, pitch, yaw, pos[env_ids, 0], pos[env_ids, 1], pos[env_ids, 2]
@@ -165,7 +195,7 @@ class Pointer(VecEnv):
         # self.obs_buf[env_ids, 11] = zp
 
         # relative xyz vel
-        vel = self.rb_lvels[env_ids, 0]
+        vel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
 
         xv, yv, zv = globalToLocalRot(
             roll, pitch, yaw, vel[env_ids, 0], vel[env_ids, 1], vel[env_ids, 2]
@@ -175,7 +205,7 @@ class Pointer(VecEnv):
         # self.obs_buf[env_ids, 14] = zv
 
         # angular velocities
-        ang_vel = self.rb_avels[env_ids, 0]
+        ang_vel = self.rb_avels[env_ids, 0] - self.goal_avel[env_ids]
 
         xw, yw, zw = globalToLocalRot(
             roll,
@@ -234,29 +264,43 @@ class Pointer(VecEnv):
             return
 
         # randomise initial positions and velocities
-        positions = torch.zeros(
-            (len(env_ids), self.num_bodies, 3), device=self.sim_device
+        positions = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device)
+                - 0.5
+            )
+            * self.goal_lim
         )
         positions[:, :, 2] = self.ball_height
 
-        velocities = 2 * (
-            torch.rand((len(env_ids), self.num_bodies, 6), device=self.sim_device) - 0.5
+        velocities = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 6), device=self.sim_device)
+                - 0.5
+            )
+            * self.vel_lim
         )
-
         velocities[..., 2:5] = 0
 
-        rotations = (
-            (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5) * 2 * math.pi
+        rotations = 2 * (
+            (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5) * math.pi
         )
-
         rotations[..., 0:2] = 0
 
-        pos_goals = (
-            (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
-            * 2
-            * self.goal_lim
-        )
-        pos_goals[:, 2] = self.ball_height
+        if self.train and self.rand_vel_targets:
+            self.goal_lvel[env_ids, :] = (
+                2
+                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+                * self.goal_vel_lim
+            )
+
+            self.goal_avel[env_ids, :] = (
+                2
+                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+                * self.goal_vel_lim
+            )
 
         # set random pos, rot, vels
         self.rb_pos[env_ids, :] = positions[:]
@@ -267,8 +311,6 @@ class Pointer(VecEnv):
 
         self.rb_lvels[env_ids, :] = velocities[..., 0:3]
         self.rb_avels[env_ids, :] = velocities[..., 3:6]
-
-        self.goal_pos[env_ids, :] = pos_goals[:]
 
         # selectively reset the environments
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -346,16 +388,8 @@ class Pointer(VecEnv):
         self.get_reward()
 
     def _generate_lines(self):
-        num_lines = 3 + 4
-        line_colors = [
-            [0, 0, 0],
-            [0, 0, 0],
-            [200, 0, 0],
-            [0, 200, 0],
-            [0, 200, 0],
-            [0, 200, 0],
-            [0, 200, 0],
-        ]
+        num_lines = 3
+        line_colors = [[0, 0, 0], [0, 0, 0], [200, 0, 0]]
 
         roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, 0, :])
         xa, ya, za = localToGlobalRot(
@@ -397,14 +431,6 @@ class Pointer(VecEnv):
                     self.rb_pos[i, 0, 1].item() - ya[i].item(),
                     self.rb_pos[i, 0, 2].item() - za[i].item(),
                 ],
-                [self.goal_pos[i, 0].item() + 3, self.goal_pos[i, 1].item() + 3, 0.1],
-                [self.goal_pos[i, 0].item() + 3, self.goal_pos[i, 1].item() - 3, 0.1],
-                [self.goal_pos[i, 0].item() + 3, self.goal_pos[i, 1].item() + 3, 0.1],
-                [self.goal_pos[i, 0].item() - 3, self.goal_pos[i, 1].item() + 3, 0.1],
-                [self.goal_pos[i, 0].item() - 3, self.goal_pos[i, 1].item() - 3, 0.1],
-                [self.goal_pos[i, 0].item() - 3, self.goal_pos[i, 1].item() + 3, 0.1],
-                [self.goal_pos[i, 0].item() - 3, self.goal_pos[i, 1].item() - 3, 0.1],
-                [self.goal_pos[i, 0].item() + 3, self.goal_pos[i, 1].item() - 3, 0.1],
             ]
 
             line_vertices.append(vertices)

@@ -55,13 +55,8 @@ class IsaacAgent:
         self.record = self.env_cfg["record"]
         self.save_model = self.env_cfg["save_model"]
 
-        w_train, w_eval = w[0], w[1]  # [F]
-        self.w_navi, self.w_hover = w_train[0], w_train[1]  # [F]
-        self.w_eval_navi, self.w_eval_hover = w_eval[0], w_eval[1]  # [F]
-        self.w_init = torch.tile(self.w_navi, (self.n_env, 1))  # [N, F]
-        self.w_eval_init = torch.tile(self.w_eval_navi, (self.n_env, 1))  # [N, F]
-        self.w = self.w_init.clone().type(torch.float32)  # [N, F]
-        self.w_eval = self.w_eval_init.clone().type(torch.float32)  # [N, F]
+        self.w = torch.tile(w[0], (self.n_env, 1))
+        self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
 
         self.feature = feature
         self.observation_dim = self.env.num_obs
@@ -72,14 +67,7 @@ class IsaacAgent:
         self.action_shape = [self.action_dim]
 
         self.per = self.buffer_cfg["prioritize_replay"]
-        # memory = MyPrioritizedMemory if self.per else MyMultiStepMemory
-        # self.replay_buffer = memory(
-        #     state_shape=self.observation_shape,
-        #     feature_shape=self.feature_shape,
-        #     action_shape=self.action_shape,
-        #     device=device,
-        #     **self.buffer_cfg,
-        # )
+
         self.replay_buffer = VectorizedReplayBuffer(
             self.observation_shape,
             self.action_shape,
@@ -135,11 +123,11 @@ class IsaacAgent:
         done = False
 
         print("episode = ", self.episodes)
+        print(self.w[0])
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
             a = self.act(s)
-            # _, done = self.env.step(a)
 
             self.env.step(a)
             done = self.env.reset_buf.clone()
@@ -168,8 +156,6 @@ class IsaacAgent:
                     self.learn()
 
             s = s_next
-            self.w = self.w.float()
-            self.update_w(s, self.w, self.w_navi, self.w_hover)
 
             self.steps += self.n_env
             episode_steps += 1
@@ -183,19 +169,15 @@ class IsaacAgent:
             if episode_steps >= self.episode_max_step:
                 break
 
+        if (self.env_cfg["mode"] == "train") and (self.env_cfg["task"]["rand_weights"]):
+            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+
         # if self.episodes % self.log_interval == 0:
         wandb.log({"reward/train": self.game_rewards.get_mean()})
         wandb.log({"length/train": self.game_lengths.get_mean()})
 
         if self.eval and (self.episodes % self.eval_interval == 0):
             self.evaluate()
-
-    def update_w(self, s, w, w_navi, w_hover, thr=3):
-        pos_index = self.env_cfg["feature"]["pos_index"]
-        dim = self.env_cfg["dim"]
-        dist = torch.linalg.norm(s[:, pos_index : pos_index + dim], axis=1)
-        w[torch.where(dist <= thr)[0], :] = w_hover.float()
-        w[torch.where(dist > thr)[0], :] = w_navi.float()
 
     def is_update(self):
         return (
@@ -209,8 +191,6 @@ class IsaacAgent:
         if s is None:
             s = torch.zeros((self.n_env, self.env.num_obs))
 
-        self.w = self.w_init.clone()
-        self.w_eval = self.w_eval_init.clone()
         return s
 
     def save_to_buffer(self, s, a, r, s_next, done, masked_done):
@@ -219,13 +199,6 @@ class IsaacAgent:
         r = r[:, None] * self.reward_scale
         done = done[:, None]
         masked_done = masked_done[:, None]
-
-        # if self.per:
-        #     error = self.calc_priority_error(
-        #         to_batch(s, f, a, r, s_next, masked_done, device)
-        #     )
-        #     self.replay_buffer.append(s, f, a, r, s_next, masked_done, error, done)
-        # else:
         self.replay_buffer.add(s, f, a, r, s_next, masked_done)
 
     def evaluate(self):
@@ -252,12 +225,7 @@ class IsaacAgent:
                 r = self.calc_reward(s_next, self.w_eval)
 
                 s = s_next
-                self.w_eval = self.w_eval.float()
-                self.update_w(s, self.w_eval, self.w_eval_navi, self.w_eval_hover)
                 episode_r += r
-
-                if self.render:
-                    time.sleep(0.04)
 
             returns[i] = torch.mean(episode_r).item()
 

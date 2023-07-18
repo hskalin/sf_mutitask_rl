@@ -1,26 +1,30 @@
 program: run.py
-method: grid
+method: bayes
 metric:
   goal: maximize
   name: reward/eval
 
 parameters:
-  seed:
-    values: [4679,31991,15131,9221,7039,81953,6551,33191,76001,80923]
   agent.lr:
-    values: [0.00518]
+    min: 0.001
+    max: 0.01
   agent.policy_lr:
-    values: [0.003109]
+    min: 0.001
+    max: 0.01
   buffer.mini_batch_size:
     values: [4096]
   env.num_envs:
     values: [1024]
   env.single_task:
-    values: [True]
+    values: [False]
+  env.task.rand_weights:
+    values: [False]
+  env.task.rand_vel_targets:
+    values: [False]
 
 command:
   - ${env}
   - python
   - ${program}
-  - agent=MSF
-  - env=PointMass2D
+  - agent=SFGPI
+  - env=Pointer2D

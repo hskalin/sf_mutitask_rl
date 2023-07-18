@@ -20,6 +20,9 @@ class VecEnv:
         self.num_envs = cfg.get("num_envs", 512)
         self.max_episode_length = cfg.get("max_episode_length", 500)
 
+        self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
+        self.train = cfg.get("mode", "train")
+
         # configure sim (gravity is pointing down)
         self.sim_params = gymapi.SimParams()
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
