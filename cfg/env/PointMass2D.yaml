@@ -14,7 +14,7 @@ log_interval: 5
 mode: "train" # train or test
 
 eval: True
-eval_interval: 1
+eval_interval: 2
 eval_episodes: 1
 save_model: False  # save model after evaluation
 render: False  # render env
@@ -22,8 +22,8 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "../logs/"  # config, video, model log path
 
 task:
-  rand_weights:       True
-  rand_vel_targets:   True
+  rand_weights:       False
+  rand_vel_targets:   False
 
   # targets for play
   target_pos:     [0, 0, 2] # x, y

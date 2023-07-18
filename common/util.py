@@ -61,8 +61,7 @@ def fix_wandb(d):
             a = fix_wandb({".".join(ks[1:]): v})
             if ks[0] not in ret:
                 ret[ks[0]] = {}
-            for _k, _v in a.items():
-                ret[ks[0]][_k] = _v
+            update_dict(ret[ks[0]], a)
     return ret
 
 

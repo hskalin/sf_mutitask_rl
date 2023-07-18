@@ -15,12 +15,10 @@ parameters:
     values: [4096]
   env.num_envs:
     values: [1024]
-  env.single_task:
-    values: [False]
   env.task.rand_weights:
-    values: [False]
+    values: [False, True]
   env.task.rand_vel_targets:
-    values: [False]
+    values: [False, True]
 
 command:
   - ${env}
