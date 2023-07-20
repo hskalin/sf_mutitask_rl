@@ -190,6 +190,9 @@ class CompositionAgent(IsaacAgent):
         (s, f, a, _, s_next, dones) = batch
 
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]
+
+        self.comp.sf_norm_coeff = curr_sf1.mean([0, 1]).abs()
+
         target_sf = self.calc_target_sf(f, s_next, dones)  # [N, H, F]
 
         loss1 = (curr_sf1 - target_sf).pow(2)  # [N, H, F]

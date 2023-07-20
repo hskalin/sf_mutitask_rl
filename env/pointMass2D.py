@@ -13,15 +13,13 @@ import os
 class PointMass2D(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 4
+        self.num_obs = 4 + 1
         self.num_act = 2
         self.reset_dist = 10.0  # when to reset
         self.max_push_effort = 5.0  # the range of force applied to the pointer
 
         self.ball_height = 2
-        self.goal_lim = 10
-        self.vel_lim = 5
-        self.goal_vel_lim = 2
+        self.goal_vel_lim = 5
 
         super().__init__(cfg=cfg)
 
@@ -120,16 +118,22 @@ class PointMass2D(VecEnv):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         # relative xyz pos
-        pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
+        relativePos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
 
-        self.obs_buf[env_ids, 0] = pos[env_ids, 0]
-        self.obs_buf[env_ids, 1] = pos[env_ids, 1]
+        self.obs_buf[env_ids, 0] = relativePos[env_ids, 0]
+        self.obs_buf[env_ids, 1] = relativePos[env_ids, 1]
 
         # relative xyz vel
-        vel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
+        relativeVel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
 
-        self.obs_buf[env_ids, 2] = vel[env_ids, 0]
-        self.obs_buf[env_ids, 3] = vel[env_ids, 1]
+        self.obs_buf[env_ids, 2] = relativeVel[env_ids, 0]
+        self.obs_buf[env_ids, 3] = relativeVel[env_ids, 1]
+
+        vel_norm = torch.linalg.norm(
+            self.rb_lvels[env_ids, 0], axis=1, keepdims=False
+        ) - torch.linalg.norm(self.goal_lvel[env_ids], axis=1, keepdims=False)
+
+        self.obs_buf[env_ids, 4] = vel_norm
 
     def get_reward(self):
         # retrieve environment observations from buffer
@@ -315,30 +319,30 @@ def compute_point_reward(
 ):
     # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
 
-    # square distance from goal
+    # # square distance from goal
     sqr_dist = (x_pos) ** 2 + (y_pos) ** 2
 
-    # Proximity reward
-    A1 = 1
-    B1 = (2 + torch.log(A1)) / (8**2)
+    # # Proximity reward
+    # A1 = 1
+    # B1 = (2 + torch.log(A1)) / (8**2)
 
-    proximity_rew = (torch.exp(-B1 * sqr_dist) + torch.exp(-3 * sqr_dist)) / 2
+    # proximity_rew = (torch.exp(-B1 * sqr_dist) + torch.exp(-3 * sqr_dist)) / 2
 
-    # Total
-    reward = A1 * proximity_rew
+    # # Total
+    reward = -sqr_dist
 
-    # print(proximity_rew[0], angle_rew[0], rot_rew[0])
-    # print(reward[0])
+    # # print(proximity_rew[0], angle_rew[0], rot_rew[0])
+    # # print(reward[0])
 
-    # adjust reward for reset agents
+    # # adjust reward for reset agents
     # reward = torch.where(z_abs < 0.75, torch.ones_like(reward) * -200.0, reward)
-    # reward = torch.where(torch.abs(x_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
-    # reward = torch.where(torch.abs(y_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
-    # reward = torch.where(torch.abs(wz) > 45, torch.ones_like(reward) * -200.0, reward)
-    # reward = torch.where(x_action < 0, reward - 0.1, reward)
-    # reward = torch.where((torch.abs(x_pos) < 0.1) & (torch.abs(y_pos) < 0.1), reward + 1, reward)
+    # # reward = torch.where(torch.abs(x_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
+    # # reward = torch.where(torch.abs(y_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
+    # # reward = torch.where(torch.abs(wz) > 45, torch.ones_like(reward) * -200.0, reward)
+    # # reward = torch.where(x_action < 0, reward - 0.1, reward)
+    # # reward = torch.where((torch.abs(x_pos) < 0.1) & (torch.abs(y_pos) < 0.1), reward + 1, reward)
 
-    return_buf += reward
+    # return_buf += reward
 
     reset = torch.where(
         torch.abs(sqr_dist) > 100, torch.ones_like(reset_buf), reset_buf

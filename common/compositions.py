@@ -14,6 +14,9 @@ class Compositions:
         self.n_heads = n_heads
         self.feature_dim = n_heads
         self.action_dim = action_dim
+        self.sf_norm_coeff = torch.ones(
+            (self.feature_dim), device=torch.device("cuda:0"), dtype=torch.float32
+        )
 
         self.impact_x_idx = []  # record primitive impact on x-axis
         self.policy_idx = []  # record primitive summon frequency
@@ -164,8 +167,11 @@ class Compositions:
     def gpe(self, s, acts, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, acts)
+        gating = self.scale_gating(w)  # [N, Ha], H=F
+
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
-        qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w.float())
+        # qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w.float())
+        qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), gating)
         return qs  # [N,Ha,Hsf]
 
     def gpi(self, acts, value, rule="q"):
@@ -215,7 +221,8 @@ class Compositions:
         return curr_sf  # [N, Ha, Hsf, F]
 
     def scale_gating(self, gating):
-        return torch.softmax(gating / gating.shape[1], 1)
+        # return torch.softmax(gating / gating.shape[1], 1)
+        return gating / (gating.norm(1, 1, keepdim=True) * self.sf_norm_coeff)
 
     def calc_advantage(self, value):  # [N,Ha,Hsf,F]
         adv = value.mean(1, keepdim=True) - value.mean((1, 2), keepdim=True)

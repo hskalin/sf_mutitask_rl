@@ -16,11 +16,11 @@ class MultiTaskEnv:
             # feature order: [pos, pos_norm, vel, vel_norm, ang, angvel, success]
 
             if "pointmass" in env_cfg["env_name"].lower():
-                w_pos = c[0] * d * [w[0]]
-                w_pos_norm = c[1] * [w[0]]
-                w_vel = c[2] * d * [w[1]]
-                w_vel_norm = c[3] * [w[1]]
-                return w_pos + w_pos_norm + w_vel + w_vel_norm
+                w_pos_norm = c[0] * [w[0]]
+                w_vel = c[1] * d * [w[1]]
+                w_vel_norm = c[2] * [w[2]]
+                w_prox = c[3] * [w[3]]
+                return w_pos_norm + w_vel + w_vel_norm + w_prox
 
             elif "pointer" in env_cfg["env_name"].lower():
                 w_pos_norm = c[0] * [w[0]]
@@ -49,7 +49,7 @@ class MultiTaskEnv:
         if "pointer" in self.env_cfg["env_name"].lower():
             feature = pointer_feature(self.env_cfg, combination)
         elif "pointmass" in self.env_cfg["env_name"].lower():
-            feature = pm_feature(combination, self.env_cfg["dim"])
+            feature = pm_feature(self.env_cfg, combination)
         else:
             raise NotImplementedError(f'no such env {self.env_cfg["env_name"]}')
 

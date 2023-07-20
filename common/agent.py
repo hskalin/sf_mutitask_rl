@@ -55,9 +55,6 @@ class IsaacAgent:
         self.record = self.env_cfg["record"]
         self.save_model = self.env_cfg["save_model"]
 
-        self.w = torch.tile(w[0], (self.n_env, 1))
-        self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
-
         self.feature = feature
         self.observation_dim = self.env.num_obs
         self.feature_dim = self.feature.dim
@@ -65,6 +62,13 @@ class IsaacAgent:
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
+
+        self.w = torch.tile(w[0], (self.n_env, 1))
+
+        if self.env_cfg["task"]["rand_weights"]:
+            self.w_eval = torch.rand((self.n_env, self.feature_dim), device=self.device)
+        else:
+            self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
 
         self.per = self.buffer_cfg["prioritize_replay"]
 
@@ -117,6 +121,53 @@ class IsaacAgent:
             if self.steps > self.total_timesteps:
                 break
 
+    def randomizeTrainWeights(self):
+        randType = self.env_cfg["task"]["task_w_randType"]
+
+        if randType == "uniform":
+            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+
+        elif randType == "ea":
+            task_w_ea = torch.tensor(
+                self.env_cfg["task"]["task_w_ea"], device=self.device
+            )
+            parse = int(self.n_env / len(task_w_ea))
+            for i in range(len(task_w_ea)):
+                self.w[i * parse : (i + 1) * parse, :] = task_w_ea[i]
+
+        elif randType == "uni_ea":
+            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+            task_w_ea = torch.tensor(
+                self.env_cfg["task"]["task_w_ea"], device=self.device
+            )
+            parse = int(self.n_env / len(task_w_ea) * 0.5)
+            parse0 = int(self.n_env / 2)
+
+            for i in range(len(task_w_ea)):
+                self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = task_w_ea[i]
+
+        elif randType == "randbasis":
+            import itertools
+
+            l = list(itertools.product([0, 1], repeat=self.feature_dim))
+            es = torch.tensor(l, device=self.device)
+            parse = int(self.n_env / len(l))
+
+            for i in range(len(l)):
+                self.w[i * parse : (i + 1) * parse, :] = es[i]
+
+        elif randType == "uni_randbasis":
+            import itertools
+
+            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+
+            l = list(itertools.product([0, 1], repeat=self.feature_dim))
+            es = torch.tensor(l, device=self.device)
+            parse = int(self.n_env / len(l) * 0.5)
+            parse0 = int(self.n_env / 2)
+            for i in range(len(l)):
+                self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = es[i]
+
     def train_episode(self, gui_app=None, gui_rew=None):
         self.episodes += 1
         episode_r = episode_steps = 0
@@ -124,6 +175,10 @@ class IsaacAgent:
 
         print("episode = ", self.episodes)
         print(self.w[0])
+
+        if (self.env_cfg["mode"] == "train") and (self.env_cfg["task"]["rand_weights"]):
+            # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+            self.randomizeTrainWeights()
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
@@ -168,9 +223,6 @@ class IsaacAgent:
 
             if episode_steps >= self.episode_max_step:
                 break
-
-        if (self.env_cfg["mode"] == "train") and (self.env_cfg["task"]["rand_weights"]):
-            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
 
         # if self.episodes % self.log_interval == 0:
         wandb.log({"reward/train": self.game_rewards.get_mean()})
@@ -223,6 +275,7 @@ class IsaacAgent:
                 self.env.reset()
 
                 r = self.calc_reward(s_next, self.w_eval)
+                print(self.w_eval[0])
 
                 s = s_next
                 episode_r += r

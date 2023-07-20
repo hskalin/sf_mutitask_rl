@@ -38,7 +38,7 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = CompositionAgent(cfg_dict)
 
     agent.load_torch_model(
-        "/home/nilaksh/rl/sf_mutitask_rl/logs/sfgpi/Pointer2D/2023-07-18-11-03-05/model94/"
+        "/home/nilaksh/rl/logs/sfgpi/PointMass2D/2023-07-19-12-28-02/model40/"
     )
     # agent.load_torch_model(
     #     "/home/nilaksh/rl/con_comp/logs/dacgpi/Pointer2D/2023-07-14-13-28-23/model100/"

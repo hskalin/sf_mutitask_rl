@@ -23,6 +23,9 @@ class VecEnv:
         self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
         self.train = cfg.get("mode", "train")
 
+        self.goal_lim = cfg.get("goal_lim", 10)
+        self.vel_lim = cfg.get("vel_lim", 5)
+
         # configure sim (gravity is pointing down)
         self.sim_params = gymapi.SimParams()
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
