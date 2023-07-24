@@ -164,47 +164,6 @@ class IsaacAgent:
             weights = torch.ones(len(task_wa), device=self.device)
             idx = torch.multinomial(weights, self.n_env, replacement=True)
             self.w = task_wa[idx]
-
-        # elif randType == "ea":
-        #     task_w_ea = torch.tensor(
-        #         self.env_cfg["task"]["task_w_ea"], device=self.device
-        #     )
-        #     parse = int(self.n_env / len(task_w_ea))
-        #     for i in range(len(task_w_ea)):
-        #         self.w[i * parse : (i + 1) * parse, :] = task_w_ea[i]
-
-        # elif randType == "uni_ea":
-        #     self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-        #     task_w_ea = torch.tensor(
-        #         self.env_cfg["task"]["task_w_ea"], device=self.device
-        #     )
-        #     parse = int(self.n_env / len(task_w_ea) * 0.5)
-        #     parse0 = int(self.n_env / 2)
-
-        #     for i in range(len(task_w_ea)):
-        #         self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = task_w_ea[i]
-
-        # elif randType == "randbasis":
-        #     # l = list(itertools.product([0, 1], repeat=self.feature_dim))
-        #     # es = torch.tensor(l, device=self.device)
-        #     # parse = int(self.n_env / len(l))
-
-        #     # for i in range(len(l)):
-        #     #     self.w[i * parse : (i + 1) * parse, :] = es[i]
-        #     es = torch.tensor(self.eslst, device=self.device, dtype=torch.float32)
-        #     weights = torch.ones(len(self.eslst), device=self.device)
-        #     idx = torch.multinomial(weights, self.n_env, replacement=True)
-        #     self.w = es[idx]
-
-        # elif randType == "uni_randbasis":
-        #     self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-
-        #     l = list(itertools.product([0, 1], repeat=self.feature_dim))
-        #     es = torch.tensor(l, device=self.device)
-        #     parse = int(self.n_env / len(l) * 0.5)
-        #     parse0 = int(self.n_env / 2)
-        #     for i in range(len(l)):
-        #         self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = es[i]
         else:
             raise NotImplementedError(f"{randType} is not implemented")
 
@@ -245,7 +204,7 @@ class IsaacAgent:
 
         print("episode = ", self.episodes)
 
-        if (self.episodes - 1) % 4 == 0:
+        if (self.episodes - 1) % 3 == 0:
             if (self.env_cfg["mode"] == "train") and (
                 self.env_cfg["task"]["rand_weights"]
             ):
