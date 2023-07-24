@@ -22,6 +22,8 @@ import os
 from common.feature import pm_feature
 from common.util import check_obs, check_act, dump_cfg, np2ts, to_batch, AverageMeter
 
+import itertools
+
 warnings.simplefilter("once", UserWarning)
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 exp_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -63,12 +65,28 @@ class IsaacAgent:
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
 
-        self.w = torch.tile(w[0], (self.n_env, 1))
+        self.eslst = list(itertools.product([0, 1], repeat=self.feature_dim))
+        self.eslst.pop(0)  # remove all zero vector
+        self.minWeightVecs = 5
 
         if self.env_cfg["task"]["rand_weights"]:
-            self.w_eval = torch.rand((self.n_env, self.feature_dim), device=self.device)
+            # self.w_eval = torch.rand((self.n_env, self.feature_dim), device=self.device)
+            task_wa = torch.tensor(
+                self.env_cfg["task"]["task_wa"], device=self.device, dtype=torch.float32
+            )
+            weights = torch.ones(len(task_wa), device=self.device)
+            idx = torch.multinomial(weights, self.n_env, replacement=True)
+            self.w_eval = task_wa[idx]
+
+            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
         else:
             self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
+            self.w = torch.tile(w[0], (self.n_env, 1))
+
+        self.w = self.w / self.w.norm(1, 1, keepdim=True)  # normalise weights
+        self.w_eval = self.w_eval / self.w_eval.norm(1, 1, keepdim=True)
+
+        print("eval weights:\n", self.w_eval)
 
         self.per = self.buffer_cfg["prioritize_replay"]
 
@@ -127,46 +145,98 @@ class IsaacAgent:
         if randType == "uniform":
             self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
 
-        elif randType == "ea":
-            task_w_ea = torch.tensor(
-                self.env_cfg["task"]["task_w_ea"], device=self.device
+        elif randType == "permute":
+            es = torch.tensor(self.eslst, device=self.device, dtype=torch.float32)
+            weights = torch.ones(len(self.eslst), device=self.device)
+            idx = torch.multinomial(weights, self.n_env, replacement=True)
+            self.w = es[idx]
+
+        elif randType == "identity":
+            identity = torch.eye(self.feature_dim, device=self.device)
+            weights = torch.ones(len(identity), device=self.device)
+            idx = torch.multinomial(weights, self.n_env, replacement=True)
+            self.w = identity[idx]
+
+        elif randType == "achievable":
+            task_wa = torch.tensor(
+                self.env_cfg["task"]["task_wa"], device=self.device, dtype=torch.float32
             )
-            parse = int(self.n_env / len(task_w_ea))
-            for i in range(len(task_w_ea)):
-                self.w[i * parse : (i + 1) * parse, :] = task_w_ea[i]
+            weights = torch.ones(len(task_wa), device=self.device)
+            idx = torch.multinomial(weights, self.n_env, replacement=True)
+            self.w = task_wa[idx]
 
-        elif randType == "uni_ea":
-            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-            task_w_ea = torch.tensor(
-                self.env_cfg["task"]["task_w_ea"], device=self.device
-            )
-            parse = int(self.n_env / len(task_w_ea) * 0.5)
-            parse0 = int(self.n_env / 2)
+        # elif randType == "ea":
+        #     task_w_ea = torch.tensor(
+        #         self.env_cfg["task"]["task_w_ea"], device=self.device
+        #     )
+        #     parse = int(self.n_env / len(task_w_ea))
+        #     for i in range(len(task_w_ea)):
+        #         self.w[i * parse : (i + 1) * parse, :] = task_w_ea[i]
 
-            for i in range(len(task_w_ea)):
-                self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = task_w_ea[i]
+        # elif randType == "uni_ea":
+        #     self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+        #     task_w_ea = torch.tensor(
+        #         self.env_cfg["task"]["task_w_ea"], device=self.device
+        #     )
+        #     parse = int(self.n_env / len(task_w_ea) * 0.5)
+        #     parse0 = int(self.n_env / 2)
 
-        elif randType == "randbasis":
-            import itertools
+        #     for i in range(len(task_w_ea)):
+        #         self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = task_w_ea[i]
 
-            l = list(itertools.product([0, 1], repeat=self.feature_dim))
-            es = torch.tensor(l, device=self.device)
-            parse = int(self.n_env / len(l))
+        # elif randType == "randbasis":
+        #     # l = list(itertools.product([0, 1], repeat=self.feature_dim))
+        #     # es = torch.tensor(l, device=self.device)
+        #     # parse = int(self.n_env / len(l))
 
-            for i in range(len(l)):
-                self.w[i * parse : (i + 1) * parse, :] = es[i]
+        #     # for i in range(len(l)):
+        #     #     self.w[i * parse : (i + 1) * parse, :] = es[i]
+        #     es = torch.tensor(self.eslst, device=self.device, dtype=torch.float32)
+        #     weights = torch.ones(len(self.eslst), device=self.device)
+        #     idx = torch.multinomial(weights, self.n_env, replacement=True)
+        #     self.w = es[idx]
 
-        elif randType == "uni_randbasis":
-            import itertools
+        # elif randType == "uni_randbasis":
+        #     self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
 
-            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+        #     l = list(itertools.product([0, 1], repeat=self.feature_dim))
+        #     es = torch.tensor(l, device=self.device)
+        #     parse = int(self.n_env / len(l) * 0.5)
+        #     parse0 = int(self.n_env / 2)
+        #     for i in range(len(l)):
+        #         self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = es[i]
+        else:
+            raise NotImplementedError(f"{randType} is not implemented")
 
-            l = list(itertools.product([0, 1], repeat=self.feature_dim))
-            es = torch.tensor(l, device=self.device)
-            parse = int(self.n_env / len(l) * 0.5)
-            parse0 = int(self.n_env / 2)
-            for i in range(len(l)):
-                self.w[parse0 + i * parse : parse0 + (i + 1) * parse, :] = es[i]
+        self.w = self.w / self.w.norm(1, 1, keepdim=True)
+
+    # def smartRandWeights(self, epiFeat):
+    #     es_rews = []
+    #     for es in self.eslst:
+    #         es_rews.append(
+    #             torch.sum(epiFeat * torch.tensor(es, device=self.device)).item()
+    #         )
+
+    #     print(epiFeat, "\n\n")
+    #     print(es_rews)
+
+    #     sortedIndices = sorted(
+    #         range(len(es_rews)), key=lambda k: es_rews[k], reverse=True
+    #     )
+
+    #     updatedEslst = []
+    #     for i in range(int(0.9 * len(self.eslst))):
+    #         updatedEslst.append(self.eslst[sortedIndices[i]])
+
+    #     self.eslst = updatedEslst
+    #     print(updatedEslst)
+
+    #     es = torch.tensor(self.eslst, device=self.device)
+    #     weights = torch.ones(len(self.eslst), device=self.device)
+    #     idx = torch.multinomial(weights, self.n_env, replacement=True)
+    #     self.w[:] = es[idx]
+
+    #     self.w = self.w / self.w.norm(1, 1, keepdim=True)
 
     def train_episode(self, gui_app=None, gui_rew=None):
         self.episodes += 1
@@ -174,11 +244,19 @@ class IsaacAgent:
         done = False
 
         print("episode = ", self.episodes)
-        print(self.w[0])
 
-        if (self.env_cfg["mode"] == "train") and (self.env_cfg["task"]["rand_weights"]):
-            # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-            self.randomizeTrainWeights()
+        if (self.episodes - 1) % 4 == 0:
+            if (self.env_cfg["mode"] == "train") and (
+                self.env_cfg["task"]["rand_weights"]
+            ):
+                # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+                # self.randomizeTrainWeights()
+                # if len(self.eslst) > self.minWeightVecs:
+                #     self.smartRandWeights(episodicFeature)
+
+                self.randomizeTrainWeights()
+
+        print(self.w[0])
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
@@ -275,7 +353,6 @@ class IsaacAgent:
                 self.env.reset()
 
                 r = self.calc_reward(s_next, self.w_eval)
-                print(self.w_eval[0])
 
                 s = s_next
                 episode_r += r
@@ -309,8 +386,10 @@ class IsaacAgent:
                 a = self.exploit(s, w)
         return a
 
-    def calc_reward(self, s, w):
+    def calc_reward(self, s, w, episodicFeature=None):
         f = self.feature.extract(s)
+        if episodicFeature is not None:
+            episodicFeature += torch.linalg.norm(f, axis=0)
         r = torch.sum(w * f, 1)
         return r
 

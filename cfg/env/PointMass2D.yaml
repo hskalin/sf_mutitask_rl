@@ -21,23 +21,23 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
 task:
-  rand_weights:       True
-  rand_vel_targets:   True
+  rand_weights:      True
+  rand_vel_targets:  True
 
-  proximity_threshold: 1
+  proximity_threshold: 3
 
   # targets for play
   target_pos:       [0, 0, 2] # x, y
-  target_vel:       [5, 0, 0] # vx, vy, vz
+  target_vel:       [0, 0, 0] # vx, vy, vz
 
   task_w:      [0, 0, 0.2, 1]  # |p|, v, |v|, prox
   task_w_eval: [0, 0, 0.2, 1]
 
-  # can be "uniform", "uni_randbasis", "uni_ea", "randbasis", "ea"
-  # ea = achievable basis weights
+  # can be "uniform", "permute", "identity", "achievable"
   task_w_randType: "uniform"
 
-  task_w_ea: [[1, 0, 0, 0, 0],[0, 1, 1, 0, 0],[0, 0, 0, 1, 0],[0, 0, 0, 0, 1],[0, 0, 0, 1, 1]]
+  # set of achievable task weights
+  task_wa: [[1, 0, 0, 0, 0],[0, 1, 1, 0, 0], [0, 1, 0, 0, 0], [0, 0, 1, 0, 0],[0, 0, 0, 1, 0],[0, 0, 0, 0, 1],[0, 0, 0, 1, 1]]
 
 feature:
   type: "regular"

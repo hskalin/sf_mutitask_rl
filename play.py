@@ -38,7 +38,7 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = CompositionAgent(cfg_dict)
 
     agent.load_torch_model(
-        "/home/nilaksh/rl/logs/sfgpi/PointMass2D/2023-07-19-12-28-02/model40/"
+        "/home/nilaksh/rl/sf_mutitask_rl/logs/sfgpi/PointMass2D/2023-07-20-13-09-56/model40/"
     )
     # agent.load_torch_model(
     #     "/home/nilaksh/rl/con_comp/logs/dacgpi/Pointer2D/2023-07-14-13-28-23/model100/"
@@ -53,15 +53,22 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     def update_pos(val):
         agent.w[..., 0] = float(val)
-
-    def update_ang(val):
-        agent.w[..., 2] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
     def update_vel(val):
-        agent.w[..., 1] = float(val)
+        agent.w[..., 1:3] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
-    def update_suc(val):
+    def update_velnorm(val):
+        agent.w[..., 3] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
+
+    def update_prox(val):
         agent.w[..., 4] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
+
+    def update_targ_vel(val):
+        agent.env.goal_lvel[..., 0] = float(val)
 
     pos_slide = Scale(
         root,
@@ -81,9 +88,9 @@ def launch_rlg_hydra(cfg: DictConfig):
         to=1,
         digits=3,
         resolution=0.01,
-        label="ang",
+        label="vel",
         orient=HORIZONTAL,
-        command=update_ang,
+        command=update_vel,
     )
     ang_slide.pack()
 
@@ -93,9 +100,9 @@ def launch_rlg_hydra(cfg: DictConfig):
         to=1,
         digits=3,
         resolution=0.01,
-        label="vel",
+        label="vel norm",
         orient=HORIZONTAL,
-        command=update_vel,
+        command=update_velnorm,
     )
     vel_slide.pack()
 
@@ -105,11 +112,23 @@ def launch_rlg_hydra(cfg: DictConfig):
         to=1,
         digits=3,
         resolution=0.01,
-        label="suc",
+        label="prox",
         orient=HORIZONTAL,
-        command=update_suc,
+        command=update_prox,
     )
     suc_slide.pack()
+
+    targ_vel_slide = Scale(
+        root,
+        from_=0,
+        to=5,
+        digits=3,
+        resolution=0.5,
+        label="target vel x",
+        orient=HORIZONTAL,
+        command=update_targ_vel,
+    )
+    targ_vel_slide.pack()
 
     rew = DoubleVar(name="reward")  # instantiate the IntVar variable class
     rew.set(0.0)  # set it to 0 as the initial value

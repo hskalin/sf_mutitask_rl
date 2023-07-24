@@ -42,12 +42,12 @@ class pm_feature:
 
         vel = s[:, self.envdim : 2 * self.envdim]
         if self._vel_err:
-            vel_feature = posNormFeature * torch.exp(-7.2 * vel**2 / Kv**2)
+            vel_feature = torch.exp(-16.0 * vel**2 / Kv**2)
             features.append(vel_feature)
 
         if self._vel_norm:
             velSquaredNorm = s[:, 4:5] ** 2
-            velNormFeature = posNormFeature * torch.exp(-7.2 * velSquaredNorm / Kv**2)
+            velNormFeature = torch.exp(-16.0 * velSquaredNorm / Kv**2)
             features.append(velNormFeature)
 
         if self._prox:
