@@ -145,7 +145,9 @@ class CompositionAgent(IsaacAgent):
         sf_loss, errors, mean_sf1, mean_sf2, target_sf = self.update_sf(
             batch, priority_weights
         )
-        policy_loss, entropies = self.update_policy(batch, priority_weights)
+        policy_loss, entropies, penalty_act = self.update_policy(
+            batch, priority_weights
+        )
 
         # update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
         # update_params(self.sf1_optimizer, self.sf.SF1, sf1_loss, self.grad_clip)
@@ -163,6 +165,7 @@ class CompositionAgent(IsaacAgent):
             metrics = {
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
+                "loss/penalty_act": penalty_act,
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
                 "state/target_sf": target_sf.detach().mean().item(),
@@ -223,22 +226,45 @@ class CompositionAgent(IsaacAgent):
 
         return sf_loss.detach().item(), errors, mean_sf1, mean_sf2, target_sf
 
+    # def update_policy(self, batch, priority_weights):
+    #     (s, f, a, r, s_next, dones) = batch
+
+    #     a_heads, entropies, _ = self.policy(s)  # [N,H,A], [N, H, 1] <-- [N,S]
+
+    #     qs = self.calc_qs_from_sf(s, a_heads)
+
+    #     qs = qs.unsqueeze(2)  # [N,H,1]
+
+    #     loss = -qs - self.alpha * entropies
+    #     # [N, H, 1] <--  [N, H, 1], [N,1,1]
+    #     loss = loss * priority_weights.unsqueeze(1)
+    #     policy_loss = torch.mean(loss)
+    #     update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
+
+    #     return policy_loss.detach().item(), entropies
+
     def update_policy(self, batch, priority_weights):
         (s, f, a, r, s_next, dones) = batch
 
         a_heads, entropies, _ = self.policy(s)  # [N,H,A], [N, H, 1] <-- [N,S]
 
+        penalty_act = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
+
         qs = self.calc_qs_from_sf(s, a_heads)
 
         qs = qs.unsqueeze(2)  # [N,H,1]
 
-        loss = -qs - self.alpha * entropies
-        # [N, H, 1] <--  [N, H, 1], [N,1,1]
+        loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * penalty_act
+        # [N, H, 1] <--  [N, H, 1], [N,1,1], [N, H, 1]
         loss = loss * priority_weights.unsqueeze(1)
         policy_loss = torch.mean(loss)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
-        return policy_loss.detach().item(), entropies
+        return (
+            policy_loss.detach().item(),
+            entropies,
+            penalty_act.mean().detach().item(),
+        )
 
     def calc_entropy_loss(self, entropy, priority_weights):
         loss = self.log_alpha * (self.target_entropy - entropy).detach()

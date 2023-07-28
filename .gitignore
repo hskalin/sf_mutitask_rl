@@ -19,6 +19,7 @@ lib64/
 parts/
 sdist/
 logs/
+runs/
 wandb/
 __pycache__/
 .vscode/

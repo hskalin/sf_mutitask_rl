@@ -6,6 +6,8 @@ from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
 from compose import CompositionAgent
 from sac import SACAgent
+from ppo import PPO_agent
+from ppoh import PPOHagent
 
 import torch
 import numpy as np
@@ -17,8 +19,8 @@ import wandb
 def launch_rlg_hydra(cfg: DictConfig):
     cfg_dict = omegaconf_to_dict(cfg)
 
-    # wandb.init(mode="disabled")
-    wandb.init()
+    wandb.init(mode="disabled")
+    # wandb.init()
     print(wandb.config, "\n\n")
     wandb_dict = fix_wandb(wandb.config)
 
@@ -34,6 +36,10 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     if "sac" in cfg_dict["agent"]["name"].lower():
         agent = SACAgent(cfg=cfg_dict)
+    elif "ppoh" in cfg_dict["agent"]["name"].lower():
+        agent = PPOHagent(cfg=cfg)
+    elif "ppo" in cfg_dict["agent"]["name"].lower():
+        agent = PPO_agent(cfg=cfg)
     else:
         agent = CompositionAgent(cfg_dict)
 

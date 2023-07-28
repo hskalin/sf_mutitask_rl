@@ -2,13 +2,7 @@ import isaacgym
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from common.util import (
-    omegaconf_to_dict,
-    print_dict,
-    fix_wandb,
-    update_dict,
-    AverageMeter,
-)
+from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
 from compose import CompositionAgent
 from sac import SACAgent
@@ -50,84 +44,49 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = CompositionAgent(cfg_dict)
 
     agent.load_torch_model(
-        "/home/nilaksh/rl/sf_mutitask_rl/logs/sfgpi/Pointer2D/2023-07-27-14-45-08/model20/"
+        "/home/nilaksh/rl/sf_mutitask_rl/logs/sfgpi/Pointer2D/2023-07-26-10-30-06/model40/"
     )
     # agent.load_torch_model(
     #     "/home/nilaksh/rl/con_comp/logs/dacgpi/Pointer2D/2023-07-14-13-28-23/model100/"
     # )
+    agent.env_max_steps = 1000
+    agent.eval_episodes = 1
+    agent.total_episodes = 20
 
     root = Tk()
     root.title("test")
-    root.geometry("300x500")
+    root.geometry("300x400")
 
-    weights = agent.w_eval.clone()
+    def update_pos(val):
+        agent.w[..., 0] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
-    def update_px(val):
-        weights[..., 0] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_py(val):
-        weights[..., 1] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
+    def update_vel(val):
+        agent.w[..., 1] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
     def update_velnorm(val):
-        weights[..., 2] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
+        agent.w[..., 2] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
-    def update_ang(val):
-        weights[..., 3] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_angvel(val):
-        weights[..., 4] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
+    def update_prox(val):
+        agent.w[..., 3] = float(val)
+        agent.w = agent.w / agent.w.norm(1, 1, keepdim=True)
 
     def update_targ_vel(val):
         agent.env.goal_lvel[..., 0] = float(val)
 
-    px_slide = Scale(
+    pos_slide = Scale(
         root,
         from_=0,
         to=1,
         digits=3,
         resolution=0.01,
-        label="px",
+        label="pos",
         orient=HORIZONTAL,
-        command=update_px,
+        command=update_pos,
     )
-    px_slide.set(agent.w_eval[0, 0].item())
-    px_slide.pack()
-
-    py_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="py",
-        orient=HORIZONTAL,
-        command=update_py,
-    )
-    py_slide.set(agent.w_eval[0, 1].item())
-    py_slide.pack()
-
-    vel_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="vel norm",
-        orient=HORIZONTAL,
-        command=update_velnorm,
-    )
-    vel_slide.set(agent.w_eval[0, 2].item())
-    vel_slide.pack()
+    pos_slide.pack()
 
     ang_slide = Scale(
         root,
@@ -135,14 +94,25 @@ def launch_rlg_hydra(cfg: DictConfig):
         to=1,
         digits=3,
         resolution=0.01,
-        label="ang",
+        label="vel",
         orient=HORIZONTAL,
-        command=update_ang,
+        command=update_vel,
     )
-    ang_slide.set(agent.w_eval[0, 3].item())
     ang_slide.pack()
 
-    angvel_slide = Scale(
+    vel_slide = Scale(
+        root,
+        from_=0,
+        to=1,
+        digits=3,
+        resolution=0.01,
+        label="ang",
+        orient=HORIZONTAL,
+        command=update_velnorm,
+    )
+    vel_slide.pack()
+
+    suc_slide = Scale(
         root,
         from_=0,
         to=1,
@@ -150,17 +120,16 @@ def launch_rlg_hydra(cfg: DictConfig):
         resolution=0.01,
         label="angvel",
         orient=HORIZONTAL,
-        command=update_angvel,
+        command=update_prox,
     )
-    angvel_slide.set(agent.w_eval[0, 4].item())
-    angvel_slide.pack()
+    suc_slide.pack()
 
     targ_vel_slide = Scale(
         root,
-        from_=-3.14,
-        to=3.14,
+        from_=0,
+        to=5,
         digits=3,
-        resolution=0.05,
+        resolution=0.5,
         label="target vel x",
         orient=HORIZONTAL,
         command=update_targ_vel,
@@ -176,30 +145,10 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     # root.mainloop()
 
-    # while True:
-    #     agent.train_episode(root, rew)
-    #     if agent.steps > agent.total_timesteps:
-    #         break
-
-    avgStepRew = AverageMeter(1, 20).to(agent.device)
-
     while True:
-        s = agent.reset_env()
-        for _ in range(5000):
-            root.update_idletasks()
-            root.update()
-
-            a = agent.act(s, agent.w_eval, "exploit")
-            print(agent.w_eval[0])
-
-            agent.env.step(a)
-            s_next = agent.env.obs_buf.clone()
-            agent.env.reset()
-
-            r = agent.calc_reward(s_next, agent.w_eval)
-            s = s_next
-            avgStepRew.update(r)
-            rew.set(avgStepRew.get_mean())
+        agent.train_episode(root, rew)
+        if agent.steps > agent.total_timesteps:
+            break
 
     wandb.finish()
 

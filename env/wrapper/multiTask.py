@@ -23,12 +23,13 @@ class MultiTaskEnv:
                 return w_pos_norm + w_vel + w_vel_norm + w_prox
 
             elif "pointer" in env_cfg["env_name"].lower():
-                w_pos_norm = c[0] * [w[0]]
-                w_vel_norm = c[1] * [w[1]]
-                w_ang_norm = c[2] * [w[2]]
-                w_angvel_norm = c[3] * [w[3]]
+                w_px = c[0] * [w[0]]
+                w_py = c[1] * [w[1]]
+                w_vel_norm = c[2] * [w[2]]
+                w_ang_norm = c[3] * [w[3]]
+                w_angvel_norm = c[4] * [w[4]]
 
-                return w_pos_norm + w_vel_norm + w_ang_norm + w_angvel_norm
+                return w_px + w_py + w_vel_norm + w_ang_norm + w_angvel_norm
             else:
                 raise NotImplementedError(f"env name {env_cfg['env_name']} invalid")
 
@@ -37,8 +38,8 @@ class MultiTaskEnv:
         task_w = get_w(combination, dim, self.task_w)
         task_w_eval = get_w(combination, dim, self.task_w_eval)
 
-        tasks_train = torch.tensor(task_w, device="cuda:0")
-        tasks_eval = torch.tensor(task_w_eval, device="cuda:0")
+        tasks_train = torch.tensor(task_w, device="cuda:0", dtype=torch.float32)
+        tasks_eval = torch.tensor(task_w_eval, device="cuda:0", dtype=torch.float32)
 
         return (tasks_train, tasks_eval)
 

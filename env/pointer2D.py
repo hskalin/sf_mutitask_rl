@@ -14,16 +14,13 @@ import math
 class Pointer(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 9  # pole_angle + pole_vel + cart_vel + cart_pos
+        self.num_obs = 9 + 3 + 1  # pole_angle + pole_vel + cart_vel + cart_pos
         self.num_act = 2  # force applied on the pole (-1 to 1)
         self.reset_dist = 10.0  # when to reset
         self.max_push_effort = 5.0  # the range of force applied to the pointer
         self.max_episode_length = 1000  # maximum episode length
 
         self.ball_height = 2
-        self.goal_lim = 8
-        self.vel_lim = 5
-        self.goal_vel_lim = 2
 
         super().__init__(cfg=cfg)
 
@@ -187,11 +184,11 @@ class Pointer(VecEnv):
         # relative xyz pos
         pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
 
-        xp, yp, zp = globalToLocalRot(
-            roll, pitch, yaw, pos[env_ids, 0], pos[env_ids, 1], pos[env_ids, 2]
-        )
-        self.obs_buf[env_ids, 3] = xp
-        self.obs_buf[env_ids, 4] = yp
+        # xp, yp, zp = globalToLocalRot(
+        #     roll, pitch, yaw, pos[env_ids, 0], pos[env_ids, 1], pos[env_ids, 2]
+        # )
+        self.obs_buf[env_ids, 3] = pos[env_ids, 0]
+        self.obs_buf[env_ids, 4] = pos[env_ids, 1]
         # self.obs_buf[env_ids, 11] = zp
 
         # relative xyz vel
@@ -221,6 +218,17 @@ class Pointer(VecEnv):
 
         # absolute Z
         self.obs_buf[env_ids, 8] = self.rb_pos[env_ids, 0, 2]
+
+        # vel norm error
+        vel_norm = torch.linalg.norm(
+            self.rb_lvels[env_ids, 0], axis=1, keepdims=False
+        ) - torch.linalg.norm(self.goal_lvel[env_ids], axis=1, keepdims=False)
+
+        self.obs_buf[env_ids, 9] = vel_norm
+
+        self.obs_buf[env_ids, 10] = self.rb_lvels[env_ids, 0, 0]
+        self.obs_buf[env_ids, 11] = self.rb_lvels[env_ids, 0, 1]
+        self.obs_buf[env_ids, 12] = self.rb_avels[env_ids, 0, 2]
 
     def get_reward(self):
         # retrieve environment observations from buffer
@@ -285,9 +293,11 @@ class Pointer(VecEnv):
         velocities[..., 2:5] = 0
 
         rotations = 2 * (
-            (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5) * math.pi
+            (torch.rand((len(env_ids), 4), device=self.sim_device) - 0.5) * math.pi
         )
         rotations[..., 0:2] = 0
+
+        self.goal_rot[env_ids, 2] = rotations[:, 3]
 
         if self.train and self.rand_vel_targets:
             self.goal_lvel[env_ids, :] = (
@@ -505,7 +515,7 @@ def compute_point_reward(
     B4 = 0.5
     A4 = 0.3
 
-    angle_rew = proximity_rew * torch.exp(-B4 * (yaw**2))
+    angle_rew = torch.exp(-B4 * (yaw**2))
     # angle = torch.acos(2*(0*qx + 0*qy + 0*qz + 1*qw)**2 - 1)
     # angle_rew = torch.exp(- B4 * angle)
 
@@ -528,7 +538,8 @@ def compute_point_reward(
     # thrust_rew = -(torch.exp(-B3 * x_action) - 1)
 
     # Total
-    reward = proximity_rew + A4 * angle_rew + A2 * rot_rew
+    # reward = proximity_rew + A4 * angle_rew + A2 * rot_rew
+    reward = angle_rew
 
     # print(proximity_rew[0], angle_rew[0], rot_rew[0])
     # print(reward[0])
@@ -544,7 +555,7 @@ def compute_point_reward(
     return_buf += reward
 
     reset = torch.where(
-        torch.abs(sqr_dist) > 256, torch.ones_like(reset_buf), reset_buf
+        torch.abs(sqr_dist) > 200, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(
         (z_abs < 1.75) | (z_abs > 2.25), torch.ones_like(reset_buf), reset

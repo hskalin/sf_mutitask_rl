@@ -65,10 +65,23 @@ class IsaacAgent:
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
 
+        self.intervalWeightRand = 2
+
         self.eslst = list(itertools.product([0, 1], repeat=self.feature_dim))
         self.eslst.pop(0)  # remove all zero vector
         self.minWeightVecs = 5
 
+        if self.env_cfg["task"]["task_w_randType"] == "permute":
+            self.weight_rews = torch.ones(len(self.eslst), device=self.device)
+        elif self.env_cfg["task"]["task_w_randType"] == "identity":
+            self.weight_rews = torch.ones(self.feature_dim, device=self.device)
+        elif self.env_cfg["task"]["task_w_randType"] == "achievable":
+            self.weight_rews = torch.ones(
+                len(self.env_cfg["task"]["task_wa"]), device=self.device
+            )
+        self.idx_perm = torch.multinomial(
+            self.weight_rews, self.n_env, replacement=True
+        )
         if self.env_cfg["task"]["rand_weights"]:
             # self.w_eval = torch.rand((self.n_env, self.feature_dim), device=self.device)
             task_wa = torch.tensor(
@@ -78,7 +91,8 @@ class IsaacAgent:
             idx = torch.multinomial(weights, self.n_env, replacement=True)
             self.w_eval = task_wa[idx]
 
-            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
+            self.randomizeTrainWeights()
+            # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
         else:
             self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
             self.w = torch.tile(w[0], (self.n_env, 1))
@@ -147,23 +161,83 @@ class IsaacAgent:
 
         elif randType == "permute":
             es = torch.tensor(self.eslst, device=self.device, dtype=torch.float32)
-            weights = torch.ones(len(self.eslst), device=self.device)
-            idx = torch.multinomial(weights, self.n_env, replacement=True)
-            self.w = es[idx]
+            # weights = torch.ones(len(self.eslst), device=self.device)
+            # idx = torch.multinomial(weights, self.n_env, replacement=True)
+            # self.w = es[idx]
+            if self.env_cfg["task"]["task_w_randAdaptive"]:
+                self.weight_rews /= torch.bincount(self.idx_perm)
+            print("weight rewards=", self.weight_rews)
+            self.idx_perm = torch.multinomial(
+                1 / self.weight_rews**2, self.n_env, replacement=True
+            )
+
+            # ensure that all task_w are in idx
+            for i in range(len(self.eslst)):
+                if i not in self.idx_perm:
+                    self.idx_perm[i] = i
+
+            print("counts        =", torch.bincount(self.idx_perm))
+
+            self.w = es[self.idx_perm]
+
+            # reset
+            self.weight_rews = torch.ones(len(self.eslst), device=self.device)
 
         elif randType == "identity":
             identity = torch.eye(self.feature_dim, device=self.device)
-            weights = torch.ones(len(identity), device=self.device)
-            idx = torch.multinomial(weights, self.n_env, replacement=True)
-            self.w = identity[idx]
+            # weights = torch.ones(len(identity), device=self.device)
+            if self.env_cfg["task"]["task_w_randAdaptive"]:
+                self.weight_rews /= torch.bincount(self.idx_perm)
+            print("weight rewards=", self.weight_rews)
+            self.idx_perm = torch.multinomial(
+                1 / self.weight_rews**2, self.n_env, replacement=True
+            )
+
+            # ensure that all task_w are in idx
+            for i in range(self.feature_dim):
+                if i not in self.idx_perm:
+                    self.idx_perm[i] = i
+
+            print("counts        =", torch.bincount(self.idx_perm))
+
+            self.w = identity[self.idx_perm]
+
+            # reset
+            self.weight_rews = torch.ones(len(identity), device=self.device)
 
         elif randType == "achievable":
             task_wa = torch.tensor(
                 self.env_cfg["task"]["task_wa"], device=self.device, dtype=torch.float32
             )
-            weights = torch.ones(len(task_wa), device=self.device)
+            # weights = torch.ones(len(task_wa), device=self.device)
+            # idx = torch.multinomial(weights, self.n_env, replacement=True)
+            # self.w = task_wa[idx]
+            if self.env_cfg["task"]["task_w_randAdaptive"]:
+                self.weight_rews /= torch.bincount(self.idx_perm)
+            print("weight rewards=", self.weight_rews)
+            self.idx_perm = torch.multinomial(
+                1 / self.weight_rews**2, self.n_env, replacement=True
+            )
+
+            # ensure that all task_w are in idx
+            for i in range(len(task_wa)):
+                if i not in self.idx_perm:
+                    self.idx_perm[i] = i
+
+            print("counts        =", torch.bincount(self.idx_perm))
+
+            self.w = task_wa[self.idx_perm]
+
+            # reset
+            self.weight_rews = torch.ones(len(task_wa), device=self.device)
+
+        elif randType == "single":
+            task_ws = torch.tensor(
+                self.env_cfg["task"]["task_ws"], device=self.device, dtype=torch.float32
+            )
+            weights = torch.ones(len(task_ws), device=self.device)
             idx = torch.multinomial(weights, self.n_env, replacement=True)
-            self.w = task_wa[idx]
+            self.w = task_ws[idx]
         else:
             raise NotImplementedError(f"{randType} is not implemented")
 
@@ -204,7 +278,7 @@ class IsaacAgent:
 
         print("episode = ", self.episodes)
 
-        if (self.episodes - 1) % 3 == 0:
+        if (self.episodes - 1) % self.intervalWeightRand == 0:
             if (self.env_cfg["mode"] == "train") and (
                 self.env_cfg["task"]["rand_weights"]
             ):
@@ -219,7 +293,7 @@ class IsaacAgent:
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
-            a = self.act(s)
+            a = self.act(s, self.w)
 
             self.env.step(a)
             done = self.env.reset_buf.clone()
@@ -260,6 +334,11 @@ class IsaacAgent:
 
             if episode_steps >= self.episode_max_step:
                 break
+
+        if self.env_cfg["task"]["task_w_randAdaptive"]:
+            self.weight_rews = self.weight_rews.index_add(
+                dim=0, index=self.idx_perm, source=episode_r
+            )
 
         # if self.episodes % self.log_interval == 0:
         wandb.log({"reward/train": self.game_rewards.get_mean()})
@@ -305,7 +384,7 @@ class IsaacAgent:
 
             s = self.reset_env()
             for _ in range(self.env_max_steps):
-                a = self.act(s, "exploit")
+                a = self.act(s, self.w_eval, "exploit")
                 self.env.step(a)
                 # s_next = self.env.observe(update_statistics=False)
                 s_next = self.env.obs_buf.clone()
@@ -325,17 +404,17 @@ class IsaacAgent:
         if self.save_model:
             self.save_torch_model()
 
-    def act(self, s, mode="explore"):
-        if self.steps <= self.min_n_experience:
+    def act(self, s, w, mode="explore"):
+        if (self.steps <= self.min_n_experience) and mode == "explore":
             a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
         else:
-            a = self.get_action(s, mode)
+            a = self.get_action(s, w, mode)
 
         a = check_act(a, self.action_dim)
         return a
 
-    def get_action(self, s, mode):
-        s, w = np2ts(s), np2ts(self.w)
+    def get_action(self, s, w, mode):
+        s, w = np2ts(s), np2ts(w)
         s = check_obs(s, self.observation_dim)
 
         with torch.no_grad():

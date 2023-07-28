@@ -3,6 +3,7 @@ num_envs: 1024
 
 goal_lim: 10
 vel_lim: 5
+goal_vel_lim: 5
 
 dim: 2
 episode_max_step: 500
@@ -37,7 +38,13 @@ task:
   task_w_randType: "uniform"
 
   # set of achievable task weights
-  task_wa: [[1, 0, 0, 0, 0],[0, 1, 1, 0, 0], [0, 1, 0, 0, 0], [0, 0, 1, 0, 0],[0, 0, 0, 1, 0],[0, 0, 0, 0, 1],[0, 0, 0, 1, 1]]
+  task_wa: [[1, 0, 0, 0, 0],
+            [0, 1, 1, 0, 0], 
+            [0, 1, 0, 0, 0], 
+            [0, 0, 1, 0, 0],
+            [0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 1],
+            [0, 0, 0, 1, 1]]
 
 feature:
   type: "regular"

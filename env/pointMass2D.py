@@ -19,7 +19,6 @@ class PointMass2D(VecEnv):
         self.max_push_effort = 5.0  # the range of force applied to the pointer
 
         self.ball_height = 2
-        self.goal_vel_lim = 5
 
         super().__init__(cfg=cfg)
 

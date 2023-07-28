@@ -25,6 +25,7 @@ class VecEnv:
 
         self.goal_lim = cfg.get("goal_lim", 10)
         self.vel_lim = cfg.get("vel_lim", 5)
+        self.goal_vel_lim = cfg.get("goal_vel_lim", 3)
 
         # configure sim (gravity is pointing down)
         self.sim_params = gymapi.SimParams()
