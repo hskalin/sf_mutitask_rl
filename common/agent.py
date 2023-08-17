@@ -79,6 +79,8 @@ class IsaacAgent:
             self.weight_rews = torch.ones(
                 len(self.env_cfg["task"]["task_wa"]), device=self.device
             )
+        else:
+            raise ValueError(f'{self.env_cfg["task"]["task_w_randType"]} no implemented')
         self.idx_perm = torch.multinomial(
             self.weight_rews, self.n_env, replacement=True
         )

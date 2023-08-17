@@ -539,7 +539,11 @@ def compute_point_reward(
 
     # Total
     # reward = proximity_rew + A4 * angle_rew + A2 * rot_rew
-    reward = angle_rew
+    A = 1 / torch.exp(-25 * 2**2 / 8**2)
+    prox_x_rew_gauss = A * torch.exp(-25 * sqr_dist / 8**2)
+    prox_x_rew = torch.where(sqr_dist > 2**2, prox_x_rew_gauss, 1)
+
+    reward = angle_rew + prox_x_rew
 
     # print(proximity_rew[0], angle_rew[0], rot_rew[0])
     # print(reward[0])

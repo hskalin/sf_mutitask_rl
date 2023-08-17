@@ -35,7 +35,8 @@ task:
   task_w_eval: [0, 0, 0.2, 1]
 
   # can be "uniform", "permute", "identity", "achievable"
-  task_w_randType: "uniform"
+  task_w_randType: "achievable"
+  task_w_randAdaptive: True
 
   # set of achievable task weights
   task_wa: [[1, 0, 0, 0, 0],

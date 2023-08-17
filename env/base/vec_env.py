@@ -30,17 +30,28 @@ class VecEnv:
         # configure sim (gravity is pointing down)
         self.sim_params = gymapi.SimParams()
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
-        self.sim_params.gravity = gymapi.Vec3(0.0, 0.0, 0.0)
-        self.sim_params.dt = 1 / 60
+        grav = cfg["sim"].get("gravity", (0.0, 0.0, 0.0))
+        self.sim_params.gravity = gymapi.Vec3(grav[0], grav[1], grav[2])
+        self.sim_params.dt = cfg["sim"].get("dt", 1 / 60)
         self.sim_params.substeps = 2
         self.sim_params.use_gpu_pipeline = True
 
         # set simulation parameters (we use PhysX engine by default, these parameters are from the example file)
-        self.sim_params.physx.num_position_iterations = 4
-        self.sim_params.physx.num_velocity_iterations = 0
-        self.sim_params.physx.rest_offset = 0.001
-        self.sim_params.physx.contact_offset = 0.02
-        self.sim_params.physx.use_gpu = True
+        
+        cfgPhy = cfg["sim"].get("physx", {})
+        self.sim_params.physx.num_position_iterations = cfgPhy.get("num_position_iterations", 4)
+        self.sim_params.physx.num_velocity_iterations = cfgPhy.get("num_velocity_iterations", 0)
+        self.sim_params.physx.rest_offset = cfgPhy.get("rest_offset", 0.001)
+        self.sim_params.physx.contact_offset = cfgPhy.get("contact_offset", 0.02)
+        self.sim_params.physx.use_gpu = cfgPhy.get("use_gpu ", True)
+        self.sim_params.physx.num_threads = cfgPhy.get("num_threads", 4)
+        self.sim_params.physx.solver_type = cfgPhy.get("solver_type", 1)
+        self.sim_params.physx.bounce_threshold_velocity = cfgPhy.get("bounce_threshold_velocity", 0.2)
+        self.sim_params.physx.max_depenetration_velocity = cfgPhy.get("max_depenetration_velocity", 10.0)
+        self.sim_params.physx.default_buffer_size_multiplier = cfgPhy.get("default_buffer_size_multiplier",5.0)
+        self.sim_params.physx.max_gpu_contact_pairs = cfgPhy.get("max_gpu_contact_pairs",8388608)
+        self.sim_params.physx.num_subscenes = cfgPhy.get("num_subscenes",4)
+        #self.sim_params.physx.contact_collection = cfgPhy.get("contact_collection", 0)
 
         # acquire gym interface
         self.gym = gymapi.acquire_gym()

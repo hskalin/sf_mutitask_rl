@@ -35,7 +35,14 @@ class CompositionAgent(IsaacAgent):
         self.is_clip_range = (0, self.agent_cfg["is_clip_max"])
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
-        self.n_heads = self.feature_dim
+        # self.n_heads = self.feature_dim
+
+        if self.agent_cfg.get("augmentHeads", True):
+            self.pseudo_w = torch.tensor(self.env_cfg["task"]["task_wa"], device="cuda:0", dtype=torch.float32)
+        else:
+            self.pseudo_w = torch.eye(self.feature_dim).to(self.device)  # base tasks
+
+        self.n_heads = self.pseudo_w.shape[0]
         self.droprate = self.value_net_kwargs["droprate"]
 
         self.sf = TwinnedMultiheadSFNetwork(
@@ -89,7 +96,6 @@ class CompositionAgent(IsaacAgent):
         else:
             self.alpha = torch.tensor(self.agent_cfg["alpha"]).to(self.device)
 
-        self.pseudo_w = torch.eye(self.feature_dim).to(self.device)  # base tasks
         self.prev_impact = torch.zeros((self.n_env, self.n_heads, self.action_dim)).to(
             self.device
         )
@@ -101,13 +107,14 @@ class CompositionAgent(IsaacAgent):
             self.prev_impact,
             self.n_heads,
             self.action_dim,
+            self.feature_dim
         )
 
         self.learn_steps = 0
 
         # masks used for vectorizing functions
         self.mask = torch.eye(self.n_heads, device="cuda:0").unsqueeze(dim=-1)
-        self.mask = self.mask.repeat(self.mini_batch_size, 1, self.n_heads)
+        self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
         self.mask = self.mask.ge(0.5)
 
     def explore(self, s, w):
@@ -194,8 +201,8 @@ class CompositionAgent(IsaacAgent):
 
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]
 
-        self.comp.sf_norm_coeff = curr_sf1.mean([0, 1]).abs()
-
+        self.comp.sf_norm_coeff_feat = curr_sf1.mean([0, 1]).abs()
+        #self.comp.sf_norm_coeff_head = curr_sf1.mean([0, 2]).abs()
         target_sf = self.calc_target_sf(f, s_next, dones)  # [N, H, F]
 
         loss1 = (curr_sf1 - target_sf).pow(2)  # [N, H, F]
@@ -281,20 +288,20 @@ class CompositionAgent(IsaacAgent):
         # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
 
         curr_sf1 = torch.masked_select(curr_sf1, self.mask).view(
-            self.mini_batch_size, self.n_heads, self.n_heads
+            self.mini_batch_size, self.n_heads, self.feature_dim
         )
         # [N, Ha, F] <-- [NHa, Hsf, F]
 
         curr_sf2 = torch.masked_select(curr_sf2, self.mask).view(
-            self.mini_batch_size, self.n_heads, self.n_heads
+            self.mini_batch_size, self.n_heads, self.feature_dim
         )
         # [N, Ha, F] <-- [NHa, Hsf, F]
 
         q1 = torch.einsum(
-            "ijk,kj->ij", curr_sf1, self.pseudo_w
+            "ijk,kj->ij", curr_sf1, self.pseudo_w.T
         )  # [N,H]<-- [N,H,F]*[F, H]
         q2 = torch.einsum(
-            "ijk,kj->ij", curr_sf2, self.pseudo_w
+            "ijk,kj->ij", curr_sf2, self.pseudo_w.T
         )  # [N,H]<-- [N,H,F]*[F, H]
         if self.droprate > 0.0:
             qs = 0.5 * (q1 + q2)
@@ -313,12 +320,12 @@ class CompositionAgent(IsaacAgent):
             # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
 
             next_sf1 = torch.masked_select(next_sf1, self.mask).view(
-                self.mini_batch_size, self.n_heads, self.n_heads
+                self.mini_batch_size, self.n_heads, self.feature_dim
             )
             # [N, Ha, F] <-- [NHa, Hsf, F]
 
             next_sf2 = torch.masked_select(next_sf2, self.mask).view(
-                self.mini_batch_size, self.n_heads, self.n_heads
+                self.mini_batch_size, self.n_heads, self.feature_dim
             )
             # [N, Ha, F] <-- [NHa, Hsf, F]
 

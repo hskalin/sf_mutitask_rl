@@ -52,6 +52,7 @@ class Agent(nn.Module):
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
         if action is None:
+            # action = torch.sigmoid(probs.sample())
             action = probs.sample()
         return (
             action,
@@ -174,7 +175,11 @@ class PPOHagent:
                 # TRY NOT TO MODIFY: execute the game and log data.
 
                 # next_obs, rewards[step], next_done, info = envs.step(action)
-                self.primitive.w_eval[..., 3] = 1  # action + 1
+                self.primitive.w_eval[:] = action**2
+                self.primitive.w_eval = (
+                    self.primitive.w_eval
+                    / self.primitive.w_eval.norm(1, 1, keepdim=True)
+                )
 
                 a = self.primitive.act(next_obs, self.primitive.w_eval, "exploit")
                 self.primitive.env.step(a)

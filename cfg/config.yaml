@@ -58,7 +58,7 @@ force_render: True
 # set default task and default training config based on task
 defaults:
   - env: Pointer2D
-  - agent: PPOH
+  - agent: SFCPI
   - buffer: buffer
   - hydra/job_logging: disabled
 
