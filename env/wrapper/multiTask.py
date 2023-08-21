@@ -44,6 +44,8 @@ class MultiTaskEnv:
         return (tasks_train, tasks_eval)
 
     def getEnv(self):
+        if "ant" or "human" in self.env_cfg["env_name"].lower():
+            return self.env, None, None
         feature_type = self.env_cfg["feature"]["type"]
         combination = self.env_cfg["feature"][feature_type]
         task_w = self.define_tasks(self.env_cfg, combination)

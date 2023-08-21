@@ -61,6 +61,7 @@ class VecEnv:
             gymapi.SIM_PHYSX,
             self.sim_params,
         )
+        
 
         # allocate buffers
         self.obs_buf = torch.zeros(
