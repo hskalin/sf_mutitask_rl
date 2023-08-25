@@ -3,6 +3,8 @@ from .pointMass2D import PointMass2D
 from .pointer2D import Pointer
 from .ant import Ant
 from .humanoid import Humanoid
+from .cartpole import Cartpole
+from .quadcopter import Quadcopter
 
 
 # Mappings from strings to environments
@@ -12,4 +14,6 @@ env_map = {
     "Pointer2D": Pointer,
     "Ant": Ant,
     "Humanoid": Humanoid,
+    "Cartpole": Cartpole,
+    "Quadcopter": Quadcopter,
 }
