@@ -5,6 +5,7 @@ from .ant import Ant
 from .humanoid import Humanoid
 from .cartpole import Cartpole
 from .quadcopter import Quadcopter
+from .arm import Arm
 
 
 # Mappings from strings to environments
@@ -16,4 +17,5 @@ env_map = {
     "Humanoid": Humanoid,
     "Cartpole": Cartpole,
     "Quadcopter": Quadcopter,
+    "Arm": Arm,
 }
