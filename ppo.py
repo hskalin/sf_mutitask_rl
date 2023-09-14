@@ -7,6 +7,7 @@ from distutils.util import strtobool
 from env.wrapper.multiTask import MultiTaskEnv
 
 import gym
+import wandb
 
 from env import env_map
 
@@ -137,6 +138,7 @@ class PPO_agent:
         num_updates = self.agent_cfg["total_timesteps"] // self.agent_cfg["batch_size"]
 
         for update in range(1, num_updates + 1):
+            wandb_metrics = {}
             # Annealing the rate if instructed to do so.
             if self.agent_cfg["anneal_lr"]:
                 frac = 1.0 - (update - 1.0) / num_updates
@@ -180,6 +182,12 @@ class PPO_agent:
                     episodic_length = torch.mean(episodeLen[done_ids].float()).item()
                     print(
                         f"global_step={global_step}, episodic_return={episodic_return}"
+                    )
+                    wandb_metrics.update(
+                        {
+                            "rewards/step": episodic_return,
+                            "episode_lengths/step": episodic_length,
+                        }
                     )
                     self.writer.add_scalar("rewards/step", episodic_return, global_step)
                     self.writer.add_scalar(
@@ -315,6 +323,18 @@ class PPO_agent:
             self.writer.add_scalar(
                 "charts/SPS", int(global_step / (time.time() - start_time)), global_step
             )
+            wandb_metrics.update(
+                {
+                    "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
+                    "losses/value_loss": v_loss.item(),
+                    "losses/entropy": entropy_loss.item(),
+                    "losses/old_approx_kl": old_approx_kl.item(),
+                    "losses/approx_kl": approx_kl.item(),
+                    "losses/clipfrac": np.mean(clipfracs),
+                }
+            )
+
+            wandb.log(wandb_metrics)
 
         # envs.close()
         self.writer.close()

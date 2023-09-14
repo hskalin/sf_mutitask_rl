@@ -341,7 +341,7 @@ def compute_point_reward(
     # # reward = torch.where(x_action < 0, reward - 0.1, reward)
     # # reward = torch.where((torch.abs(x_pos) < 0.1) & (torch.abs(y_pos) < 0.1), reward + 1, reward)
 
-    # return_buf += reward
+    return_buf += reward
 
     reset = torch.where(
         torch.abs(sqr_dist) > 100, torch.ones_like(reset_buf), reset_buf
