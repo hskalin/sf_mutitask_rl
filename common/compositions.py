@@ -170,7 +170,7 @@ class Compositions:
     def gpe(self, s, acts, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, acts)
-        w = self.scale_gating(w)/self.sf_norm_coeff_feat  # [N, Ha], H=F
+        w = self.scale_gating(w)/self.sf_norm_coeff_feat.abs()  # [N, Ha], H=F
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         # qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w.float())
@@ -200,6 +200,7 @@ class Compositions:
 
     def cpi(self, means, log_stds, gating, rule="mcp"):
         gating = self.scale_gating(gating)  # [N, Ha], H=F
+        gating = gating.abs()
         # gating = torch.softmax(gating / gating.shape[1], 1)
         if rule == "mcp":
             # [N, H, A] <-- [N,F], [N,H,A], F=H
