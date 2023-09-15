@@ -170,10 +170,10 @@ class Compositions:
     def gpe(self, s, acts, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, acts)
-        w = self.scale_gating(w)/self.sf_norm_coeff_feat.abs()  # [N, Ha], H=F
+        w = self.scale_gating(w)  # [N, Ha], H=F
+        w /= self.sf_norm_coeff_feat.abs() # normalized by SF scale
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
-        # qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w.float())
         qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w)
         return qs  # [N,Ha,Hsf]
 
@@ -198,10 +198,12 @@ class Compositions:
         kappa = torch.einsum("ijk,ik,ikl->ijl", kappa, w, impact)
         return kappa
 
-    def cpi(self, means, log_stds, gating, rule="mcp"):
+    def cpi(self, means, log_stds, gating, rule="mcp", k=0.9):
+        gating -= torch.amin(gating, dim=1, keepdim=True)
         gating = self.scale_gating(gating)  # [N, Ha], H=F
-        gating = gating.abs()
-        # gating = torch.softmax(gating / gating.shape[1], 1)
+        gating_max = torch.amax(gating, dim=1, keepdim=True).repeat_interleave(gating.shape[1],1)
+        gating = torch.where(gating<gating_max*k, 0, gating)   # only keep top k% value
+
         if rule == "mcp":
             # [N, H, A] <-- [N,F], [N,H,A], F=H
             w_div_std = torch.einsum("ij, ijk->ijk", gating, (-log_stds).exp())
@@ -224,7 +226,7 @@ class Compositions:
         curr_sf = curr_sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)
         return curr_sf  # [N, Ha, Hsf, F]
 
-    def scale_gating(self, gating):
+    def scale_gating(self, gating): # scale to range [0,1]
         # return torch.softmax(gating / gating.shape[1], 1)
         return gating / gating.norm(1, 1, keepdim=True)
 
