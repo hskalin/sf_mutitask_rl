@@ -170,11 +170,11 @@ class Compositions:
     def gpe(self, s, acts, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, acts)
-        gating = self.scale_gating(w, self.sf_norm_coeff_feat)  # [N, Ha], H=F
+        w = self.scale_gating(w)/self.sf_norm_coeff_feat  # [N, Ha], H=F
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         # qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w.float())
-        qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), gating)
+        qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w)
         return qs  # [N,Ha,Hsf]
 
     def gpi(self, acts, value, rule="q"):
@@ -199,8 +199,8 @@ class Compositions:
         return kappa
 
     def cpi(self, means, log_stds, gating, rule="mcp"):
-        #gating = self.scale_gating(gating, self.sf_norm_coeff_head)  # [N, Ha], H=F
-        gating = torch.softmax(gating / gating.shape[1], 1)
+        gating = self.scale_gating(gating)  # [N, Ha], H=F
+        # gating = torch.softmax(gating / gating.shape[1], 1)
         if rule == "mcp":
             # [N, H, A] <-- [N,F], [N,H,A], F=H
             w_div_std = torch.einsum("ij, ijk->ijk", gating, (-log_stds).exp())
@@ -223,9 +223,9 @@ class Compositions:
         curr_sf = curr_sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)
         return curr_sf  # [N, Ha, Hsf, F]
 
-    def scale_gating(self, gating, norm_weights):
+    def scale_gating(self, gating):
         # return torch.softmax(gating / gating.shape[1], 1)
-        return gating / (gating.norm(1, 1, keepdim=True) * norm_weights)
+        return gating / gating.norm(1, 1, keepdim=True)
 
     def calc_advantage(self, value):  # [N,Ha,Hsf,F]
         adv = value.mean(1, keepdim=True) - value.mean((1, 2), keepdim=True)

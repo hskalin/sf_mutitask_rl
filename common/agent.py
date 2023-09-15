@@ -1,17 +1,12 @@
 import datetime
-import time
 import warnings
 from pathlib import Path
 
 import torch
-import torch.nn as nn
-import numpy as np
 
-# from raisimGymTorch.env.RaisimGymVecEnv import RaisimGymVecEnv as VecEnv
 from env.wrapper.multiTask import MultiTaskEnv
 
 import wandb
-from common.helper import Visualizer
 
 # from common.replay_buffer import (
 #     MyMultiStepMemory,
@@ -41,12 +36,11 @@ class IsaacAgent:
         self.device = cfg["rl_device"]
 
         env_spec = MultiTaskEnv(env_cfg=self.env_cfg)
-        self.env, w, feature = env_spec.getEnv()
-        self.env_max_steps = self.env_cfg["max_episode_length"]
+        self.env, w, self.feature = env_spec.getEnv()
 
         self.n_env = self.env_cfg["num_envs"]
+        self.env_max_steps = self.env_cfg["max_episode_length"] # eval steps
         self.episode_max_step = self.env_cfg["episode_max_step"]
-        self.render = self.env_cfg["render"]
         self.log_interval = self.env_cfg["log_interval"]
         self.total_episodes = int(self.env_cfg["total_episodes"])
         self.total_timesteps = self.n_env * self.episode_max_step * self.total_episodes
@@ -57,7 +51,6 @@ class IsaacAgent:
         self.record = self.env_cfg["record"]
         self.save_model = self.env_cfg["save_model"]
 
-        self.feature = feature
         self.observation_dim = self.env.num_obs
         self.feature_dim = self.feature.dim
         self.action_dim = self.env.num_act
@@ -132,14 +125,6 @@ class IsaacAgent:
         if self.record:
             Path(self.log_path).mkdir(parents=True, exist_ok=True)
             dump_cfg(self.log_path + "cfg", cfg)
-
-        # self.visualizer = Visualizer(
-        #     self.env,
-        #     raisim_unity_path=self.env_cfg["raisim_unity_path"],
-        #     render=self.render,
-        #     record=self.record,
-        #     save_video_path=self.log_path,
-        # )
 
         self.steps = 0
         self.episodes = 0
@@ -303,7 +288,6 @@ class IsaacAgent:
             # episodeRet = self.env.return_buf.clone()
             episodeLen = self.env.progress_buf.clone()
 
-            # s_next = self.env.observe(update_statistics=False)
             s_next = self.env.obs_buf.clone()
             self.env.reset()
 
@@ -342,7 +326,6 @@ class IsaacAgent:
                 dim=0, index=self.idx_perm, source=episode_r
             )
 
-        # if self.episodes % self.log_interval == 0:
         wandb.log({"reward/train": self.game_rewards.get_mean()})
         wandb.log({"length/train": self.game_lengths.get_mean()})
 
@@ -356,7 +339,6 @@ class IsaacAgent:
         )
 
     def reset_env(self):
-        # s = self.env.reset()
         s = self.env.obs_buf.clone()
         if s is None:
             s = torch.zeros((self.n_env, self.env.num_obs))
@@ -378,7 +360,6 @@ class IsaacAgent:
 
         print(f"===== evaluate at episode: {self.episodes} ====")
         print(f"===== eval for running for {self.env_max_steps} steps ===")
-        # self.visualizer.turn_on(self.episodes)
 
         returns = torch.zeros((episodes,), dtype=torch.float32)
         for i in range(episodes):
@@ -388,7 +369,6 @@ class IsaacAgent:
             for _ in range(self.env_max_steps):
                 a = self.act(s, self.w_eval, "exploit")
                 self.env.step(a)
-                # s_next = self.env.observe(update_statistics=False)
                 s_next = self.env.obs_buf.clone()
                 self.env.reset()
 
@@ -400,7 +380,6 @@ class IsaacAgent:
             returns[i] = torch.mean(episode_r).item()
 
         print(f"===== finish evaluate ====")
-        # self.visualizer.turn_off()
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
         if self.save_model:

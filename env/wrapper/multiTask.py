@@ -44,8 +44,8 @@ class MultiTaskEnv:
         return (tasks_train, tasks_eval)
 
     def getEnv(self):
-        if "pointer" or "pointmass" not in self.env_cfg["env_name"].lower():
-            return self.env, None, None
+        if ("pointer" or "pointmass") not in self.env_cfg["env_name"].lower():
+            return self.env, None, None # a hack for running PPO
         feature_type = self.env_cfg["feature"]["type"]
         combination = self.env_cfg["feature"][feature_type]
         task_w = self.define_tasks(self.env_cfg, combination)
