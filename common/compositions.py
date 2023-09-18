@@ -17,9 +17,6 @@ class Compositions:
         self.sf_norm_coeff_feat = torch.ones(
             (self.feature_dim), device=torch.device("cuda:0"), dtype=torch.float32
         )
-        # self.sf_norm_coeff_head = torch.ones(
-        #     (self.n_heads), device=torch.device("cuda:0"), dtype=torch.float32
-        # )
 
         self.impact_x_idx = []  # record primitive impact on x-axis
         self.policy_idx = []  # record primitive summon frequency
@@ -170,7 +167,7 @@ class Compositions:
     def gpe(self, s, acts, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, acts)
-        w = self.scale_gating(w)  # [N, Ha], H=F
+        w = w/w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
         w /= self.sf_norm_coeff_feat.abs() # normalized by SF scale
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
@@ -199,10 +196,13 @@ class Compositions:
         return kappa
 
     def cpi(self, means, log_stds, gating, rule="mcp", k=0.9):
+        # select top k% value
         gating -= torch.amin(gating, dim=1, keepdim=True)
-        gating = self.scale_gating(gating)  # [N, Ha], H=F
         gating_max = torch.amax(gating, dim=1, keepdim=True).repeat_interleave(gating.shape[1],1)
-        gating = torch.where(gating<gating_max*k, 0, gating)   # only keep top k% value
+        gating = torch.where(gating<gating_max*k, 0, gating)   
+
+        # scale gating
+        gating /= gating.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         if rule == "mcp":
             # [N, H, A] <-- [N,F], [N,H,A], F=H
@@ -225,10 +225,6 @@ class Compositions:
         curr_sf = torch.min(curr_sf1, curr_sf2)
         curr_sf = curr_sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)
         return curr_sf  # [N, Ha, Hsf, F]
-
-    def scale_gating(self, gating): # scale to range [0,1]
-        # return torch.softmax(gating / gating.shape[1], 1)
-        return gating / gating.norm(1, 1, keepdim=True)
 
     def calc_advantage(self, value):  # [N,Ha,Hsf,F]
         adv = value.mean(1, keepdim=True) - value.mean((1, 2), keepdim=True)
