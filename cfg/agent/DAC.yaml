@@ -1,5 +1,4 @@
 name: "dac"
-is_clip_max: 1.0
 entropy_tuning: True
 alpha: 1.
 alpha_lr: 3e-4

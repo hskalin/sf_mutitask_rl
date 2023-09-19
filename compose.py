@@ -28,13 +28,13 @@ class CompositionAgent(IsaacAgent):
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
         self.tau = self.agent_cfg["tau"]
+        
         self.td_target_update_interval = int(
             self.agent_cfg["td_target_update_interval"]
         )
-        self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.is_clip_range = (0, self.agent_cfg["is_clip_max"])
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
+        self.entropy_tuning = self.agent_cfg["entropy_tuning"]
 
         if self.agent_cfg.get("augmentHeads", True):
             self.pseudo_w = torch.tensor(
