@@ -241,33 +241,13 @@ class CompositionAgent(IsaacAgent):
         curr_sf1, curr_sf2 = self.sf(s_tiled, a_tiled)
         # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
 
-        curr_sf1 = torch.masked_select(curr_sf1, self.mask).view(
-            self.mini_batch_size, self.n_heads, self.feature_dim
-        )
+        curr_sf = self.process_sfs(curr_sf1, curr_sf2)
         # [N, Ha, F] <-- [NHa, Hsf, F]
-
-        curr_sf2 = torch.masked_select(curr_sf2, self.mask).view(
-            self.mini_batch_size, self.n_heads, self.feature_dim
-        )
-        # [N, Ha, F] <-- [NHa, Hsf, F]
-
-        curr_sf = self.calc_sf_from_double_sfs(curr_sf1, curr_sf2)
 
         qs = torch.einsum(
             "ijk,kj->ij", curr_sf, self.pseudo_w.T
         )  # [N,H]<-- [N,H,F]*[F, H]
 
-        # q1 = torch.einsum(
-        #     "ijk,kj->ij", curr_sf1, self.pseudo_w.T
-        # )  # [N,H]<-- [N,H,F]*[F, H]
-        # q2 = torch.einsum(
-        #     "ijk,kj->ij", curr_sf2, self.pseudo_w.T
-        # )  # [N,H]<-- [N,H,F]*[F, H]
-
-        # if self.droprate > 0.0:
-        #     qs = 0.5 * (q1 + q2)
-        # else:
-        #     qs = torch.min(q1, q2)
         return qs
 
     def calc_target_sf(self, f, s_next, dones):
@@ -280,18 +260,8 @@ class CompositionAgent(IsaacAgent):
             next_sf1, next_sf2 = self.sf_target(s_tiled, a_tiled)
             # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
 
-            next_sf1 = torch.masked_select(next_sf1, self.mask).view(
-                self.mini_batch_size, self.n_heads, self.feature_dim
-            )
+            next_sf = self.process_sfs(next_sf1, next_sf2)
             # [N, Ha, F] <-- [NHa, Hsf, F]
-
-            next_sf2 = torch.masked_select(next_sf2, self.mask).view(
-                self.mini_batch_size, self.n_heads, self.feature_dim
-            )
-            # [N, Ha, F] <-- [NHa, Hsf, F]
-
-            # next_sf = torch.min(next_sf1, next_sf2)  # [N, H, F]
-            next_sf = self.calc_sf_from_double_sfs(next_sf1, next_sf2)
 
         f = torch.tile(f[:, None, :], (self.n_heads, 1))  # [N,H,F] <-- [N,F]
         target_sf = f + torch.einsum(
@@ -305,10 +275,26 @@ class CompositionAgent(IsaacAgent):
 
         with torch.no_grad():
             curr_sf1, curr_sf2 = self.sf(s, a)
-            curr_sf = self.calc_sf_from_double_sfs(curr_sf1, curr_sf2)
+            curr_sf = self.process_sfs(curr_sf1, curr_sf2)
+
         target_sf = self.calc_target_sf(f, s_next, dones)
         error = torch.mean(torch.abs(curr_sf - target_sf), (1, 2))
         return error.unsqueeze(1).cpu().numpy()
+
+    def process_sfs(self, sf1, sf2):
+        sf1, sf2 = self.mask_select_and_reshape_sfs(sf1, sf2)
+        sf = self.calc_sf_from_double_sfs(sf1, sf2)
+        return sf
+
+    def mask_select_and_reshape_sfs(self, sf1, sf2):
+        # [N, Ha, F] <-- [NHa, Hsf, F]
+        sf1 = torch.masked_select(sf1, self.mask).view(
+            self.mini_batch_size, self.n_heads, self.feature_dim
+        )
+        sf2 = torch.masked_select(sf2, self.mask).view(
+            self.mini_batch_size, self.n_heads, self.feature_dim
+        )
+        return sf1, sf2
 
     def calc_sf_from_double_sfs(self, sf1, sf2):
         if self.droprate > 0.0:
