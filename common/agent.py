@@ -92,11 +92,12 @@ class IsaacAgent:
             self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
             self.w = torch.tile(w[0], (self.n_env, 1))
 
-        self.w = self.w / self.w.norm(1, 1, keepdim=True)  # normalise weights
-        self.w_eval = self.w_eval / self.w_eval.norm(1, 1, keepdim=True)
+        self.w /= self.w.norm(1, 1, keepdim=True)  # normalise weights
+        self.w_eval /= self.w_eval.norm(1, 1, keepdim=True)
 
         print("eval weights:\n", self.w_eval)
 
+        # TODO: implement prioritized exp replay
         self.per = self.buffer_cfg["prioritize_replay"]
 
         self.replay_buffer = VectorizedReplayBuffer(

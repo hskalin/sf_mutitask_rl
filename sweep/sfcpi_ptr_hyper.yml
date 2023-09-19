@@ -18,9 +18,9 @@ parameters:
   env.single_task:
     values: [False]
   env.task.rand_weights:
-    values: [False]
+    values: [True]
   env.task.rand_vel_targets:
-    values: [False]
+    values: [True]
 
 command:
   - ${env}

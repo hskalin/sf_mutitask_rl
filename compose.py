@@ -35,7 +35,6 @@ class CompositionAgent(IsaacAgent):
         self.is_clip_range = (0, self.agent_cfg["is_clip_max"])
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
-        # self.n_heads = self.feature_dim
 
         if self.agent_cfg.get("augmentHeads", True):
             self.pseudo_w = torch.tensor(
