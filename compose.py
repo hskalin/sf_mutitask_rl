@@ -114,8 +114,8 @@ class CompositionAgent(IsaacAgent):
         # masks used for vectorizing functions
         self.mask = torch.eye(self.n_heads, device="cuda:0").unsqueeze(dim=-1)
         self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
-        self.mask = self.mask.ge(0.5)
-
+        self.mask = self.mask.bool()
+        
     def explore(self, s, w):
         # [N, A] <-- [N, S], [N, H, A], [N, F]
         a = self.comp.composition_fn(s, w, mode="explore")
