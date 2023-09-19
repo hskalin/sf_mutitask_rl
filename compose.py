@@ -79,6 +79,24 @@ class CompositionAgent(IsaacAgent):
             self.policy.parameters(), lr=self.policy_lr, betas=[0.9, 0.999]
         )
 
+        self.prev_impact = torch.zeros((self.n_env, self.n_heads, self.action_dim)).to(
+            self.device
+        )
+        self.comp = Compositions(
+            self.agent_cfg,
+            self.policy,
+            self.sf,
+            self.prev_impact,
+            self.n_heads,
+            self.action_dim,
+            self.feature_dim,
+        )
+
+        # masks used for vectorizing SFs head selction
+        self.mask = torch.eye(self.n_heads, device="cuda:0").unsqueeze(dim=-1)
+        self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
+        self.mask = self.mask.bool()
+
         if self.entropy_tuning:
             self.alpha_lr = self.agent_cfg["alpha_lr"]
             self.target_entropy = (
@@ -95,27 +113,9 @@ class CompositionAgent(IsaacAgent):
         else:
             self.alpha = torch.tensor(self.agent_cfg["alpha"]).to(self.device)
 
-        self.prev_impact = torch.zeros((self.n_env, self.n_heads, self.action_dim)).to(
-            self.device
-        )
-
-        self.comp = Compositions(
-            self.agent_cfg,
-            self.policy,
-            self.sf,
-            self.prev_impact,
-            self.n_heads,
-            self.action_dim,
-            self.feature_dim,
-        )
-
+        # init params
         self.learn_steps = 0
 
-        # masks used for vectorizing functions
-        self.mask = torch.eye(self.n_heads, device="cuda:0").unsqueeze(dim=-1)
-        self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
-        self.mask = self.mask.bool()
-        
     def explore(self, s, w):
         # [N, A] <-- [N, S], [N, H, A], [N, F]
         a = self.comp.composition_fn(s, w, mode="explore")
@@ -157,7 +157,7 @@ class CompositionAgent(IsaacAgent):
                 "loss/penalty_act": penalty_act,
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
-                "state/target_sf": target_sf.detach().mean().item(),
+                "state/target_sf": target_sf,
                 "state/lr": self.lr,
                 "state/entropy": entropies.detach().mean().item(),
                 "state/policy_idx": wandb.Histogram(self.comp.policy_idx),
@@ -181,19 +181,12 @@ class CompositionAgent(IsaacAgent):
     def update_sf(self, batch):
         (s, f, a, _, s_next, dones) = batch
 
-        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]
-
-        self.comp.sf_norm_coeff_feat = curr_sf1.mean([0, 1]).abs()
-        # self.comp.sf_norm_coeff_head = curr_sf1.mean([0, 2]).abs()
+        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]        
         target_sf = self.calc_target_sf(f, s_next, dones)  # [N, H, F]
 
-        loss1 = (curr_sf1 - target_sf).pow(2)  # [N, H, F]
-        loss2 = (curr_sf2 - target_sf).pow(2)  # [N, H, F]
-
-        sf1_loss = torch.mean(loss1)
-        sf2_loss = torch.mean(loss2)
-
-        sf_loss = sf1_loss + sf2_loss
+        loss1 = (curr_sf1 - target_sf).pow(2).mean()  # R <-- [N, H, F]
+        loss2 = (curr_sf2 - target_sf).pow(2).mean()  # R <-- [N, H, F]
+        sf_loss = loss1 + loss2
 
         self.sf_optimizer.zero_grad(set_to_none=True)
         sf_loss.backward()
@@ -202,11 +195,16 @@ class CompositionAgent(IsaacAgent):
         # TD errors for updating priority weights
         errors = torch.mean(torch.abs(curr_sf1.detach() - target_sf), (1, 2))
 
+        # update sf scale 
+        self.comp.sf_norm_coeff_feat = curr_sf1.mean([0, 1]).abs()
+
         # log means to monitor training.
+        sf_loss = sf_loss.detach().item()
         mean_sf1 = curr_sf1.detach().mean().item()
         mean_sf2 = curr_sf2.detach().mean().item()
+        target_sf = target_sf.detach().mean().item()
 
-        return sf_loss.detach().item(), errors, mean_sf1, mean_sf2, target_sf
+        return sf_loss, errors, mean_sf1, mean_sf2, target_sf
 
     def update_policy(self, batch):
         (s, f, a, r, s_next, dones) = batch
@@ -253,16 +251,23 @@ class CompositionAgent(IsaacAgent):
         )
         # [N, Ha, F] <-- [NHa, Hsf, F]
 
-        q1 = torch.einsum(
-            "ijk,kj->ij", curr_sf1, self.pseudo_w.T
+        curr_sf = self.calc_sf_from_double_sfs(curr_sf1, curr_sf2)
+
+        qs = torch.einsum(
+            "ijk,kj->ij", curr_sf, self.pseudo_w.T
         )  # [N,H]<-- [N,H,F]*[F, H]
-        q2 = torch.einsum(
-            "ijk,kj->ij", curr_sf2, self.pseudo_w.T
-        )  # [N,H]<-- [N,H,F]*[F, H]
-        if self.droprate > 0.0:
-            qs = 0.5 * (q1 + q2)
-        else:
-            qs = torch.min(q1, q2)
+
+        # q1 = torch.einsum(
+        #     "ijk,kj->ij", curr_sf1, self.pseudo_w.T
+        # )  # [N,H]<-- [N,H,F]*[F, H]
+        # q2 = torch.einsum(
+        #     "ijk,kj->ij", curr_sf2, self.pseudo_w.T
+        # )  # [N,H]<-- [N,H,F]*[F, H]
+
+        # if self.droprate > 0.0:
+        #     qs = 0.5 * (q1 + q2)
+        # else:
+        #     qs = torch.min(q1, q2)
         return qs
 
     def calc_target_sf(self, f, s_next, dones):
@@ -285,7 +290,8 @@ class CompositionAgent(IsaacAgent):
             )
             # [N, Ha, F] <-- [NHa, Hsf, F]
 
-            next_sf = torch.min(next_sf1, next_sf2)  # [N, H, F]
+            # next_sf = torch.min(next_sf1, next_sf2)  # [N, H, F]
+            next_sf = self.calc_sf_from_double_sfs(next_sf1, next_sf2)
 
         f = torch.tile(f[:, None, :], (self.n_heads, 1))  # [N,H,F] <-- [N,F]
         target_sf = f + torch.einsum(
@@ -299,9 +305,17 @@ class CompositionAgent(IsaacAgent):
 
         with torch.no_grad():
             curr_sf1, curr_sf2 = self.sf(s, a)
+            curr_sf = self.calc_sf_from_double_sfs(curr_sf1, curr_sf2)
         target_sf = self.calc_target_sf(f, s_next, dones)
-        error = torch.mean(torch.abs(curr_sf1 - target_sf), (1, 2))
+        error = torch.mean(torch.abs(curr_sf - target_sf), (1, 2))
         return error.unsqueeze(1).cpu().numpy()
+
+    def calc_sf_from_double_sfs(self, sf1, sf2):
+        if self.droprate > 0.0:
+            sf = 0.5 * (sf1 + sf2)
+        else:
+            sf = torch.min(sf1, sf2)  # [N, H, F]
+        return sf
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"
