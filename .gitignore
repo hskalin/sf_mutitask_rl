@@ -1,5 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+env/__pycache__/
+env/wrapper/__pycache__/
 *.py[cod]
 *$py.class
 
