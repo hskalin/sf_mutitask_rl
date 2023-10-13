@@ -1,0 +1,7 @@
+wandb 
+rltorch
+gym
+omegaconf
+hydra-core
+tensorboard
+opencv-python
