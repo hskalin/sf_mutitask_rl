@@ -14,7 +14,7 @@ import math
 class Blimp(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 19  # pole_angle + pole_vel + cart_vel + cart_pos
+        self.num_obs = 21  # pole_angle + pole_vel + cart_vel + cart_pos
         self.num_act = 5  # force applied on the pole (-1 to 1)
         self.reset_dist = 10.0  # when to reset
         self.max_push_effort = 5.0  # the range of force applied to the blimp
@@ -232,6 +232,12 @@ class Blimp(VecEnv):
 
         # elevator
         self.obs_buf[env_ids, 18] = self.dof_pos[env_ids, 2]
+
+        # thrust vectoring angle
+        self.obs_buf[env_ids, 19] = self.dof_pos[env_ids, 0]
+
+        # thrust
+        self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
 
     def get_reward(self):
         # retrieve environment observations from buffer
