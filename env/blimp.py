@@ -89,6 +89,13 @@ class Blimp(VecEnv):
             device=self.sim_device,
             dtype=torch.float,
         )
+
+        self.smooth = 0.45
+        self.actions_tensor_prev = torch.zeros(
+            (self.num_envs, self.num_bodies, 3),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
         self.torques_tensor = torch.zeros(
             (self.num_envs, self.num_bodies, 3),
             device=self.sim_device,
@@ -238,6 +245,7 @@ class Blimp(VecEnv):
 
         # thrust
         self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
+        
 
     def get_reward(self):
         # retrieve environment observations from buffer
@@ -366,6 +374,11 @@ class Blimp(VecEnv):
         self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
         self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
 
+        # EMA smoothing thrusts
+        self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.smooth + \
+                                            self.actions_tensor_prev[:,[3,4,7],:]*(1-self.smooth)
+        self.actions_tensor_prev[:,[3,4,7],:] = self.actions_tensor[:,[3,4,7],:]
+
         # self.torques_tensor[:, 0, 0] = 0 #TK_X + actions[:, 1]
         coef = 1
         p = 1.29
@@ -396,15 +409,17 @@ class Blimp(VecEnv):
             [0, 0.11, 0],
         ]
 
+        wind = torch.normal(mean=torch.tensor([0.9, 0, 0]), std=0.3)
+
         for i, idx in enumerate(idxs):
             r, p, y = get_euler_xyz(self.rb_rot[:, idx, :])
             a, b, c = globalToLocalRot(
                 r,
                 p,
                 y,
-                self.rb_lvels[:, idx, 0],
-                self.rb_lvels[:, idx, 1],
-                self.rb_lvels[:, idx, 2],
+                self.rb_lvels[:, idx, 0]+wind[0],
+                self.rb_lvels[:, idx, 1]+wind[1],
+                self.rb_lvels[:, idx, 2]+wind[2],
             )
             area = areas[i]
             self.actions_tensor[:, idx, 0] += -coef * area[0] * a * torch.abs(a)
@@ -536,7 +551,7 @@ class Blimp(VecEnv):
         line_colors += [[0, 0, 0]]
 
         s = 50
-        idx = 13
+        idx = 11
         roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, idx, :])
         f1, f2, f3 = localToGlobalRot(
             roll,

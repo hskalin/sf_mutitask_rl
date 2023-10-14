@@ -33,7 +33,7 @@ class VecEnv:
         grav = cfg["sim"].get("gravity", (0.0, 0.0, 0.0))
         self.sim_params.gravity = gymapi.Vec3(grav[0], grav[1], grav[2])
         self.sim_params.dt = cfg["sim"].get("dt", 1 / 60)
-        self.sim_params.substeps = 2
+        self.sim_params.substeps = cfg["sim"].get("substeps", 2)
         self.sim_params.use_gpu_pipeline = True
 
         # set simulation parameters (we use PhysX engine by default, these parameters are from the example file)
@@ -104,7 +104,7 @@ class VecEnv:
             )
 
             # set the camera position based on up axis
-            cam_pos = gymapi.Vec3(20.0, 25.0, 3.0)
+            cam_pos = gymapi.Vec3(0.0, 0.0, 3.0)
             cam_target = gymapi.Vec3(10.0, 15.0, 0.0)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)

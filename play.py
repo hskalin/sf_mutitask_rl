@@ -10,8 +10,8 @@ from common.util import (
     AverageMeter,
 )
 
-from compose import CompositionAgent
-from sac import SACAgent
+from agents.compose import CompositionAgent
+from agents.sac import SACAgent
 
 import torch
 import numpy as np

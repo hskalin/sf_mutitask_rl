@@ -15,7 +15,7 @@ import torch.optim as optim
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
-from compose import CompositionAgent
+from agents.compose import CompositionAgent
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):

@@ -4,10 +4,10 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
-from compose import CompositionAgent
-from sac import SACAgent
-from ppo import PPO_agent
-from ppoh import PPOHagent
+from agents.compose import CompositionAgent
+from agents.sac import SACAgent
+from agents.ppo import PPO_agent
+from agents.ppoh import PPOHagent
 
 import torch
 import numpy as np
@@ -19,8 +19,8 @@ import wandb
 def launch_rlg_hydra(cfg: DictConfig):
     cfg_dict = omegaconf_to_dict(cfg)
 
-    # wandb.init(mode="disabled")
-    wandb.init()
+    wandb.init(mode="disabled")
+    # wandb.init()
     print(wandb.config, "\n\n")
     wandb_dict = fix_wandb(wandb.config)
 

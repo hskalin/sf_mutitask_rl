@@ -105,6 +105,8 @@ feature:
 
   
 sim:
+  dt: 0.05
+  substeps: 4
   gravity: [0.0, 0.0, -9.8]
   sim_device: "cuda:0"
   headless: True
