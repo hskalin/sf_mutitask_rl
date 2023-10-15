@@ -67,7 +67,7 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
 blimp:
-  weight: 2.32
+  mass: 8.907
 
 aero:
   ema_smooth: 0.3

@@ -56,7 +56,7 @@ class Blimp(VecEnv):
         self.wind_mean = torch.zeros((self.num_envs,3), device="cuda:0")
 
         # blimp
-        self.blimp_weight = cfg["blimp"]["weight"]
+        self.blimp_mass = cfg["blimp"]["mass"]
         self.bouyancy = torch.zeros(self.num_envs, device="cuda:0")
 
         # initialise envs and state tensors
@@ -284,7 +284,7 @@ class Blimp(VecEnv):
         self.wind_mean[env_ids] = self.wind_mag*(2*torch.rand((len(env_ids),3), device="cuda:0")*self.wind_dirs - self.wind_dirs)
 
         # randomize bouyancy
-        self.bouyancy[env_ids] = torch.normal(-self.sim_params.gravity.z*self.blimp_weight, std=0.3, 
+        self.bouyancy[env_ids] = torch.normal(-self.sim_params.gravity.z*self.blimp_mass, std=0.3, 
                                         size=(len(env_ids),), device="cuda:0")
 
         if self.train and self.rand_vel_targets:
@@ -365,7 +365,7 @@ class Blimp(VecEnv):
             self.rb_avels[:, 0, 2],
         )
         self.torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
-        self.torques_tensor[:, 0, 2] = 5-D * c * torch.abs(c)
+        self.torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
 
         idxs = [0, 7, 8, 9, 10, 11, 12, 13, 14]
         areas = [
