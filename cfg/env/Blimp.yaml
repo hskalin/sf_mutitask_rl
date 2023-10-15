@@ -47,9 +47,9 @@ goal_vel_lim: 5
 vel_lim: 5
 
 dim: 2
-episode_max_step: 2000
+episode_max_step: 200
 total_episodes: 25
-max_episode_length: 2000
+max_episode_length: 200
 # reward:
 #   success: 
 #     coeff": 1
@@ -66,7 +66,17 @@ render: False  # render env
 record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
+blimp:
+  weight: 2.32
+
+aero:
+  ema_smooth: 0.3
+  wind_dirs: [1.0, 1.0, 0.25]
+  wind_mag: 1
+  wind_std: 0.3
+
 task:
+  init_vel:           False
   rand_weights:       True
   rand_vel_targets:   True
 
@@ -106,7 +116,7 @@ feature:
   
 sim:
   dt: 0.05
-  substeps: 4
+  substeps: 2
   gravity: [0.0, 0.0, -9.8]
   sim_device: "cuda:0"
   headless: True
