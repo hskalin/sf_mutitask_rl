@@ -24,8 +24,8 @@ class Blimp(VecEnv):
         # blimp parameters
         # smoothning factor for fan thrusts
         self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
-        self.drag_bodies = cfg["blimp"]["drag_body_idxs"]
-        self.body_areas = cfg["blimp"]["areas"]
+        self.drag_bodies = torch.tensor(cfg["blimp"]["drag_body_idxs"], device="cuda:0")
+        self.body_areas = torch.tensor(cfg["blimp"]["areas"], device="cuda:0")
 
         super().__init__(cfg=cfg)
 
@@ -329,9 +329,53 @@ class Blimp(VecEnv):
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
         actions = torch.clamp(actions, -1.0, 1.0)
 
+        # zeroing out any prev action
         self.actions_tensor[:] = 0.0
         self.torques_tensor[:] = 0.0
 
+        # self._simulate_boyancy()
+        self.actions_tensor[:] = simulate_boyancy(self.rb_rot, self.bouyancy, self.actions_tensor)
+        self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(self.rb_rot, self.rb_avels, self.rb_lvels, self.wind_mean, self.wind_std, self.drag_bodies, self.body_areas, self.torques_tensor, self.actions_tensor)
+
+        # self.actions_tensor[:, 3, 2] = 1.5 * (actions[:, 0] + 1) / 2
+        # self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
+        # self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
+
+        # EMA smoothing thrusts
+        self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.ema_smooth + \
+                                            self.actions_tensor_prev[:,[3,4,7],:]*(1-self.ema_smooth)
+        self.actions_tensor_prev[:,[3,4,7],:] = self.actions_tensor[:,[3,4,7],:]
+        
+        dof_targets = torch.zeros((self.num_envs, 5), device="cuda:0")
+
+        dof_targets[:, 0] = 2.0 * actions[:, 2]
+        dof_targets[:, 1] = 0.5 * actions[:, 3]
+        dof_targets[:, 4] = -0.5 * actions[:, 3]
+        dof_targets[:, 2] = 0.5 * actions[:, 4]
+        dof_targets[:, 3] = -0.5 * actions[:, 4]
+
+        # unwrap tensors
+        dof_targets = gymtorch.unwrap_tensor(dof_targets)
+        forces = gymtorch.unwrap_tensor(self.actions_tensor)
+        torques = gymtorch.unwrap_tensor(self.torques_tensor)
+
+        # apply actions
+        self.gym.apply_rigid_body_force_tensors(
+            self.sim, forces, torques, gymapi.LOCAL_SPACE)
+        self.gym.set_dof_position_target_tensor(self.sim, dof_targets)
+
+        # simulate and render
+        self.simulate()
+        if not self.headless:
+            self.render()
+
+        # reset environments if required
+        self.progress_buf += 1
+
+        self.get_obs()
+        self.get_reward()
+
+    def _simulate_boyancy(self):
         roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, 0, :])
         xa, ya, za = globalToLocalRot(
             roll,
@@ -345,16 +389,7 @@ class Blimp(VecEnv):
         self.actions_tensor[:, 0, 1] = ya
         self.actions_tensor[:, 0, 2] = za
 
-        self.actions_tensor[:, 3, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
-
-        # EMA smoothing thrusts
-        self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.ema_smooth + \
-                                            self.actions_tensor_prev[:,[3,4,7],:]*(1-self.ema_smooth)
-        self.actions_tensor_prev[:,[3,4,7],:] = self.actions_tensor[:,[3,4,7],:]
-
-        # self.torques_tensor[:, 0, 0] = 0 #TK_X + actions[:, 1]
+    def _simulate_aerodynamics(self):
         coef = 1
         p = 1.29
         BL4 = 270
@@ -389,37 +424,6 @@ class Blimp(VecEnv):
             self.actions_tensor[:, idx, 1] += -coef * area[1] * b * torch.abs(b)
             self.actions_tensor[:, idx, 2] += -coef * area[2] * c * torch.abs(c)
 
-        # unwrap tensors
-        forces = gymtorch.unwrap_tensor(self.actions_tensor)
-        torques = gymtorch.unwrap_tensor(self.torques_tensor)
-
-        # apply actions
-        self.gym.apply_rigid_body_force_tensors(
-            self.sim, forces, torques, gymapi.LOCAL_SPACE
-        )
-
-        dof_targets = torch.zeros((self.num_envs, 5), device="cuda:0")
-
-        dof_targets[:, 0] = 2.0 * actions[:, 2]
-        dof_targets[:, 1] = 0.5 * actions[:, 3]
-        dof_targets[:, 4] = -0.5 * actions[:, 3]
-        dof_targets[:, 2] = 0.5 * actions[:, 4]
-        dof_targets[:, 3] = -0.5 * actions[:, 4]
-
-        dof_targets = gymtorch.unwrap_tensor(dof_targets)
-        self.gym.set_dof_position_target_tensor(self.sim, dof_targets)
-
-        # simulate and render
-        self.simulate()
-        if not self.headless:
-            self.render()
-
-        # reset environments if required
-        self.progress_buf += 1
-
-        self.get_obs()
-        self.get_reward()
-
     def _add_goal_lines(self, num_lines, line_colors, line_vertices, envs):
         num_lines += 2
         line_colors += [[0, 0, 0], [0, 0, 0]]
@@ -437,8 +441,8 @@ class Blimp(VecEnv):
                     self.goal_pos[i, 2].item(),
                 ],
                 [
-                    self.goal_pos[i, 0].item() + math.cos(self.goal_rot[i, 0].item()),
-                    self.goal_pos[i, 1].item() + math.sin(self.goal_rot[i, 0].item()),
+                    self.goal_pos[i, 0].item() + math.cos(self.goal_rot[i, 2].item()),
+                    self.goal_pos[i, 1].item() + math.sin(self.goal_rot[i, 2].item()),
                     self.goal_pos[i, 2].item(),
                 ],
             ]
@@ -557,115 +561,68 @@ class Blimp(VecEnv):
         )
         # num_lines,line_colors,line_vertices = self._add_drag_lines(num_lines,line_colors,line_vertices, self.num_envs)
 
-        # idx = 9
-        # roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, idx, :])
-        # f1, f2, f3 = localToGlobalRot(
-        #     roll,
-        #     pitch,
-        #     yaw,s
-        #     self.actions_tensor[:,idx,0],
-        #     self.actions_tensor[:,idx,1],
-        #     self.actions_tensor[:,idx,2],
-        # )
-        # a, b, c = globalToLocalRot(
-        #         roll,
-        #         pitch,
-        #         yaw,
-        #         self.rb_lvels[:,idx,0],
-        #         self.rb_lvels[:,idx,1],
-        #         self.rb_lvels[:,idx,2],
-        #     )
-        # x1, x2, x3 = localToGlobalRot(
-        #     roll, pitch, yaw,
-        #     a,
-        #     torch.zeros(1, device="cuda:0"),
-        #     torch.zeros(1, device="cuda:0"),
-        # )
-        # y1, y2, y3 = localToGlobalRot(
-        #     roll, pitch, yaw,
-        #     torch.zeros(1, device="cuda:0"),
-        #     b,
-        #     torch.zeros(1, device="cuda:0"),
-        # )
-        # z1, z2, z3 = localToGlobalRot(
-        #     roll, pitch, yaw,
-        #     torch.zeros(1, device="cuda:0"),
-        #     torch.zeros(1, device="cuda:0"),
-        #     c,
-        # )
-
-        # print("vels  ",b)
-        # print("forces",self.actions_tensor[:,idx,1])
-
-        # s = 100
-        # for i in range(self.num_envs):
-        #     vertices = [
-        #         [self.goal_pos[i, 0].item(), self.goal_pos[i, 1].item(), 0],
-        #         [
-        #             self.goal_pos[i, 0].item(),
-        #             self.goal_pos[i, 1].item(),
-        #             self.goal_pos[i, 2].item(),
-        #         ],
-        #         [
-        #             self.goal_pos[i, 0].item(),
-        #             self.goal_pos[i, 1].item(),
-        #             self.goal_pos[i, 2].item(),
-        #         ],
-        #         [
-        #             self.goal_pos[i, 0].item() + math.cos(self.goal_rot[i, 0].item()),
-        #             self.goal_pos[i, 1].item() + math.sin(self.goal_rot[i, 0].item()),
-        #             self.goal_pos[i, 2].item(),
-        #         ],
-        # [
-        #     self.rb_pos[i, idx, 0].item(),
-        #     self.rb_pos[i, idx, 1].item(),
-        #     self.rb_pos[i, idx, 2].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item() + s*f1[i].item(),
-        #     self.rb_pos[i, idx, 1].item() + s*f2[i].item(),
-        #     self.rb_pos[i, idx, 2].item() + s*f3[i].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item(),
-        #     self.rb_pos[i, idx, 1].item(),
-        #     self.rb_pos[i, idx, 2].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item() + s*x1[i].item(),
-        #     self.rb_pos[i, idx, 1].item() + s*x2[i].item(),
-        #     self.rb_pos[i, idx, 2].item() + s*x3[i].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item(),
-        #     self.rb_pos[i, idx, 1].item(),
-        #     self.rb_pos[i, idx, 2].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item() + s*y1[i].item(),
-        #     self.rb_pos[i, idx, 1].item() + s*y2[i].item(),
-        #     self.rb_pos[i, idx, 2].item() + s*y3[i].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item(),
-        #     self.rb_pos[i, idx, 1].item(),
-        #     self.rb_pos[i, idx, 2].item(),
-        # ],
-        # [
-        #     self.rb_pos[i, idx, 0].item() + s*z1[i].item(),
-        #     self.rb_pos[i, idx, 1].item() + s*z2[i].item(),
-        #     self.rb_pos[i, idx, 2].item() + s*z3[i].item(),
-        # ],
-        # ]
-
-        # line_vertices.append(vertices)
-
         return line_vertices, line_colors, num_lines
 
 
 #####################################################################
 ###=========================jit functions=========================###
 #####################################################################
+
+@torch.jit.script
+def simulate_boyancy(rb_rot, bouyancy, actions_tensor):
+    # type: (Tensor, Tensor, Tensor) -> Tensor
+    roll, pitch, yaw = get_euler_xyz(rb_rot[:, 0, :])
+    xa, ya, za = globalToLocalRot(
+        roll,
+        pitch,
+        yaw,
+        torch.zeros_like(bouyancy),
+        torch.zeros_like(bouyancy),
+        bouyancy,
+    )
+    actions_tensor[:, 0, 0] = xa
+    actions_tensor[:, 0, 1] = ya
+    actions_tensor[:, 0, 2] = za
+
+    return actions_tensor
+
+@torch.jit.script 
+def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_bodies, body_areas, torques_tensor, actions_tensor):
+    # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    coef = 1
+    p = 1.29
+    BL4 = 270
+    D = (1 / 64) * p * coef * BL4
+    r, p, y = get_euler_xyz(rb_rot[:, 0, :])
+    a, b, c = globalToLocalRot(
+        r,
+        p,
+        y,
+        rb_avels[:, 0, 0],
+        rb_avels[:, 0, 1],
+        rb_avels[:, 0, 2],
+    )
+    torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
+    torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
+
+    # sample wind 
+    wind = torch.normal(mean=wind_mean, std=wind_std)
+
+    r, p, y = get_euler_xyz_multi(rb_rot[:, drag_bodies, :])
+    a, b, c = globalToLocalRot(
+        r,
+        p,
+        y,
+        rb_lvels[:, drag_bodies, 0] + wind[:,0:1],
+        rb_lvels[:, drag_bodies, 1] + wind[:,1:2],
+        rb_lvels[:, drag_bodies, 2] + wind[:,2:3],
+    )
+    # area = body_areas[i]
+    actions_tensor[:, drag_bodies, 0] += -coef * body_areas[:, 0] * a * torch.abs(a)
+    actions_tensor[:, drag_bodies, 1] += -coef * body_areas[:, 1] * b * torch.abs(b)
+    actions_tensor[:, drag_bodies, 2] += -coef * body_areas[:, 2] * c * torch.abs(c)
+
+    return actions_tensor, torques_tensor
 
 
 @torch.jit.script

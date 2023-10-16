@@ -40,7 +40,7 @@
 
 
 env_name: "Blimp"
-num_envs: 8
+num_envs: 4
 
 goal_lim: 10
 goal_vel_lim: 5
