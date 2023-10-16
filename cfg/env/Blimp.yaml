@@ -68,9 +68,21 @@ log_path: "logs/"  # config, video, model log path
 
 blimp:
   mass: 8.907
+  ema_smooth: 0.3
+  # indices of blimp bodies for which aerodynamics is calculated
+  drag_body_idxs: [0, 7, 8, 9, 10, 11, 12, 13, 14]
+  # approx (x,y,z) components of area for the above bodies (in m^2)
+  areas:   [[2.544, 6.3, 6.3],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],]
 
 aero:
-  ema_smooth: 0.3
   wind_dirs: [1.0, 1.0, 0.25]
   wind_mag: 1
   wind_std: 0.3

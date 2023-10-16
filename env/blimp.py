@@ -14,14 +14,18 @@ import math
 class Blimp(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 21  # pole_angle + pole_vel + cart_vel + cart_pos
-        self.num_act = 5  # force applied on the pole (-1 to 1)
+        self.num_obs = 21  #
+        self.num_act = 5  # 
         self.reset_dist = 10.0  # when to reset
         self.max_push_effort = 5.0  # the range of force applied to the blimp
 
         self.ball_height = 8
 
-        self.ema_smooth = cfg["aero"].get("ema_smooth", 0.3)
+        # blimp parameters
+        # smoothning factor for fan thrusts
+        self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
+        self.drag_bodies = cfg["blimp"]["drag_body_idxs"]
+        self.body_areas = cfg["blimp"]["areas"]
 
         super().__init__(cfg=cfg)
 
@@ -341,9 +345,9 @@ class Blimp(VecEnv):
         self.actions_tensor[:, 0, 1] = ya
         self.actions_tensor[:, 0, 2] = za
 
-        # self.actions_tensor[:, 3, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        # self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        # self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
+        self.actions_tensor[:, 3, 2] = 1.5 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
 
         # EMA smoothing thrusts
         self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.ema_smooth + \
@@ -353,7 +357,7 @@ class Blimp(VecEnv):
         # self.torques_tensor[:, 0, 0] = 0 #TK_X + actions[:, 1]
         coef = 1
         p = 1.29
-        BL4 = 1.659
+        BL4 = 270
         D = (1 / 64) * p * coef * BL4
         r, p, y = get_euler_xyz(self.rb_rot[:, 0, :])
         a, b, c = globalToLocalRot(
@@ -367,23 +371,10 @@ class Blimp(VecEnv):
         self.torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
         self.torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
 
-        idxs = [0, 7, 8, 9, 10, 11, 12, 13, 14]
-        areas = [
-            [2.01, 3.84, 3.84],
-            [0, 0.25, 0],
-            [0, 0.11, 0],
-            [0, 0.25, 0],
-            [0, 0.11, 0],
-            [0, 0.25, 0],
-            [0, 0.11, 0],
-            [0, 0.25, 0],
-            [0, 0.11, 0],
-        ]
-
         # sample wind 
         wind = torch.normal(mean=self.wind_mean, std=self.wind_std)
 
-        for i, idx in enumerate(idxs):
+        for i, idx in enumerate(self.drag_bodies):
             r, p, y = get_euler_xyz(self.rb_rot[:, idx, :])
             a, b, c = globalToLocalRot(
                 r,
@@ -393,7 +384,7 @@ class Blimp(VecEnv):
                 self.rb_lvels[:, idx, 1] + wind[:,1],
                 self.rb_lvels[:, idx, 2] + wind[:,2],
             )
-            area = areas[i]
+            area = self.body_areas[i]
             self.actions_tensor[:, idx, 0] += -coef * area[0] * a * torch.abs(a)
             self.actions_tensor[:, idx, 1] += -coef * area[1] * b * torch.abs(b)
             self.actions_tensor[:, idx, 2] += -coef * area[2] * c * torch.abs(c)
