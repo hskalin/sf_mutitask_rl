@@ -47,9 +47,9 @@ goal_vel_lim: 5
 vel_lim: 5
 
 dim: 2
-episode_max_step: 200
+episode_max_step: 1000
 total_episodes: 25
-max_episode_length: 200
+max_episode_length: 1000
 # reward:
 #   success: 
 #     coeff": 1
@@ -81,16 +81,26 @@ blimp:
             [0, 0.15, 0],
             [0, 0.30, 0],
             [0, 0.15, 0],]
+  
+  drag_coef: [[0.3, 0.47, 0.47],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],]
 
 aero:
   wind_dirs: [1.0, 1.0, 0.25]
-  wind_mag: 1
+  wind_mag: 0
   wind_std: 0.3
 
 task:
-  init_vel:           False
-  rand_weights:       True
-  rand_vel_targets:   True
+  init_vel:           True
+  rand_weights:       False
+  rand_vel_targets:   False
 
   proximity_threshold: 2
 

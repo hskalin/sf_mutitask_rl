@@ -15,7 +15,7 @@ class Blimp(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
         self.num_obs = 21  #
-        self.num_act = 5  # 
+        self.num_act = 4  # 
         self.reset_dist = 10.0  # when to reset
         self.max_push_effort = 5.0  # the range of force applied to the blimp
 
@@ -26,6 +26,8 @@ class Blimp(VecEnv):
         self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
         self.drag_bodies = torch.tensor(cfg["blimp"]["drag_body_idxs"], device="cuda:0")
         self.body_areas = torch.tensor(cfg["blimp"]["areas"], device="cuda:0")
+        self.drag_coefs = torch.tensor(cfg["blimp"]["drag_coef"], device="cuda:0")
+        self.blimp_mass = cfg["blimp"]["mass"]
 
         super().__init__(cfg=cfg)
 
@@ -60,7 +62,6 @@ class Blimp(VecEnv):
         self.wind_mean = torch.zeros((self.num_envs,3), device="cuda:0")
 
         # blimp
-        self.blimp_mass = cfg["blimp"]["mass"]
         self.bouyancy = torch.zeros(self.num_envs, device="cuda:0")
 
         # initialise envs and state tensors
@@ -144,6 +145,7 @@ class Blimp(VecEnv):
             dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
             dof_props["stiffness"].fill(1000.0)
             dof_props["damping"].fill(500.0)
+
             self.gym.set_actor_dof_properties(env_ptr, blimp_handle, dof_props)
 
             envs.append(env_ptr)
@@ -236,8 +238,7 @@ class Blimp(VecEnv):
 
         # thrust
         self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
-        
-
+       
     def get_reward(self):
         # retrieve environment observations from buffer
         x = self.obs_buf[:, 7]
@@ -333,13 +334,15 @@ class Blimp(VecEnv):
         self.actions_tensor[:] = 0.0
         self.torques_tensor[:] = 0.0
 
-        # self._simulate_boyancy()
-        self.actions_tensor[:] = simulate_boyancy(self.rb_rot, self.bouyancy, self.actions_tensor)
-        self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(self.rb_rot, self.rb_avels, self.rb_lvels, self.wind_mean, self.wind_std, self.drag_bodies, self.body_areas, self.torques_tensor, self.actions_tensor)
+        self.actions_tensor[:, 3, 2] = 6 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 4, 2] = 6 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 7, 1] = 2 * actions[:, 1]
 
-        # self.actions_tensor[:, 3, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        # self.actions_tensor[:, 4, 2] = 1.5 * (actions[:, 0] + 1) / 2
-        # self.actions_tensor[:, 7, 1] = 1.5 * actions[:, 1]
+        self.actions_tensor[:] = simulate_boyancy(self.rb_rot, self.bouyancy, self.actions_tensor)
+
+        self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(self.rb_rot, self.rb_avels, self.rb_lvels, 
+                                                                               self.wind_mean, self.wind_std, self.drag_bodies, 
+                                                                               self.body_areas, self.drag_coefs, self.torques_tensor, self.actions_tensor)
 
         # EMA smoothing thrusts
         self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.ema_smooth + \
@@ -348,11 +351,11 @@ class Blimp(VecEnv):
         
         dof_targets = torch.zeros((self.num_envs, 5), device="cuda:0")
 
-        dof_targets[:, 0] = 2.0 * actions[:, 2]
-        dof_targets[:, 1] = 0.5 * actions[:, 3]
-        dof_targets[:, 4] = -0.5 * actions[:, 3]
-        dof_targets[:, 2] = 0.5 * actions[:, 4]
-        dof_targets[:, 3] = -0.5 * actions[:, 4]
+        dof_targets[:, 0] =  2.0 * actions[:, 2]
+        dof_targets[:, 1] =  0.5 * actions[:, 1]
+        dof_targets[:, 4] = -0.5 * actions[:, 1]
+        dof_targets[:, 2] =  0.5 * actions[:, 3]
+        dof_targets[:, 3] = -0.5 * actions[:, 3]
 
         # unwrap tensors
         dof_targets = gymtorch.unwrap_tensor(dof_targets)
@@ -374,55 +377,6 @@ class Blimp(VecEnv):
 
         self.get_obs()
         self.get_reward()
-
-    def _simulate_boyancy(self):
-        roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, 0, :])
-        xa, ya, za = globalToLocalRot(
-            roll,
-            pitch,
-            yaw,
-            torch.zeros_like(self.bouyancy),
-            torch.zeros_like(self.bouyancy),
-            self.bouyancy,
-        )
-        self.actions_tensor[:, 0, 0] = xa
-        self.actions_tensor[:, 0, 1] = ya
-        self.actions_tensor[:, 0, 2] = za
-
-    def _simulate_aerodynamics(self):
-        coef = 1
-        p = 1.29
-        BL4 = 270
-        D = (1 / 64) * p * coef * BL4
-        r, p, y = get_euler_xyz(self.rb_rot[:, 0, :])
-        a, b, c = globalToLocalRot(
-            r,
-            p,
-            y,
-            self.rb_avels[:, 0, 0],
-            self.rb_avels[:, 0, 1],
-            self.rb_avels[:, 0, 2],
-        )
-        self.torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
-        self.torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
-
-        # sample wind 
-        wind = torch.normal(mean=self.wind_mean, std=self.wind_std)
-
-        for i, idx in enumerate(self.drag_bodies):
-            r, p, y = get_euler_xyz(self.rb_rot[:, idx, :])
-            a, b, c = globalToLocalRot(
-                r,
-                p,
-                y,
-                self.rb_lvels[:, idx, 0] + wind[:,0],
-                self.rb_lvels[:, idx, 1] + wind[:,1],
-                self.rb_lvels[:, idx, 2] + wind[:,2],
-            )
-            area = self.body_areas[i]
-            self.actions_tensor[:, idx, 0] += -coef * area[0] * a * torch.abs(a)
-            self.actions_tensor[:, idx, 1] += -coef * area[1] * b * torch.abs(b)
-            self.actions_tensor[:, idx, 2] += -coef * area[2] * c * torch.abs(c)
 
     def _add_goal_lines(self, num_lines, line_colors, line_vertices, envs):
         num_lines += 2
@@ -587,9 +541,9 @@ def simulate_boyancy(rb_rot, bouyancy, actions_tensor):
     return actions_tensor
 
 @torch.jit.script 
-def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_bodies, body_areas, torques_tensor, actions_tensor):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
-    coef = 1
+def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_bodies, body_areas, drag_coefs, torques_tensor, actions_tensor):
+    # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    coef = 0.47
     p = 1.29
     BL4 = 270
     D = (1 / 64) * p * coef * BL4
@@ -618,9 +572,9 @@ def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_
         rb_lvels[:, drag_bodies, 2] + wind[:,2:3],
     )
     # area = body_areas[i]
-    actions_tensor[:, drag_bodies, 0] += -coef * body_areas[:, 0] * a * torch.abs(a)
-    actions_tensor[:, drag_bodies, 1] += -coef * body_areas[:, 1] * b * torch.abs(b)
-    actions_tensor[:, drag_bodies, 2] += -coef * body_areas[:, 2] * c * torch.abs(c)
+    actions_tensor[:, drag_bodies, 0] += - drag_coefs[:,0] * body_areas[:, 0] * a * torch.abs(a)
+    actions_tensor[:, drag_bodies, 1] += - drag_coefs[:,1] * body_areas[:, 1] * b * torch.abs(b)
+    actions_tensor[:, drag_bodies, 2] += - drag_coefs[:,2] * body_areas[:, 2] * c * torch.abs(c)
 
     return actions_tensor, torques_tensor
 
@@ -648,7 +602,7 @@ def compute_point_reward(
     reward = prox_x_rew_gauss
 
     # adjust reward for reset agents
-    reward = torch.where(z_abs < 1, torch.ones_like(reward) * -200.0, reward)
+    reward = torch.where(z_abs < 2, torch.ones_like(reward) * -200.0, reward)
     # reward = torch.where(torch.abs(x_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
     # reward = torch.where(torch.abs(y_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
     # reward = torch.where(torch.abs(wz) > 45, torch.ones_like(reward) * -200.0, reward)
@@ -660,6 +614,7 @@ def compute_point_reward(
     reset = torch.where(
         torch.abs(sqr_dist) > 9000, torch.ones_like(reset_buf), reset_buf
     )
+    reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
 
     # reset = torch.where(torch.abs(wz) > 70, torch.ones_like(reset_buf), reset)
     # reset = torch.where(torch.abs(wy) > 70, torch.ones_like(reset_buf), reset)
