@@ -5,6 +5,7 @@ import random
 import time
 from distutils.util import strtobool
 from env.wrapper.multiTask import MultiTaskEnv
+from common.util import AverageMeter
 
 import gym
 import wandb
@@ -92,6 +93,9 @@ class PPO_agent:
             self.agent.parameters(), lr=self.agent_cfg["learning_rate"], eps=1e-5
         )
 
+        self.game_rewards = AverageMeter(1, max_size=100).to("cuda:0")
+        self.game_lengths = AverageMeter(1, max_size=100).to("cuda:0")
+
         self._init_buffers()
         ###
 
@@ -178,8 +182,15 @@ class PPO_agent:
                 if done_ids.size()[0]:
                     # taking mean over all envs that are done at the
                     # current timestep
-                    episodic_return = torch.mean(episodeRet[done_ids].float()).item()
-                    episodic_length = torch.mean(episodeLen[done_ids].float()).item()
+                    # episodic_return = torch.mean(episodeRet[done_ids].float()).item()
+                    # episodic_length = torch.mean(episodeLen[done_ids].float()).item()
+
+                    self.game_rewards.update(episodeRet[done_ids])
+                    self.game_lengths.update(episodeLen[done_ids])
+
+                    episodic_return = self.game_rewards.get_mean() 
+                    episodic_length = self.game_lengths.get_mean()
+                    
                     print(
                         f"global_step={global_step}, episodic_return={episodic_return}"
                     )

@@ -593,15 +593,15 @@ def compute_point_reward(
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor,Tensor, Tensor,float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
 
-    sqr_dist = (x_pos) ** 2 + (y_pos) ** 2 + (z_pos) ** 2
+    sqr_dist = (z_pos) ** 2
 
-    prox_x_rew_gauss = torch.exp(-0.05 * sqr_dist)
+    prox_x_rew_gauss = (torch.exp(-0.01 * sqr_dist) + torch.exp(-0.4 * sqr_dist))/2
     # prox_x_rew = torch.where(sqr_dist > 2**2, prox_x_rew_gauss, 1)
 
     reward = prox_x_rew_gauss
 
     # adjust reward for reset agents
-    reward = torch.where(z_abs < 2, torch.ones_like(reward) * -200.0, reward)
+    reward = torch.where(z_abs < 2, torch.ones_like(reward) * -10.0, reward)
     # reward = torch.where(torch.abs(x_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
     # reward = torch.where(torch.abs(y_pos) > reset_dist, torch.ones_like(reward) * -200.0, reward)
     # reward = torch.where(torch.abs(wz) > 45, torch.ones_like(reward) * -200.0, reward)
