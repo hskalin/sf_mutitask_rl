@@ -17,9 +17,8 @@ class Blimp(VecEnv):
         self.num_obs = 21  #
         self.num_act = 4  # 
         self.reset_dist = 10.0  # when to reset
-        self.max_push_effort = 5.0  # the range of force applied to the blimp
 
-        self.ball_height = 8
+        self.spawn_height = cfg["task"].get("spawn_height", 15)
 
         # blimp parameters
         # smoothning factor for fan thrusts
@@ -38,7 +37,7 @@ class Blimp(VecEnv):
         self.goal_pos = torch.tile(
             torch.tensor(cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32),
             (self.num_envs, 1),)
-        self.goal_pos[..., 2] = self.ball_height
+        self.goal_pos[..., 2] = self.spawn_height
 
         self.goal_rot = torch.tile(
             torch.tensor(cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32),
@@ -125,7 +124,7 @@ class Blimp(VecEnv):
 
         # define blimp pose
         pose = gymapi.Transform()
-        pose.p.z = self.ball_height  # generate the blimp 1m from the ground
+        pose.p.z = self.spawn_height  # generate the blimp 1m from the ground
         pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         # generate environments
@@ -274,7 +273,7 @@ class Blimp(VecEnv):
         # randomise initial positions and velocities
         positions = (2*(torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device) - 0.5
             )*self.goal_lim)
-        positions[:, :, 2] = self.ball_height
+        positions[:, :, 2] += self.spawn_height
 
         velocities = (2*(torch.rand((len(env_ids), self.num_bodies, 6), device=self.sim_device) - 0.5
             )*self.vel_lim)
@@ -334,8 +333,8 @@ class Blimp(VecEnv):
         self.actions_tensor[:] = 0.0
         self.torques_tensor[:] = 0.0
 
-        self.actions_tensor[:, 3, 2] = 6 * (actions[:, 0] + 1) / 2
-        self.actions_tensor[:, 4, 2] = 6 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 3, 2] = 5 * (actions[:, 0] + 1) / 2
+        self.actions_tensor[:, 4, 2] = 5 * (actions[:, 0] + 1) / 2
         self.actions_tensor[:, 7, 1] = 2 * actions[:, 1]
 
         self.actions_tensor[:] = simulate_boyancy(self.rb_rot, self.bouyancy, self.actions_tensor)

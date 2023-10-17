@@ -42,7 +42,7 @@
 env_name: "Blimp"
 num_envs: 4
 
-goal_lim: 10
+goal_lim: 20
 goal_vel_lim: 5
 vel_lim: 5
 
@@ -101,6 +101,8 @@ task:
   init_vel:           True
   rand_weights:       False
   rand_vel_targets:   False
+
+  spawn_height: 15
 
   proximity_threshold: 2
 
