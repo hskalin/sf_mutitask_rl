@@ -593,7 +593,7 @@ def compute_point_reward(
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor,Tensor, Tensor,float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
 
-    sqr_dist = (z_pos) ** 2
+    sqr_dist = (x_pos)**2 + (y_pos)**2 + (z_pos) ** 2
 
     prox_x_rew_gauss = (torch.exp(-0.01 * sqr_dist) + torch.exp(-0.4 * sqr_dist))/2
     # prox_x_rew = torch.where(sqr_dist > 2**2, prox_x_rew_gauss, 1)
