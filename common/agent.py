@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from env.wrapper.multiTask import MultiTaskEnv
+from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
 
@@ -14,7 +14,6 @@ import wandb
 # )
 from common.vec_buffer import VectorizedReplayBuffer
 import os
-from common.feature import pm_feature
 from common.util import check_obs, check_act, dump_cfg, np2ts, to_batch, AverageMeter
 
 import itertools
@@ -32,11 +31,10 @@ class IsaacAgent:
         self.env_cfg = cfg["env"]
         self.agent_cfg = cfg["agent"]
         self.buffer_cfg = cfg["buffer"]
-
         self.device = cfg["rl_device"]
 
-        env_spec = MultiTaskEnv(env_cfg=self.env_cfg)
-        self.env, w, self.feature = env_spec.getEnv()
+        self.env, self.feature, self.task = multitaskenv_constructor(env_cfg=self.env_cfg, device=self.device)
+        assert self.feature.dim == self.task.dim, "feature and task dimension mismatch"
 
         self.n_env = self.env_cfg["num_envs"]
         self.env_max_steps = self.env_cfg["max_episode_length"] # eval steps
@@ -57,45 +55,6 @@ class IsaacAgent:
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
-
-        self.intervalWeightRand = 2
-
-        self.eslst = list(itertools.product([0, 1], repeat=self.feature_dim))
-        self.eslst.pop(0)  # remove all zero vector
-        self.minWeightVecs = 5
-
-        if self.env_cfg["task"]["task_w_randType"] == "permute":
-            self.weight_rews = torch.ones(len(self.eslst), device=self.device)
-        elif self.env_cfg["task"]["task_w_randType"] == "identity":
-            self.weight_rews = torch.ones(self.feature_dim, device=self.device)
-        elif self.env_cfg["task"]["task_w_randType"] == "achievable":
-            self.weight_rews = torch.ones(
-                len(self.env_cfg["task"]["task_wa"]), device=self.device
-            )
-        else:
-            raise ValueError(f'{self.env_cfg["task"]["task_w_randType"]} no implemented')
-        self.idx_perm = torch.multinomial(
-            self.weight_rews, self.n_env, replacement=True
-        )
-        if self.env_cfg["task"]["rand_weights"]:
-            # self.w_eval = torch.rand((self.n_env, self.feature_dim), device=self.device)
-            task_wa = torch.tensor(
-                self.env_cfg["task"]["task_wa"], device=self.device, dtype=torch.float32
-            )
-            weights = torch.ones(len(task_wa), device=self.device)
-            idx = torch.multinomial(weights, self.n_env, replacement=True)
-            self.w_eval = task_wa[idx]
-
-            self.randomizeTrainWeights()
-            # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-        else:
-            self.w_eval = torch.tile(w[1], (self.n_env, 1))  # [N, F]
-            self.w = torch.tile(w[0], (self.n_env, 1))
-
-        self.w /= self.w.norm(1, 1, keepdim=True)  # normalise weights
-        self.w_eval /= self.w_eval.norm(1, 1, keepdim=True)
-
-        print("eval weights:\n", self.w_eval)
 
         # TODO: implement prioritized exp replay
         self.per = self.buffer_cfg["prioritize_replay"]
@@ -141,147 +100,17 @@ class IsaacAgent:
             if self.steps > self.total_timesteps:
                 break
 
-    def randomizeTrainWeights(self):
-        randType = self.env_cfg["task"]["task_w_randType"]
-
-        if randType == "uniform":
-            self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-
-        elif randType == "permute":
-            es = torch.tensor(self.eslst, device=self.device, dtype=torch.float32)
-            # weights = torch.ones(len(self.eslst), device=self.device)
-            # idx = torch.multinomial(weights, self.n_env, replacement=True)
-            # self.w = es[idx]
-            if self.env_cfg["task"]["task_w_randAdaptive"]:
-                self.weight_rews /= torch.bincount(self.idx_perm)
-            print("weight rewards=", self.weight_rews)
-            self.idx_perm = torch.multinomial(
-                1 / self.weight_rews**2, self.n_env, replacement=True
-            )
-
-            # ensure that all task_w are in idx
-            for i in range(len(self.eslst)):
-                if i not in self.idx_perm:
-                    self.idx_perm[i] = i
-
-            print("counts        =", torch.bincount(self.idx_perm))
-
-            self.w = es[self.idx_perm]
-
-            # reset
-            self.weight_rews = torch.ones(len(self.eslst), device=self.device)
-
-        elif randType == "identity":
-            identity = torch.eye(self.feature_dim, device=self.device)
-            # weights = torch.ones(len(identity), device=self.device)
-            if self.env_cfg["task"]["task_w_randAdaptive"]:
-                self.weight_rews /= torch.bincount(self.idx_perm)
-            print("weight rewards=", self.weight_rews)
-            self.idx_perm = torch.multinomial(
-                1 / self.weight_rews**2, self.n_env, replacement=True
-            )
-
-            # ensure that all task_w are in idx
-            for i in range(self.feature_dim):
-                if i not in self.idx_perm:
-                    self.idx_perm[i] = i
-
-            print("counts        =", torch.bincount(self.idx_perm))
-
-            self.w = identity[self.idx_perm]
-
-            # reset
-            self.weight_rews = torch.ones(len(identity), device=self.device)
-
-        elif randType == "achievable":
-            task_wa = torch.tensor(
-                self.env_cfg["task"]["task_wa"], device=self.device, dtype=torch.float32
-            )
-            # weights = torch.ones(len(task_wa), device=self.device)
-            # idx = torch.multinomial(weights, self.n_env, replacement=True)
-            # self.w = task_wa[idx]
-            if self.env_cfg["task"]["task_w_randAdaptive"]:
-                self.weight_rews /= torch.bincount(self.idx_perm)
-            print("weight rewards=", self.weight_rews)
-            self.idx_perm = torch.multinomial(
-                1 / self.weight_rews**2, self.n_env, replacement=True
-            )
-
-            # ensure that all task_w are in idx
-            for i in range(len(task_wa)):
-                if i not in self.idx_perm:
-                    self.idx_perm[i] = i
-
-            print("counts        =", torch.bincount(self.idx_perm))
-
-            self.w = task_wa[self.idx_perm]
-
-            # reset
-            self.weight_rews = torch.ones(len(task_wa), device=self.device)
-
-        elif randType == "single":
-            task_ws = torch.tensor(
-                self.env_cfg["task"]["task_ws"], device=self.device, dtype=torch.float32
-            )
-            weights = torch.ones(len(task_ws), device=self.device)
-            idx = torch.multinomial(weights, self.n_env, replacement=True)
-            self.w = task_ws[idx]
-        else:
-            raise NotImplementedError(f"{randType} is not implemented")
-
-        self.w = self.w / self.w.norm(1, 1, keepdim=True)
-
-    # def smartRandWeights(self, epiFeat):
-    #     es_rews = []
-    #     for es in self.eslst:
-    #         es_rews.append(
-    #             torch.sum(epiFeat * torch.tensor(es, device=self.device)).item()
-    #         )
-
-    #     print(epiFeat, "\n\n")
-    #     print(es_rews)
-
-    #     sortedIndices = sorted(
-    #         range(len(es_rews)), key=lambda k: es_rews[k], reverse=True
-    #     )
-
-    #     updatedEslst = []
-    #     for i in range(int(0.9 * len(self.eslst))):
-    #         updatedEslst.append(self.eslst[sortedIndices[i]])
-
-    #     self.eslst = updatedEslst
-    #     print(updatedEslst)
-
-    #     es = torch.tensor(self.eslst, device=self.device)
-    #     weights = torch.ones(len(self.eslst), device=self.device)
-    #     idx = torch.multinomial(weights, self.n_env, replacement=True)
-    #     self.w[:] = es[idx]
-
-    #     self.w = self.w / self.w.norm(1, 1, keepdim=True)
-
     def train_episode(self, gui_app=None, gui_rew=None):
         self.episodes += 1
         episode_r = episode_steps = 0
         done = False
 
         print("episode = ", self.episodes)
-
-        if (self.episodes - 1) % self.intervalWeightRand == 0:
-            if (self.env_cfg["mode"] == "train") and (
-                self.env_cfg["task"]["rand_weights"]
-            ):
-                # self.w = torch.rand((self.n_env, self.feature_dim), device=self.device)
-                # self.randomizeTrainWeights()
-                # if len(self.eslst) > self.minWeightVecs:
-                #     self.smartRandWeights(episodicFeature)
-
-                self.randomizeTrainWeights()
-
-        print(self.w[0])
+        self.task.randTask(self.episodes)
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
-            a = self.act(s, self.w)
+            a = self.act(s, self.task.wTrain)
 
             self.env.step(a)
             done = self.env.reset_buf.clone()
@@ -292,7 +121,7 @@ class IsaacAgent:
             s_next = self.env.obs_buf.clone()
             self.env.reset()
 
-            r = self.calc_reward(s_next, self.w)
+            r = self.calc_reward(s_next, self.task.wTrain)
 
             # call gui update loop
             if gui_app:
@@ -322,10 +151,7 @@ class IsaacAgent:
             if episode_steps >= self.episode_max_step:
                 break
 
-        if self.env_cfg["task"]["task_w_randAdaptive"]:
-            self.weight_rews = self.weight_rews.index_add(
-                dim=0, index=self.idx_perm, source=episode_r
-            )
+        self.task.adapt_task(episode_r)
 
         wandb.log({"reward/train": self.game_rewards.get_mean()})
         wandb.log({"length/train": self.game_lengths.get_mean()})
@@ -368,12 +194,12 @@ class IsaacAgent:
 
             s = self.reset_env()
             for _ in range(self.env_max_steps):
-                a = self.act(s, self.w_eval, "exploit")
+                a = self.act(s, self.task.wEval, "exploit")
                 self.env.step(a)
                 s_next = self.env.obs_buf.clone()
                 self.env.reset()
 
-                r = self.calc_reward(s_next, self.w_eval)
+                r = self.calc_reward(s_next, self.task.wEval)
 
                 s = s_next
                 episode_r += r

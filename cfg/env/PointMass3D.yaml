@@ -33,9 +33,10 @@ task:
 feature:
   type: "regular"
   pos_index: 3
-  simple: [True, False, False, False, False, False, False]
-  regular: [True, False, False, True, False, False, True]
-  augment: [True, True, True, True, False, False, True]
+  use_feature: [True, False, False, True, False, False, True]
+  # simple: [True, False, False, False, False, False, False]
+  # regular: [True, False, False, True, False, False, True]
+  # augment: [True, True, True, True, False, False, True]
   
 sim:
   sim_device: "cuda:0"

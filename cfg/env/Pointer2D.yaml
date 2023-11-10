@@ -91,7 +91,7 @@ task:
 feature:
   pos_index: 3    # pos start index in obs space
   type: "regular"
-  regular: [True, True, True, True, True]
+  use_feature: [True, True, True, True, True]
 
   
 sim:

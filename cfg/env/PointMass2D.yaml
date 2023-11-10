@@ -48,10 +48,8 @@ task:
             [0, 0, 0, 1, 1]]
 
 feature:
-  type: "regular"
   pos_index: 0
-  regular: [True, True, True, True]
-  #regular: [True, True, False, False]
+  use_feature: [True, True, True, True] #[position norm, velocity error, velocity norm, proximity to goal] 
   
 sim:
   sim_device: "cuda:0"
