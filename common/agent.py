@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import datetime
 import warnings
 from pathlib import Path
@@ -16,8 +17,6 @@ from common.vec_buffer import VectorizedReplayBuffer
 import os
 from common.util import check_obs, check_act, dump_cfg, np2ts, to_batch, AverageMeter
 
-import itertools
-
 warnings.simplefilter("once", UserWarning)
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 exp_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -26,18 +25,32 @@ task_path = os.path.dirname(os.path.realpath(__file__)) + "/.."
 log_path = task_path + "/../log/"
 
 
-class IsaacAgent:
-    def __init__(self, cfg):
+class AbstractAgent(ABC):
+    @abstractmethod
+    def act(self, s):
+        pass
+
+    @abstractmethod
+    def step(self):
+        pass
+
+
+class IsaacAgent(AbstractAgent):
+    def __init__(self, cfg) -> None:
+        super().__init__()
+
         self.env_cfg = cfg["env"]
         self.agent_cfg = cfg["agent"]
         self.buffer_cfg = cfg["buffer"]
         self.device = cfg["rl_device"]
 
-        self.env, self.feature, self.task = multitaskenv_constructor(env_cfg=self.env_cfg, device=self.device)
+        self.env, self.feature, self.task = multitaskenv_constructor(
+            env_cfg=self.env_cfg, device=self.device
+        )
         assert self.feature.dim == self.task.dim, "feature and task dimension mismatch"
 
         self.n_env = self.env_cfg["num_envs"]
-        self.env_max_steps = self.env_cfg["max_episode_length"] # eval steps
+        self.env_max_steps = self.env_cfg["max_episode_length"]  # eval steps
         self.episode_max_step = self.env_cfg["episode_max_step"]
         self.log_interval = self.env_cfg["log_interval"]
         self.total_episodes = int(self.env_cfg["total_episodes"])
@@ -55,9 +68,6 @@ class IsaacAgent:
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
-
-        # TODO: implement prioritized exp replay
-        self.per = self.buffer_cfg["prioritize_replay"]
 
         self.replay_buffer = VectorizedReplayBuffer(
             self.observation_shape,
@@ -97,6 +107,12 @@ class IsaacAgent:
     def run(self):
         while True:
             self.train_episode()
+
+            if self.eval and (self.episodes % self.eval_interval == 0):
+                self.evaluate()
+                if self.save_model:
+                    self.save_torch_model()
+
             if self.steps > self.total_timesteps:
                 break
 
@@ -106,39 +122,16 @@ class IsaacAgent:
         done = False
 
         print("episode = ", self.episodes)
-        self.task.randTask(self.episodes)
+        self.task.rand_task(self.episodes)
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
-            a = self.act(s, self.task.wTrain)
-
-            self.env.step(a)
-            done = self.env.reset_buf.clone()
-
             # episodeRet = self.env.return_buf.clone()
             episodeLen = self.env.progress_buf.clone()
 
-            s_next = self.env.obs_buf.clone()
-            self.env.reset()
-
-            r = self.calc_reward(s_next, self.task.wTrain)
-
-            # call gui update loop
-            if gui_app:
-                gui_app.update_idletasks()
-                gui_app.update()
-                self.avgStepRew.update(r)
-                gui_rew.set(self.avgStepRew.get_mean())
-
-            masked_done = False if episode_steps >= self.episode_max_step else done
-            self.save_to_buffer(s, a, r, s_next, done, masked_done)
-
-            if self.is_update():
-                for _ in range(self.updates_per_step):
-                    self.learn()
+            s_next, r, done = self.step(episode_steps, s)
 
             s = s_next
-
             self.steps += self.n_env
             episode_steps += 1
             episode_r += r
@@ -148,16 +141,39 @@ class IsaacAgent:
                 self.game_rewards.update(episode_r[done_ids])
                 self.game_lengths.update(episodeLen[done_ids])
 
+            # call gui update loop
+            if gui_app:
+                gui_app.update_idletasks()
+                gui_app.update()
+                self.avgStepRew.update(r)
+                gui_rew.set(self.avgStepRew.get_mean())
+
             if episode_steps >= self.episode_max_step:
                 break
-
-        self.task.adapt_task(episode_r)
 
         wandb.log({"reward/train": self.game_rewards.get_mean()})
         wandb.log({"length/train": self.game_lengths.get_mean()})
 
-        if self.eval and (self.episodes % self.eval_interval == 0):
-            self.evaluate()
+        return episode_r, episode_steps
+
+    def step(self, episode_steps, s):
+        a = self.act(s, self.task.Train.W)
+
+        self.env.step(a)
+        done = self.env.reset_buf.clone()
+        s_next = self.env.obs_buf.clone()
+        self.env.reset()
+
+        r = self.calc_reward(s_next, self.task.Train.W)
+
+        masked_done = False if episode_steps >= self.episode_max_step else done
+        self.save_to_buffer(s, a, r, s_next, done, masked_done)
+
+        if self.is_update():
+            for _ in range(self.updates_per_step):
+                self.learn()
+
+        return s_next, r, done
 
     def is_update(self):
         return (
@@ -194,12 +210,12 @@ class IsaacAgent:
 
             s = self.reset_env()
             for _ in range(self.env_max_steps):
-                a = self.act(s, self.task.wEval, "exploit")
+                a = self.act(s, self.task.Eval.W, "exploit")
                 self.env.step(a)
                 s_next = self.env.obs_buf.clone()
                 self.env.reset()
 
-                r = self.calc_reward(s_next, self.task.wEval)
+                r = self.calc_reward(s_next, self.task.Eval.W)
 
                 s = s_next
                 episode_r += r
@@ -208,9 +224,6 @@ class IsaacAgent:
 
         print(f"===== finish evaluate ====")
         wandb.log({"reward/eval": torch.mean(returns).item()})
-
-        if self.save_model:
-            self.save_torch_model()
 
     def act(self, s, w, mode="explore"):
         if (self.steps <= self.min_n_experience) and mode == "explore":
@@ -253,3 +266,19 @@ class IsaacAgent:
 
     def load_torch_model(self):
         raise NotImplementedError
+
+
+class RainbowAgent(IsaacAgent):
+    def __init__(self, cfg) -> None:
+        super().__init__(cfg)
+
+        # TODO: implement prioritized exp replay
+        self.per = self.buffer_cfg["prioritize_replay"]
+
+        self.adaptive_task =  self.env_cfg["task"]["adaptive_task"]
+
+    def train_episode(self, gui_app=None, gui_rew=None):
+        episode_r, episode_steps = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
+
+        if self.adaptive_task:
+            self.task.adapt_task(episode_r)

@@ -26,7 +26,9 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
 task:
-  rand_weights:       True
+  verbose: True
+
+  rand_task:       True
   rand_vel_targets:   True
 
   proximity_threshold: 2
@@ -37,14 +39,14 @@ task:
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
-  task_w:      [1, 0, 0.2, 0.5, 0.0]  # |px|, |py|, |v|, |ang|, |angvel|
-  task_w_eval: [0, 0, 0, 1, 0]
+  task_wTrain:      [1, 0, 0.2, 0.5, 0.0]  # |px|, |py|, |v|, |ang|, |angvel|
+  task_wEval: [0, 0, 0, 1, 0]
 
   # can be "uniform", "permute", "identity", "achievable", "single"
-  task_w_randType: "achievable"
-  task_w_randAdaptive: True
+  rand_method: "achievable"
+  adaptive_task: True
   # set of achievable task weights
-  task_wa:   [[1,0,0,0,0],
+  taskSet_achievable:   [[1,0,0,0,0],
               [0,1,0,0,0],
               [0,0,1,0,0],
               [0,0,0,1,0],
@@ -86,11 +88,11 @@ task:
   #           [0,0,1,1,0],
   #           [0,0,1,0,1]]
 
-  task_ws: [[1,1,0,0,0]]
+  taskSet_single: [[1,1,0,0,0]]
 
 feature:
+  verbose: True
   pos_index: 3    # pos start index in obs space
-  type: "regular"
   use_feature: [True, True, True, True, True]
 
   

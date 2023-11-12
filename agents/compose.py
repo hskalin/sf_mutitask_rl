@@ -38,7 +38,7 @@ class CompositionAgent(IsaacAgent):
 
         if self.agent_cfg.get("augmentHeads", True):
             self.pseudo_w = torch.tensor(
-                self.env_cfg["task"]["task_wa"], device="cuda:0", dtype=torch.float32
+                self.env_cfg["task"]["taskSet_achievable"], device="cuda:0", dtype=torch.float32
             )
         else:
             self.pseudo_w = torch.eye(self.feature_dim).to(self.device)  # base tasks

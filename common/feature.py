@@ -119,8 +119,11 @@ class PointerFeature(FeatureAbstract):
         super().__init__()
 
         self.env_cfg = env_cfg
+        self.feature_cfg = self.env_cfg["feature"]
+        self.device = device
 
         self.use_feature = self.feature_cfg["use_feature"]
+        self.verbose = self.feature_cfg.get("verbose", False)
         
         self.envdim = int(self.env_cfg["dim"])
         self.Kp = torch.tensor(self.env_cfg["goal_lim"], dtype= torch.float64, device=device)

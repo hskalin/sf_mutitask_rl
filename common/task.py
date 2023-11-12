@@ -1,153 +1,134 @@
 from abc import ABC, abstractmethod
 import torch
 import itertools
+from dataclasses import dataclass
 
 
-class TaskAbstraction(ABC):
-    @abstractmethod
-    def define_task(self):
-        """define task weight"""
-        pass
-
-
-class SmartTask(TaskAbstraction):
-    def __init__(self, env_cfg, device) -> None:
-        super().__init__()
-
-        self.env_cfg = env_cfg
-        self.task_cfg = self.env_cfg["task"]
+class TaskObject:
+    def __init__(self, initW, n_env, randTasks, randMethod, task_cfg, device) -> None:
+        self.n_env = n_env
+        self.randTasks = randTasks
+        self.randMethod = randMethod
+        self.task_cfg = task_cfg
         self.device = device
 
-        self.verbose = self.task_cfg.get("verbose", False)
-        self.n_env = self.env_cfg["num_envs"]
-        self.use_feature = self.env_cfg["feature"]["use_feature"]
+        self.initW = torch.tensor(initW, device=self.device, dtype=torch.float32)
+        self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
+        self.dim = int(self.initW.shape[0])
 
-        env_dim = self.env_cfg["dim"]
-        init_wTrain = self.task_cfg["task_w"]
-        self.init_wTrain = self.define_task(self.use_feature, env_dim, init_wTrain)
-        self.init_wTrain = torch.tensor(
-            self.init_wTrain, device="cuda:0", dtype=torch.float32
-        )
-        self.dim = int(self.init_wTrain.shape[0])
+        if self.randTasks:
+            if self.randMethod != "uniform":
+                self.taskSet = self.define_taskSet(self.randMethod)
+                self.reset_taskRatio()
+            self.W = self.sample_tasks()
 
-        init_wEval = self.task_cfg["task_w_eval"]
-        self.init_wEval = self.define_task(self.use_feature, env_dim, init_wEval)
-        self.init_wEval = torch.tensor(
-            self.init_wEval, device="cuda:0", dtype=torch.float32
-        )
-
-        # /////////////////////////////////////////
-        self.randMethod = self.task_cfg.get("task_w_randType", "permute")
-        self.intervalWeightRand = self.task_cfg.get("intervalWeightRand", 2)
-        # self.minWeightVecs = 5
-
-        self.idx_envTask = self.uniformRand_taskSet(self.randMethod)
-        self.task_ratio = torch.ones(len(self.get_taskSet(self.randMethod)), device=self.device)
-
-        if self.task_cfg["rand_weights"]:
-            self.wEval = self.uniformRand_taskSet("achievable") # [N, F]
-            self.wEval = self.normalize_task(self.wEval)
-            self.randTrainTask() 
-        else:
-            self.wEval = torch.tile(self.init_wEval, (self.n_env, 1))  # [N, F]
-            self.wEval = self.normalize_task(self.wEval)
-            self.wTrain = torch.tile(self.init_wTrain, (self.n_env, 1))
-            self.wTrain = self.normalize_task(self.wTrain)
-
-        if self.verbose:
-            print("[Task] evaluation task:\n", self.wEval)
-
-    def define_task(self):
-        """define task weight"""
-        NotImplementedError
-
-    def randTask(self, episodes):
-        if (
-            ((episodes - 1) % self.intervalWeightRand == 0)
-            and (self.env_cfg["mode"] == "train")
-            and (self.task_cfg["rand_weights"])
-        ):
-            self.randTrainTask()
-
-        if self.verbose:
-            print("[Task] w_train[0]: ", self.wTrain[0])
-
-    def uniformRand_taskSet(self, method):
-        taskLst = self.get_taskSet(method)
-        taskTensor = torch.tensor(taskLst, device=self.device, dtype=torch.float32)
-        idx_envTask = self.uniform_sample_tasks(taskLst)
-        return taskTensor[idx_envTask]
-
-    def get_taskSet(self, randMethod):
+    def define_taskSet(self, randMethod):
         if randMethod == "permute":
-            taskLst = list(itertools.product([0, 1], repeat=self.dim))
-            taskLst.pop(0)  # remove all zero vector
+            taskSet = list(itertools.product([0, 1], repeat=self.dim))
+            taskSet.pop(0)  # remove all zero vector
         elif randMethod == "identity":
-            taskLst = [
+            taskSet = [
                 [1 if i == j else 0 for j in range(self.dim)] for i in range(self.dim)
             ]
         elif randMethod == "achievable":
-            taskLst = self.task_cfg["task_wa"]
+            taskSet = self.task_cfg["taskSet_achievable"]
         elif randMethod == "single":
-            taskLst = self.task_cfg["task_ws"]
+            taskSet = self.task_cfg["taskSet_single"]
         else:
-            raise ValueError(f"{randMethod} no implemented")
-        return taskLst
+            raise ValueError(f"Warning: {randMethod} is not implemented")
+        return torch.tensor(taskSet, dtype=torch.float32 ,device=self.device)
 
-    def uniform_sample_tasks(self, taskLst):
-        n_task=len(taskLst)
-        task_ratio = torch.ones(n_task, device=self.device)
-        idx_envTask = self.sample_task(task_ratio)
-        return idx_envTask
+    def sample_tasks(self):
+        if self.randMethod == "uniform":
+            tasks = torch.rand((self.n_env, self.dim), device=self.device)
+        else:
+            id = self.sample_taskID(self.taskRatio)
 
-    def sample_task(self, ratio):
-        """sample tasks based on their ratio"""
-        return torch.multinomial(ratio, self.n_env, replacement=True)
+            # ensure that all task are in id
+            for i in range(len(self.taskSet)):
+                if i not in id:
+                    id[i] = i
+
+            self.update_id(id)
+            tasks = self.taskSet[id]
+
+        return self.normalize_task(tasks)
+
+    def update_id(self, id):
+        self.id = id
 
     def normalize_task(self, w):
         return w / w.norm(1, 1, keepdim=True)
 
-    def adapt_task(self, episode_r):
-        if self.task_cfg["task_w_randAdaptive"]:
-            self.task_ratio = self.task_ratio.index_add(
-                dim=0, index=self.idx_envTask, source=episode_r.float()
-            )
+    def sample_taskID(self, ratio):
+        """sample tasks based on their ratio"""
+        return torch.multinomial(ratio, self.n_env, replacement=True)
 
-    def randTrainTask(self):
-        if self.randMethod == "single":
-            wTrain = self.uniformRand_taskSet(self.randMethod)
+    def reset_taskRatio(self):
+        self.taskRatio = torch.ones(len(self.taskSet), device=self.device)/len(self.taskSet)
 
-        elif self.randMethod == "permute" or "identity" or "achievable":
-            taskLst = self.get_taskSet(self.randMethod)
-            taskTensor = torch.tensor(taskLst, device=self.device, dtype=torch.float32)
 
-            if self.task_cfg["task_w_randAdaptive"]:
-                task_ratio = self.task_ratio/ torch.bincount(self.idx_envTask)
+class SmartTask:
+    def __init__(self, env_cfg, device) -> None:
+        self.env_cfg = env_cfg
+        self.task_cfg = self.env_cfg["task"]
+        self.device = device
+        self.verbose = self.task_cfg.get("verbose", False)
+        
+        self.n_env = self.env_cfg["num_envs"]
+        use_feature = self.env_cfg["feature"]["use_feature"]
+        env_dim = self.env_cfg["dim"]
+        self.randTasks = self.task_cfg.get("rand_task", False)
+        self.randMethod = self.task_cfg.get("rand_method", None)
+        self.adaptiveTask = self.task_cfg.get("adaptive_task", False)
+        self.intervalWeightRand = self.task_cfg.get("intervalWeightRand", 2)
 
-            self.idx_envTask = self.sample_task(ratio=1 / task_ratio**2)
+        wTrain = self.define_task(use_feature, env_dim, self.task_cfg["task_wTrain"])
+        wEval = self.define_task(use_feature, env_dim, self.task_cfg["task_wEval"])
+        # self.minWeightVecs = 5
 
-            # ensure that all task_w are in idx
-            for i in range(len(taskLst)):
-                if i not in self.idx_envTask:
-                    self.idx_envTask[i] = i
+        self.Train = TaskObject(
+            wTrain, self.n_env, self.randTasks, self.randMethod, self.task_cfg, device
+        )
+        self.Eval = TaskObject(
+            wEval, self.n_env, self.randTasks, "achievable", self.task_cfg, device
+        )
+        self.dim = int(self.Train.dim)
 
-            wTrain = taskTensor[self.idx_envTask]
+        if self.verbose:
+            print("[Task] evaluation task:\n", self.Eval.W)
+
+    def define_task(self):
+        """define initial task weight as a vector"""
+        NotImplementedError
+
+    def rand_task(self, episodes):
+        if (
+            ((episodes - 1) % self.intervalWeightRand == 0)
+            and (self.env_cfg["mode"] == "train")
+            and (self.randTasks)
+        ):
+            self.Train.sample_tasks()
 
             if self.verbose:
-                print("[Task] task ratio: ", task_ratio)
-                print("[Task] counts: ", torch.bincount(self.idx_envTask))
+                print("[Task] Train.W[0]: ", self.Train.W[0])
+                print("[Task] task ratio: ", self.Train.taskRatio)
+                print("[Task] counts: ", torch.bincount(self.Train.id))
 
-            # # reset
-            # self.task_ratio = torch.ones(len(taskLst), device=self.device)
+            # self.Train.reset_taskRatio()
 
-        else:  # uniform random
-            wTrain = torch.rand((self.n_env, self.dim), device=self.device)
+    def adapt_task(self, episode_r):
+        """update task ratio based on reward, e.g. the more reward the less likely for a task to be sampled"""
+        task_performance = self.Train.taskRatio.index_add(
+            dim=0, index=self.Train.id, source=episode_r.float()
+        )/torch.bincount(self.Train.id)
+        new_ratio = task_performance**-1
+        self.Train.taskRatio = new_ratio/new_ratio.norm(1,keepdim=True)
 
-        self.wTrain = self.normalize_task(wTrain)
 
 class PointMassTask(SmartTask):
-    def __init__(self, env_cfg) -> None:
-        super().__init__(env_cfg)
+    def __init__(self, env_cfg, device) -> None:
+        super().__init__(env_cfg, device)
 
     def define_task(self, c, dim, w):
         w_pos_norm = c[0] * [w[0]]
@@ -158,8 +139,8 @@ class PointMassTask(SmartTask):
 
 
 class PointerTask(SmartTask):
-    def __init__(self, env_cfg) -> None:
-        super().__init__(env_cfg)
+    def __init__(self, env_cfg, device) -> None:
+        super().__init__(env_cfg, device)
 
     def define_task(self, c, d, w):
         w_px = c[0] * [w[0]]

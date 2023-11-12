@@ -22,7 +22,9 @@ record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
 task:
-  rand_weights:      True
+  verbose: True
+
+  rand_task:      True
   rand_vel_targets:  True
 
   proximity_threshold: 3
@@ -31,15 +33,15 @@ task:
   target_pos:       [0, 0, 2] # x, y
   target_vel:       [0, 0, 0] # vx, vy, vz
 
-  task_w:      [0, 0, 0.2, 1]  # |p|, v, |v|, prox
-  task_w_eval: [0, 0, 0.2, 1]
+  task_wTrain:      [0, 0, 0.2, 1]  # |p|, v, |v|, prox
+  task_wEval: [0, 0, 0.2, 1]
 
   # can be "uniform", "permute", "identity", "achievable"
-  task_w_randType: "achievable"
-  task_w_randAdaptive: True
+  rand_method: "achievable"
+  adaptive_task: True
 
   # set of achievable task weights
-  task_wa: [[1, 0, 0, 0, 0],
+  taskSet_achievable: [[1, 0, 0, 0, 0],
             [0, 1, 1, 0, 0], 
             [0, 1, 0, 0, 0], 
             [0, 0, 1, 0, 0],
@@ -48,6 +50,7 @@ task:
             [0, 0, 0, 1, 1]]
 
 feature:
+  verbose: True
   pos_index: 0
   use_feature: [True, True, True, True] #[position norm, velocity error, velocity norm, proximity to goal] 
   
