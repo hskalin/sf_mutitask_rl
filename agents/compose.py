@@ -18,7 +18,7 @@ from torch.optim import Adam
 import numpy as np
 
 
-class CompositionAgent(IsaacAgent):
+class CompositionAgent(RainbowAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 

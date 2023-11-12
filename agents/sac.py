@@ -2,13 +2,13 @@ import torch
 from torch.optim import Adam
 
 import wandb
-from common.agent import IsaacAgent
+from common.agent import RainbowAgent
 from common.policy import GaussianPolicy
 from common.util import grad_false, hard_update, soft_update, update_params
 from common.value_function import TwinnedQNetwork
 
 
-class SACAgent(IsaacAgent):
+class SACAgent(RainbowAgent):
     """SAC
     Tuomas Haarnoja, Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
     see https://github.com/haarnoja/sac/blob/master/sac/algos/sac.py
