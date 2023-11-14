@@ -115,8 +115,6 @@ class SmartTask:
                 print("[Task] task ratio: ", self.Train.taskRatio)
                 print("[Task] counts: ", torch.bincount(self.Train.id))
 
-            # self.Train.reset_taskRatio()
-
     def adapt_task(self, episode_r):
         """update task ratio based on reward, e.g. the more reward the less likely for a task to be sampled"""
         task_performance = self.Train.taskRatio.index_add(

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 import wandb
-from common.agent import IsaacAgent
+from common.agent import IsaacAgent, RainbowAgent
 from common.policy import MultiheadGaussianPolicy
 from common.util import (
     grad_false,

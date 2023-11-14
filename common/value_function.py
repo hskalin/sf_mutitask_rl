@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from .util import check_obs, np2ts
 from rltorch.network import create_linear_network
+from .activation import FTA
 
 
 class BaseNetwork(nn.Module):
@@ -198,8 +199,9 @@ class MultiheadSFNetwork(SFNetwork):
         n_heads,
         sizes=[64, 64],
         activation="selu",
-        layernorm=False,
+        layernorm=True,
         droprate=0,
+        fuzzytiling=True,
         initializer="xavier",
     ) -> None:
         super().__init__(
@@ -213,7 +215,8 @@ class MultiheadSFNetwork(SFNetwork):
             initializer,
         )
         self.n_heads = n_heads
-
+        self.fuzzytiling = fuzzytiling
+        
         self.SF = create_linear_network(
             self.observation_dim + self.action_dim,
             self.feature_dim * self.n_heads,
@@ -224,13 +227,24 @@ class MultiheadSFNetwork(SFNetwork):
 
         new_sf_networks = []
         for i, mod in enumerate(self.SF._modules.values()):
-            new_sf_networks.append(mod)
+            if self.fuzzytiling and (i == (len(list(self.SF._modules.values()))) - 2):
+                # add FTA as activation function to the last layer
+                self.fta = FTA()
+                last_mod = self.SF._modules[f"{i+1}"]
+                new_last_mod = nn.Linear(last_mod.in_features*self.fta.nbins, last_mod.out_features)
+                new_sf_networks.append(self.fta)
+                new_sf_networks.append(new_last_mod)
+                break
+            else:
+                new_sf_networks.append(mod)
             if ((i % 2) == 0) and (i < (len(list(self.SF._modules.values()))) - 1):
                 if self.droprate > 0.0:
                     new_sf_networks.append(nn.Dropout(p=droprate))  # dropout
                 if self.layernorm:
                     new_sf_networks.append(nn.LayerNorm(mod.out_features))  # layer norm
+
             i += 1
+            
         self.SF = nn.Sequential(*new_sf_networks)
 
     def forward(self, observations, actions):
@@ -253,6 +267,7 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
         activation="selu",
         layernorm=False,
         droprate=0,
+        fuzzytiling=False,
         initializer="xavier",
     ):
         super().__init__()
@@ -266,6 +281,7 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
             activation,
             layernorm,
             droprate,
+            fuzzytiling,
             initializer,
         )
         self.SF2 = MultiheadSFNetwork(
@@ -277,6 +293,7 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
             activation,
             layernorm,
             droprate,
+            fuzzytiling,
             initializer,
         )
 

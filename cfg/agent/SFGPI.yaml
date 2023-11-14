@@ -15,8 +15,10 @@ value_net_kwargs:
     activation: "relu"
     layernorm: True
     droprate: 0.0
+    fuzzytiling: True
 policy_net_kwargs: 
     sizes: [128, 128]
-    layernorm: False
+    layernorm: True
+    fuzzytiling: True
 
 augmentHeads: True

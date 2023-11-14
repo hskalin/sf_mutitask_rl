@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .activation import FTA
 from .util import get_sa_pairs
 from .distribution import GaussianMixture
 import numpy as np
@@ -122,6 +123,7 @@ class GaussianPolicy(BaseNetwork):
         squash=True,
         activation=nn.SiLU,
         layernorm=False,
+        fuzzytiling=False,
     ):
         super(GaussianPolicy, self).__init__()
 
@@ -140,6 +142,11 @@ class GaussianPolicy(BaseNetwork):
         if self.layernorm:
             self.ln1 = nn.LayerNorm(self.sizes[0])
             self.ln2 = nn.LayerNorm(self.sizes[1])
+        
+        self.fuzzytiling=fuzzytiling
+        if self.fuzzytiling:
+            self.fta = FTA()
+            self.fc3 = nn.Linear(sizes[1]*self.fta.nbins,  self.action_dim * 2)
 
         self.apply(self._init_weights)
         nn.init.xavier_uniform_(self.fc3.weight, 0.001)
@@ -163,9 +170,12 @@ class GaussianPolicy(BaseNetwork):
         return actions, entropy, means
 
     def _forward_hidden(self, obs):
-        if self.layernorm:
+        if self.layernorm and not self.fuzzytiling:
             x = self.activ(self.ln1(self.fc1(obs)))
             x = self.activ(self.ln2(self.fc2(x)))
+        elif self.layernorm and self.fuzzytiling:
+            x = self.activ(self.ln1(self.fc1(obs)))
+            x = self.fta(self.ln2(self.fc2(x)))
         else:
             x = self.activ(self.fc1(obs))
             x = self.activ(self.fc2(x))
@@ -205,15 +215,16 @@ class MultiheadGaussianPolicy(GaussianPolicy):
         squash=True,
         activation=nn.SiLU,
         layernorm=False,
+        fuzzytiling=False, # apply normalization and fuzzy tiling 
     ):
         super().__init__(
-            observation_dim, action_dim, sizes, squash, activation, layernorm
+            observation_dim, action_dim, sizes, squash, activation, layernorm, fuzzytiling
         )
         self.n_heads = n_heads
-
-        self.fc1 = nn.Linear(self.observation_dim, sizes[0])
-        self.fc2 = nn.Linear(sizes[0], sizes[1])
         self.fc3 = nn.Linear(sizes[1], 2 * self.action_dim * n_heads)
+
+        if self.fuzzytiling:
+            self.fc3 = nn.Linear(sizes[1]*self.fta.nbins,  2 * self.action_dim * n_heads)
 
         self.apply(self._init_weights)
         nn.init.xavier_uniform_(self.fc3.weight, 0.001)
@@ -250,8 +261,9 @@ class DynMultiheadGaussianPolicy(GaussianPolicy):
         sizes=[256, 256],
         squash=True,
         activation=nn.SiLU,
+        fuzzytiling=False, # apply normalization and fuzzy tiling 
     ):
-        super().__init__(observation_dim, action_dim, sizes, squash, activation)
+        super().__init__(observation_dim, action_dim, sizes, squash, activation, fuzzytiling)
 
         self.n_heads = n_heads
         self.head_ls = []
@@ -283,8 +295,12 @@ class DynMultiheadGaussianPolicy(GaussianPolicy):
         return super()._forward(x)
 
     def _forward_hidden(self, obs):
-        x = self.activ(self.fc1(obs))
-        x = self.activ(self.fc2(x))
+        if self.fuzzytiling:
+            x = self.activ(self.ln1(self.fc1(obs)))
+            x = self.fta(self.ln2(self.fc2(x)))
+        else:
+            x = self.activ(self.fc1(obs))
+            x = self.activ(self.fc2(x))
         return x
 
     def add_heads(self, output_size):
