@@ -1,28 +1,17 @@
-from abc import ABC, abstractmethod
 import datetime
 import warnings
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import torch
-
+from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
+from common.vec_buffer import VectorizedReplayBuffer
 from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
 
-# from common.replay_buffer import (
-#     MyMultiStepMemory,
-#     MyPrioritizedMemory,
-# )
-from common.vec_buffer import VectorizedReplayBuffer
-import os
-from common.util import check_obs, check_act, dump_cfg, np2ts, to_batch, AverageMeter
-
 warnings.simplefilter("once", UserWarning)
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 exp_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-
-task_path = os.path.dirname(os.path.realpath(__file__)) + "/.."
-log_path = task_path + "/../log/"
 
 
 class AbstractAgent(ABC):
@@ -59,7 +48,6 @@ class IsaacAgent(AbstractAgent):
         self.eval = self.env_cfg["eval"]
         self.eval_interval = self.env_cfg["eval_interval"]
         self.eval_episodes = self.env_cfg["eval_episodes"]
-        self.record = self.env_cfg["record"]
         self.save_model = self.env_cfg["save_model"]
 
         self.observation_dim = self.env.num_obs
@@ -83,16 +71,16 @@ class IsaacAgent(AbstractAgent):
         self.updates_per_step = int(self.agent_cfg["updates_per_step"])
         self.reward_scale = int(self.agent_cfg["reward_scale"])
 
-        log_dir = (
-            self.agent_cfg["name"]
-            + "/"
-            + self.env_cfg["env_name"]
-            + "/"
-            + exp_date
-            + "/"
-        )
-        self.log_path = self.env_cfg["log_path"] + log_dir
-        if self.record:
+        if self.save_model:
+            log_dir = (
+                self.agent_cfg["name"]
+                + "/"
+                + self.env_cfg["env_name"]
+                + "/"
+                + exp_date
+                + "/"
+            )
+            self.log_path = self.env_cfg["log_path"] + log_dir
             Path(self.log_path).mkdir(parents=True, exist_ok=True)
             dump_cfg(self.log_path + "cfg", cfg)
 
@@ -201,7 +189,9 @@ class IsaacAgent(AbstractAgent):
         if episodes == 0:
             return
 
-        print(f"===== evaluate at episode: {self.episodes} for {self.env_max_steps} steps ====")
+        print(
+            f"===== evaluate at episode: {self.episodes} for {self.env_max_steps} steps ===="
+        )
 
         returns = torch.zeros((episodes,), dtype=torch.float32)
         for i in range(episodes):
@@ -270,10 +260,12 @@ class RainbowAgent(IsaacAgent):
         # TODO: implement prioritized exp replay
         self.per = self.buffer_cfg["prioritize_replay"]
 
-        self.adaptive_task =  self.env_cfg["task"]["adaptive_task"]
+        self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
     def train_episode(self, gui_app=None, gui_rew=None):
-        episode_r, episode_steps = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
+        episode_r, episode_steps = super().train_episode(
+            gui_app=gui_app, gui_rew=gui_rew
+        )
 
         if self.adaptive_task:
             self.task.adapt_task(episode_r)

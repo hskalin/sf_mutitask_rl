@@ -1,21 +1,17 @@
-import isaacgym
 from pathlib import Path
 
-import torch
-import wandb
-from common.agent import IsaacAgent, RainbowAgent
-from common.policy import MultiheadGaussianPolicy
-from common.util import (
-    grad_false,
-    hard_update,
-    pile_sa_pairs,
-    soft_update,
-    update_params,
-)
-from common.value_function import TwinnedMultiheadSFNetwork
-from common.compositions import Compositions
-from torch.optim import Adam
+import isaacgym
 import numpy as np
+import torch
+from common.agent import IsaacAgent, RainbowAgent
+from common.compositions import Compositions
+from common.policy import MultiheadGaussianPolicy
+from common.util import (grad_false, hard_update, pile_sa_pairs, soft_update,
+                         update_params)
+from common.value_function import TwinnedMultiheadSFNetwork
+from torch.optim import Adam
+
+import wandb
 
 
 class CompositionAgent(RainbowAgent):
@@ -52,6 +48,7 @@ class CompositionAgent(RainbowAgent):
             n_heads=self.n_heads,
             **self.value_net_kwargs,
         ).to(self.device)
+        self.sf = torch.jit.script(self.sf)
 
         self.sf_target = TwinnedMultiheadSFNetwork(
             observation_dim=self.observation_dim,
@@ -60,6 +57,7 @@ class CompositionAgent(RainbowAgent):
             n_heads=self.n_heads,
             **self.value_net_kwargs,
         ).to(self.device)
+        self.sf_target = torch.jit.script(self.sf_target)
 
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)

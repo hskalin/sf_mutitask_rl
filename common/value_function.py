@@ -1,6 +1,6 @@
+import common.builder as builder
 import torch
 import torch.nn as nn
-import builder
 
 
 class BaseNetwork(nn.Module):
@@ -108,7 +108,7 @@ class MultiheadSFNetwork(BaseNetwork):
         layernorm=False,
         fuzzytiling=False,
         initializer="xavier_uniform",
-        max_nheads=int(100),
+        max_nheads=int(50),
     ) -> None:
         super().__init__()
         self.observation_dim = observation_dim
@@ -190,7 +190,7 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
 
 
 if __name__ == "__main__":
-    from torch.profiler import profile, record_function, ProfilerActivity
+    from torch.profiler import ProfilerActivity, profile, record_function
 
     obs_dim = 5
     featdim = 10
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     obs = torch.rand(1000, obs_dim).to(device)
     act = torch.rand(1000, act_dim).to(device)
 
-    sfn = MultiheadSFNetwork(
+    sfn = TwinnedMultiheadSFNetwork(
         observation_dim=obs_dim,
         feature_dim=featdim,
         action_dim=act_dim,
@@ -224,19 +224,6 @@ if __name__ == "__main__":
     ) as prof1:
         with record_function("model_inference"):
             for _ in range(times):
-                sfn(obs, act)
-
-    print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-        use_cuda=True,
-        with_stack=True,
-    ) as prof2:
-        with record_function("model_inference"):
-            for _ in range(times):
                 sfn_scripted(obs, act)
 
-    print(prof2.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))

@@ -1,14 +1,10 @@
-from isaacgym import gymapi
-from isaacgym import gymtorch
-from isaacgym.torch_utils import *
-
-from .base.vec_env import VecEnv
-
-from common.torch_jit_utils import *
-import sys
+import math
 
 import torch
-import math
+from common.torch_jit_utils import *
+from env.base.vec_env import VecEnv
+from isaacgym import gymapi, gymtorch
+from isaacgym.torch_utils import *
 
 
 class Pointer(VecEnv):

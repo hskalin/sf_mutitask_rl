@@ -9,21 +9,16 @@ dim: 2
 episode_max_step: 500
 total_episodes: 25
 max_episode_length: 500
-# reward:
-#   success: 
-#     coeff": 1
-# success_threshold: [1, 1, 1, 1]  # pos[m], vel[m/s], ang[rad], angvel[rad/s]
-log_interval: 5
 
 mode: "train" # train or test
 
 eval: True
 eval_interval: 2
 eval_episodes: 1
+
 save_model: False  # save model after evaluation
-render: False  # render env
-record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
+log_interval: 5
 
 task:
   verbose: True

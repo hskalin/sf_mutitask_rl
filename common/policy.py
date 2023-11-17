@@ -1,12 +1,12 @@
+import common.activation_fn as activation_fn
+import common.builder as builder
+import common.distribution as distribution
+import common.util as util
 import torch
 import torch.nn as nn
-import util
-import distribution
+from functorch import combine_state_for_ensemble, vmap
 from torch.distributions import Normal
-import torch.jit as jit
-from functorch import vmap, combine_state_for_ensemble
-import builder
-import activation_fn
+
 
 class BaseNetwork(nn.Module):
     def save(self, path):
@@ -389,7 +389,7 @@ class StochasticPolicy(BaseNetwork):
 
 
 if __name__ == "__main__":
-    from torch.profiler import profile, record_function, ProfilerActivity
+    from torch.profiler import ProfilerActivity, profile, record_function
 
     obs_dim = 5
     act_dim = 2

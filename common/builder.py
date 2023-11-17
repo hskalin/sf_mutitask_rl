@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-import activation_fn
+import common.activation_fn as activation_fn
 
 
 # imported from rltorch
