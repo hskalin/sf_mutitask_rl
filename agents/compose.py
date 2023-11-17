@@ -44,7 +44,6 @@ class CompositionAgent(RainbowAgent):
             self.pseudo_w = torch.eye(self.feature_dim).to(self.device)  # base tasks
 
         self.n_heads = self.pseudo_w.shape[0]
-        self.droprate = self.value_net_kwargs["droprate"]
 
         self.sf = TwinnedMultiheadSFNetwork(
             observation_dim=self.observation_dim,
@@ -61,8 +60,6 @@ class CompositionAgent(RainbowAgent):
             n_heads=self.n_heads,
             **self.value_net_kwargs,
         ).to(self.device)
-        if self.droprate <= 0.0:
-            self.sf_target = self.sf_target.eval()
 
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)
@@ -71,6 +68,7 @@ class CompositionAgent(RainbowAgent):
             observation_dim=self.observation_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
+            device=self.device,
             **self.policy_net_kwargs,
         ).to(self.device)
 
@@ -297,10 +295,7 @@ class CompositionAgent(RainbowAgent):
         return sf1, sf2
 
     def calc_sf_from_double_sfs(self, sf1, sf2):
-        if self.droprate > 0.0:
-            sf = 0.5 * (sf1 + sf2)
-        else:
-            sf = torch.min(sf1, sf2)  # [N, H, F]
+        sf = torch.min(sf1, sf2)  # [N, H, F]
         return sf
 
     def save_torch_model(self):

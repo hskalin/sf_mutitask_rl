@@ -1,10 +1,7 @@
 from numpy import argmax
 import torch
 import torch.nn as nn
-from .util import check_obs, np2ts
-from rltorch.network import create_linear_network
-from .activation import FTA
-
+from .builder import create_linear_network, create_multihead_linear_model
 
 class BaseNetwork(nn.Module):
     def save(self, path):
@@ -99,98 +96,7 @@ class TwinnedQNetwork(BaseNetwork):
         return q1, q2
 
 
-class SFNetwork(BaseNetwork):
-    def __init__(
-        self,
-        observation_dim,
-        feature_dim,
-        action_dim,
-        sizes=[64, 64],
-        activation="selu",
-        layernorm=False,
-        droprate=0,
-        initializer="xavier",
-    ) -> None:
-        super().__init__()
-        self.observation_dim = observation_dim
-        self.feature_dim = feature_dim
-        self.action_dim = action_dim
-        self.sizes = sizes
-        self.activation = activation
-        self.layernorm = layernorm
-        self.droprate = droprate
-        self.initializer = initializer
-
-        self.SF = create_linear_network(
-            self.observation_dim + self.action_dim,
-            self.feature_dim,
-            hidden_units=self.sizes,
-            initializer=self.initializer,
-            hidden_activation=self.activation,
-        )
-
-        new_sf_networks = []
-        for i, mod in enumerate(self.SF._modules.values()):
-            new_sf_networks.append(mod)
-            if ((i % 2) == 0) and (i < (len(list(self.SF._modules.values()))) - 1):
-                if self.droprate > 0.0:
-                    new_sf_networks.append(nn.Dropout(p=droprate))  # dropout
-                if self.layernorm:
-                    new_sf_networks.append(nn.LayerNorm(mod.out_features))  # layer norm
-            i += 1
-        self.SF = nn.Sequential(*new_sf_networks)
-
-    def forward(self, observations, actions):
-        if observations.dim() == 1 and actions.dim() == 1:
-            x = torch.cat([observations, actions], dim=0)
-        else:
-            x = torch.cat([observations, actions], dim=1)
-        x = self.SF(x)
-        return x
-
-
-class TwinnedSFNetwork(BaseNetwork):
-    def __init__(
-        self,
-        observation_dim,
-        feature_dim,
-        action_dim,
-        sizes=[64, 64],
-        activation="selu",
-        layernorm=False,
-        droprate=0,
-        initializer="xavier",
-    ):
-        super().__init__()
-
-        self.SF1 = SFNetwork(
-            observation_dim,
-            feature_dim,
-            action_dim,
-            sizes,
-            activation,
-            layernorm,
-            droprate,
-            initializer,
-        )
-        self.SF2 = SFNetwork(
-            observation_dim,
-            feature_dim,
-            action_dim,
-            sizes,
-            activation,
-            layernorm,
-            droprate,
-            initializer,
-        )
-
-    def forward(self, observations, actions):
-        sf1 = self.SF1(observations, actions)
-        sf2 = self.SF2(observations, actions)
-        return sf1, sf2
-
-
-class MultiheadSFNetwork(SFNetwork):
+class MultiheadSFNetwork(BaseNetwork):
     def __init__(
         self,
         observation_dim,
@@ -198,57 +104,39 @@ class MultiheadSFNetwork(SFNetwork):
         action_dim,
         n_heads,
         sizes=[64, 64],
-        activation="selu",
-        layernorm=True,
-        droprate=0,
-        fuzzytiling=True,
-        initializer="xavier",
+        activation="relu",
+        layernorm=False,
+        fuzzytiling=False,
+        initializer="xavier_uniform",
     ) -> None:
-        super().__init__(
-            observation_dim,
-            feature_dim,
-            action_dim,
-            sizes,
-            activation,
-            layernorm,
-            droprate,
-            initializer,
-        )
+        super().__init__()
+
+        self.observation_dim = observation_dim
+        self.feature_dim = feature_dim
+        self.action_dim = action_dim
+
         self.n_heads = n_heads
+        self.layernorm = layernorm
         self.fuzzytiling = fuzzytiling
         
-        self.SF = create_linear_network(
-            self.observation_dim + self.action_dim,
-            self.feature_dim * self.n_heads,
-            hidden_units=self.sizes,
-            initializer=self.initializer,
-            hidden_activation=self.activation,
+        self.model = create_multihead_linear_model(
+            input_dim=observation_dim + action_dim,
+            output_dim=feature_dim * self.n_heads,
+            hidden_units=sizes,
+            hidden_activation=activation,
+            output_activation=None,
+            layernorm=layernorm,
+            fuzzytiling=fuzzytiling,
+            initializer=initializer,
         )
 
-        new_sf_networks = []
-        for i, mod in enumerate(self.SF._modules.values()):
-            if self.fuzzytiling and (i == (len(list(self.SF._modules.values()))) - 2):
-                # add FTA as activation function to the last layer
-                self.fta = FTA()
-                last_mod = self.SF._modules[f"{i+1}"]
-                new_last_mod = nn.Linear(last_mod.in_features*self.fta.nbins, last_mod.out_features)
-                new_sf_networks.append(self.fta)
-                new_sf_networks.append(new_last_mod)
-                break
-            else:
-                new_sf_networks.append(mod)
-            if ((i % 2) == 0) and (i < (len(list(self.SF._modules.values()))) - 1):
-                if self.droprate > 0.0:
-                    new_sf_networks.append(nn.Dropout(p=droprate))  # dropout
-                if self.layernorm:
-                    new_sf_networks.append(nn.LayerNorm(mod.out_features))  # layer norm
-
-            i += 1
-            
-        self.SF = nn.Sequential(*new_sf_networks)
 
     def forward(self, observations, actions):
-        x = super().forward(observations, actions)
+        if observations.dim() == 1 and actions.dim() == 1:
+            x = torch.cat([observations, actions], dim=0)
+        else:
+            x = torch.cat([observations, actions], dim=1)
+        x = self.model(x)
         return x.view(-1, self.n_heads, self.feature_dim)
 
     def forward_head(self, observations, actions, head_idx):
@@ -264,11 +152,10 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
         action_dim,
         n_heads,
         sizes=[64, 64],
-        activation="selu",
+        activation="relu",
         layernorm=False,
-        droprate=0,
         fuzzytiling=False,
-        initializer="xavier",
+        initializer="xavier_uniform",
     ):
         super().__init__()
 
@@ -280,7 +167,6 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
             sizes,
             activation,
             layernorm,
-            droprate,
             fuzzytiling,
             initializer,
         )
@@ -292,7 +178,6 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
             sizes,
             activation,
             layernorm,
-            droprate,
             fuzzytiling,
             initializer,
         )

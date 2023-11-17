@@ -201,8 +201,7 @@ class IsaacAgent(AbstractAgent):
         if episodes == 0:
             return
 
-        print(f"===== evaluate at episode: {self.episodes} ====")
-        print(f"===== eval for running for {self.env_max_steps} steps ===")
+        print(f"===== evaluate at episode: {self.episodes} for {self.env_max_steps} steps ====")
 
         returns = torch.zeros((episodes,), dtype=torch.float32)
         for i in range(episodes):
@@ -226,23 +225,19 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, w, mode="explore"):
-        if (self.steps <= self.min_n_experience) and mode == "explore":
-            a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
-        else:
-            a = self.get_action(s, w, mode)
-
-        a = check_act(a, self.action_dim)
-        return a
-
-    def get_action(self, s, w, mode):
-        s, w = np2ts(s), np2ts(w)
+        w = np2ts(w)
         s = check_obs(s, self.observation_dim)
 
         with torch.no_grad():
+            if (self.steps <= self.min_n_experience) and mode == "explore":
+                a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+
             if mode == "explore":
                 a = self.explore(s, w)
             elif mode == "exploit":
                 a = self.exploit(s, w)
+
+        a = check_act(a, self.action_dim)
         return a
 
     def calc_reward(self, s, w, episodicFeature=None):

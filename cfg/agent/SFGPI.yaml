@@ -11,13 +11,12 @@ updates_per_step: 1
 reward_scale: 1.0
 grad_clip: null
 value_net_kwargs: 
-    sizes: [256, 256]
+    sizes: [128, 128]
     activation: "relu"
     layernorm: True
-    droprate: 0.0
     fuzzytiling: True
 policy_net_kwargs: 
-    sizes: [128, 128]
+    sizes: [64, 64]
     layernorm: True
     fuzzytiling: True
 

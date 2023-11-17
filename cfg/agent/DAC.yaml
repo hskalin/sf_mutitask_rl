@@ -14,7 +14,6 @@ value_net_kwargs:
     sizes: [64, 64]
     activation: "relu"
     layernorm: True
-    droprate: 0.0
 policy_net_kwargs: 
     sizes: [32, 32]
     layernorm: False
