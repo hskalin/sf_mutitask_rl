@@ -1,7 +1,7 @@
-from numpy import argmax
 import torch
 import torch.nn as nn
-from .builder import create_linear_network, create_multihead_linear_model
+import builder
+
 
 class BaseNetwork(nn.Module):
     def save(self, path):
@@ -33,7 +33,7 @@ class QNetwork(BaseNetwork):
         self.droprate = droprate
         self.initializer = initializer
 
-        self.Q = create_linear_network(
+        self.Q = builder.create_linear_network(
             self.observation_dim + self.action_dim,
             1,
             hidden_units=self.sizes,
@@ -108,20 +108,21 @@ class MultiheadSFNetwork(BaseNetwork):
         layernorm=False,
         fuzzytiling=False,
         initializer="xavier_uniform",
+        max_nheads=int(100),
     ) -> None:
         super().__init__()
-
         self.observation_dim = observation_dim
         self.feature_dim = feature_dim
         self.action_dim = action_dim
 
+        self.max_nheads = max_nheads
         self.n_heads = n_heads
         self.layernorm = layernorm
         self.fuzzytiling = fuzzytiling
-        
-        self.model = create_multihead_linear_model(
+
+        self.model = builder.create_multihead_linear_model(
             input_dim=observation_dim + action_dim,
-            output_dim=feature_dim * self.n_heads,
+            output_dim=feature_dim * self.max_nheads,
             hidden_units=sizes,
             hidden_activation=activation,
             output_activation=None,
@@ -130,18 +131,18 @@ class MultiheadSFNetwork(BaseNetwork):
             initializer=initializer,
         )
 
-
     def forward(self, observations, actions):
-        if observations.dim() == 1 and actions.dim() == 1:
-            x = torch.cat([observations, actions], dim=0)
-        else:
-            x = torch.cat([observations, actions], dim=1)
+        x = torch.cat([observations, actions], dim=1)
         x = self.model(x)
-        return x.view(-1, self.n_heads, self.feature_dim)
+        x = x.view(-1, self.max_nheads, self.feature_dim)
+        return x[:, : self.n_heads, :]
 
     def forward_head(self, observations, actions, head_idx):
         x = self.forward(observations, actions)
         return x[:, head_idx, :]
+
+    def add_head(self, n_heads=1):
+        self.n_heads += n_heads
 
 
 class TwinnedMultiheadSFNetwork(BaseNetwork):
@@ -186,3 +187,56 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
         sf1 = self.SF1(observations, actions)
         sf2 = self.SF2(observations, actions)
         return sf1, sf2
+
+
+if __name__ == "__main__":
+    from torch.profiler import profile, record_function, ProfilerActivity
+
+    obs_dim = 5
+    featdim = 10
+    act_dim = 2
+    n_heads = 100
+
+    layernorm = True
+    fuzzytiling = True
+    device = "cuda"
+
+    times = 1111
+    obs = torch.rand(1000, obs_dim).to(device)
+    act = torch.rand(1000, act_dim).to(device)
+
+    sfn = MultiheadSFNetwork(
+        observation_dim=obs_dim,
+        feature_dim=featdim,
+        action_dim=act_dim,
+        n_heads=n_heads,
+        layernorm=layernorm,
+        fuzzytiling=fuzzytiling,
+    ).to(device)
+    sfn_scripted = torch.jit.script(sfn)
+
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=True,
+        profile_memory=True,
+        use_cuda=True,
+        with_stack=True,
+    ) as prof1:
+        with record_function("model_inference"):
+            for _ in range(times):
+                sfn(obs, act)
+
+    print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=True,
+        profile_memory=True,
+        use_cuda=True,
+        with_stack=True,
+    ) as prof2:
+        with record_function("model_inference"):
+            for _ in range(times):
+                sfn_scripted(obs, act)
+
+    print(prof2.key_averages().table(sort_by="cuda_time_total", row_limit=10))

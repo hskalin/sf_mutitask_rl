@@ -97,22 +97,21 @@ class MultiheadGaussianPolicy(BaseNetwork):
         fuzzytiling=False,
         initializer="xavier_uniform",
         device="cpu",
+        max_nheads=int(100)
     ):
         super().__init__()
         self.LOG_STD_MAX = 2
         self.LOG_STD_MIN = -5
         self.eps = 1e-6
-        self.max_nheads=int(100)
 
         self.device = device
+        self.max_nheads = max_nheads
         self.n_heads = int(n_heads)
         self.observation_dim = observation_dim
         self.action_dim = action_dim
         self.sizes = sizes
         self.squash = squash
         self.tanh = nn.Tanh() if squash else None
-
-        print(f"only allow maximum {self.max_nheads} heads") if n_heads > self.max_nheads else None
 
         self.model = builder.create_multihead_linear_model(
             input_dim=observation_dim,
@@ -162,7 +161,7 @@ class MultiheadGaussianPolicy(BaseNetwork):
         entropy = -log_probs.sum(dim=dim, keepdim=True)
         return entropy
     
-    def add_head(self, n_heads):
+    def add_head(self, n_heads=1):
         self.n_heads += n_heads
 
 
