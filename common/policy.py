@@ -4,13 +4,9 @@ import util
 import distribution
 from torch.distributions import Normal
 import torch.jit as jit
-from functorch import vmap
-from functorch import combine_state_for_ensemble
+from functorch import vmap, combine_state_for_ensemble
 import builder
 import activation_fn
-
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 class BaseNetwork(nn.Module):
     def save(self, path):
@@ -22,17 +18,8 @@ class BaseNetwork(nn.Module):
     def forward(self, obs):
         raise NotImplementedError
 
-class JITBaseNetwork(jit.ScriptModule):
-    def save(self, path):
-        torch.save(self.state_dict(), path)
 
-    def load(self, path):
-        self.load_state_dict(torch.load(path))
-
-    def forward(self, obs):
-        raise NotImplementedError
-
-class GaussianPolicy(JITBaseNetwork):
+class GaussianPolicy(BaseNetwork):
     LOG_STD_MAX = 2
     LOG_STD_MIN = -5
     eps = 1e-6
@@ -71,7 +58,6 @@ class GaussianPolicy(JITBaseNetwork):
         entropy = self.calc_entropy(normals, xs, actions)
         return actions, entropy, means
 
-    @jit.script_method
     def _forward(self, obs):
         x = self.model(obs)
         means, log_stds = self.calc_mean_std(x)
@@ -98,7 +84,7 @@ class GaussianPolicy(JITBaseNetwork):
         return self.forward(obs)
 
 
-class MultiheadGaussianPolicy(JITBaseNetwork):
+class MultiheadGaussianPolicy(BaseNetwork):
     def __init__(
         self,
         observation_dim,
@@ -116,18 +102,21 @@ class MultiheadGaussianPolicy(JITBaseNetwork):
         self.LOG_STD_MAX = 2
         self.LOG_STD_MIN = -5
         self.eps = 1e-6
+        self.max_nheads=int(100)
 
         self.device = device
-        self.n_heads = n_heads
+        self.n_heads = int(n_heads)
         self.observation_dim = observation_dim
         self.action_dim = action_dim
         self.sizes = sizes
         self.squash = squash
         self.tanh = nn.Tanh() if squash else None
 
+        print(f"only allow maximum {self.max_nheads} heads") if n_heads > self.max_nheads else None
+
         self.model = builder.create_multihead_linear_model(
             input_dim=observation_dim,
-            output_dim=2 * self.action_dim * n_heads,
+            output_dim=2 * self.action_dim * self.max_nheads,
             hidden_units=sizes,
             hidden_activation=activation,
             output_activation=None,
@@ -141,16 +130,14 @@ class MultiheadGaussianPolicy(JITBaseNetwork):
         """forward multi-head"""
         means, log_stds = self._forward(obs)  # # [N, H, A], # [N, H, A]
         normals, xs, actions = self.get_distribution(means, log_stds)
-        entropies = self.calc_entropy(normals, xs, actions, dim=2)  # [N, H, 1]
+        entropies = self.calc_entropy(normals, xs, actions, dim=1)  # [N, H, 1]
         return actions, entropies, means  # [N, H, A], [N, H, 1], [N, H, A]
 
-    @jit.script_method
     def _forward(self, obs):
         x = self.model(obs)  # [N, 2*H*A]
-        x = x.view([-1, self.n_heads, 2*self.action_dim]) # [N, H, 2*A]
+        x = x.view([-1, self.max_nheads, 2*self.action_dim]) # [N, H, 2*A]
+        x = x[:, :self.n_heads, :]
         means, log_stds = self.calc_mean_std(x)  # [N, H, A], [N, H, A]
-        means = means.view([-1, self.n_heads, self.action_dim])  # [N, H, A]
-        log_stds = log_stds.view([-1, self.n_heads, self.action_dim])  # [N, H, A]
         return means, log_stds
 
     def forward_head(self, obs, idx):
@@ -170,10 +157,13 @@ class MultiheadGaussianPolicy(JITBaseNetwork):
         actions = self.tanh(xs) if self.squash else xs
         return normals, xs, actions
 
-    def calc_entropy(self, normals, xs, actions, dim=1):
+    def calc_entropy(self, normals, xs, actions, dim:int=1):
         log_probs = normals.log_prob(xs) - torch.log(1 - actions.pow(2) + self.eps)
         entropy = -log_probs.sum(dim=dim, keepdim=True)
         return entropy
+    
+    def add_head(self, n_heads):
+        self.n_heads += n_heads
 
 
 class DynamicMultiheadGaussianPolicy(BaseNetwork):
@@ -203,7 +193,7 @@ class DynamicMultiheadGaussianPolicy(BaseNetwork):
         self.squash = squash
         self.tanh = nn.Tanh() if squash else None
 
-        base_model, units = builder.create_linear_base(
+        base_model, base_out_dim = builder.create_linear_base(
             model=[],
             units=observation_dim,
             hidden_units=sizes,
@@ -215,21 +205,21 @@ class DynamicMultiheadGaussianPolicy(BaseNetwork):
             base_model.pop()
             fta = activation_fn.FTA()
             base_model.append(fta)
-            units *= fta.nbins
+            base_out_dim *= fta.nbins
 
-        self.model = nn.Sequential(*base_model).apply(
+        self.base_out_dim = base_out_dim
+        self.base_model = nn.Sequential(*base_model).apply(
             builder.initialize_weights(builder.str_to_initializer[initializer])
         ).to(self.device)
-        self.model = torch.jit.script(self.model)
-        self.base_output_size = units
 
         self.n_heads = 0
         self.heads = nn.ModuleList([])
+        self.params = None
         self.add_head(n_heads)
     
     def add_head(self, n_heads=1):
         for _ in range(n_heads):
-            head = nn.Linear(self.base_output_size, 2 * self.action_dim).to(self.device)
+            head = nn.Linear(self.base_out_dim, 2 * self.action_dim).to(self.device)
             nn.init.xavier_uniform_(head.weight, 1e-3)
 
             self.heads.append(head)
@@ -238,9 +228,18 @@ class DynamicMultiheadGaussianPolicy(BaseNetwork):
         self._ensemble()
 
     def _ensemble(self):
-        self.fmodel, self.params, self.buffers = combine_state_for_ensemble(self.heads)
-        [p.requires_grad_() for p in self.params]
-        [b.to(self.device) for b in self.buffers]
+        if self.params is not None:
+            self._update_heads_param()
+
+        fmodel, self.params, bufs = combine_state_for_ensemble(self.heads)
+        [p.requires_grad_().to(self.device) for p in self.params]
+
+        self.heads_model = lambda x: (vmap(fmodel, in_dims=(0, 0, None)))(self.params, bufs, x)
+        
+    def _update_heads_param(self):
+        for i in range(self.n_heads):
+            self.heads[i].weight.data = self.params[0][i].data
+            self.heads[i].bias.data = self.params[1][i].data
 
     def forward(self, obs):
         """forward multi-head"""
@@ -250,31 +249,26 @@ class DynamicMultiheadGaussianPolicy(BaseNetwork):
         return actions, entropies, means  # [N, H, A], [N, H, 1], [N, H, A]
 
     def _forward(self, obs):
-        x = self.model(obs)
-        x = self._forward_heads(x) # [N, H, 2*A]
+        """forward hidden layers"""
+        x = self.base_model(obs)
+        x = self.heads_model(x) # [H, N, 2*A]
+        x = x.view([-1, self.n_heads, 2 * self.action_dim]) # [N, H, 2*A]
         means, log_stds = self.calc_mean_std(x)  # [N, H, A], [N, H, A]
         return means, log_stds
-
-    def _forward_heads(self, x):
-        """forward heads model"""
-        x = vmap(self.fmodel, in_dims=(0, 0, None))(self.params, self.buffers, x)
-        return x.view([-1, self.n_heads, 2 * self.action_dim])
-
+    
     def forward_head(self, obs, idx):
         """forward single head"""
-        x = self.model(obs)
+        x = self.base_model(obs)
         x = self.heads[idx](x)
         means, log_stds = self.calc_mean_std(x)  # [N, A]
         normals, xs, actions = self.get_distribution(means, log_stds)
-        entropies = self.calc_entropy(normals, xs, actions, dim=2)  # [N, 1]
+        entropies = self.calc_entropy(normals, xs, actions, dim=1)  # [N, 1]
         return actions, entropies, means
 
     def calc_mean_std(self, x):
-        means, log_stds = torch.chunk(
-            x, 2, dim=-1
-        )  # [N, H, A], [N, H, A] <-- [N, H, 2A]
+        means, log_stds = torch.chunk(x, 2, dim=-1) # [N, H, A], [N, H, A] <-- [N, H, 2A]
         log_stds = torch.clamp(log_stds, min=self.LOG_STD_MIN, max=self.LOG_STD_MAX)
-        return means, log_stds
+        return means, log_stds 
 
     def get_distribution(self, means, log_stds):
         stds = log_stds.exp()
@@ -283,7 +277,7 @@ class DynamicMultiheadGaussianPolicy(BaseNetwork):
         actions = self.tanh(xs) if self.squash else xs
         return normals, xs, actions
 
-    def calc_entropy(self, normals, xs, actions, dim=1):
+    def calc_entropy(self, normals, xs, actions, dim:int=1):
         log_probs = normals.log_prob(xs) - torch.log(1 - actions.pow(2) + self.eps)
         entropy = -log_probs.sum(dim=dim, keepdim=True)
         return entropy
@@ -407,16 +401,16 @@ if __name__ == "__main__":
     device = "cuda"
 
     times = 1111
-    obs = torch.rand(512, obs_dim).to(device)
+    obs = torch.rand(1000, obs_dim).to(device)
 
-    policy1 = DynamicMultiheadGaussianPolicy(
-        observation_dim=obs_dim,
-        action_dim=act_dim,
-        n_heads=n_heads,
-        layernorm=layernorm,
-        fuzzytiling=fuzzytiling,
-        device=device,
-    )
+    # policy1 = DynamicMultiheadGaussianPolicy(
+    #     observation_dim=obs_dim,
+    #     action_dim=act_dim,
+    #     n_heads=n_heads,
+    #     layernorm=layernorm,
+    #     fuzzytiling=fuzzytiling,
+    #     device=device,
+    # )
 
     policy2 = MultiheadGaussianPolicy(
         observation_dim=obs_dim,
@@ -427,13 +421,13 @@ if __name__ == "__main__":
         device=device,
     ).to(device)
 
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, use_cuda=True, with_stack=True,
-) as prof1:
-        with record_function("model_inference"):        
-            for _ in range(times):
-                policy1(obs)
+#     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, use_cuda=True, with_stack=True,
+# ) as prof1:
+#         with record_function("model_inference"):        
+#             for _ in range(times):
+#                 policy1(obs)
 
-    print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+#     print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, use_cuda=True, with_stack=True,
 ) as prof2:
