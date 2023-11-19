@@ -202,6 +202,7 @@ def check_samples(obj):
         n_samples = 1
     return n_samples
 
+
 def check_obs(obs, obs_dim):
     obs = np2ts(obs)
     n_samples = check_samples(obs)

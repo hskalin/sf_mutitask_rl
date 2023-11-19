@@ -11,9 +11,8 @@ updates_per_step: 1
 reward_scale: 1.0
 grad_clip: null
 value_net_kwargs: 
-    sizes: [64, 64]
-    activation: "relu"
-    layernorm: True
+    hidden_dim: 64
+    num_layers: 2
 policy_net_kwargs: 
-    sizes: [32, 32]
-    layernorm: False
+    hidden_dim: 32
+    num_layers: 2

@@ -1,20 +1,24 @@
 from pathlib import Path
 
 import isaacgym
-import numpy as np
 import torch
-from common.agent import IsaacAgent, RainbowAgent
+from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.policy import MultiheadGaussianPolicy
-from common.util import (grad_false, hard_update, pile_sa_pairs, soft_update,
-                         update_params)
-from common.value_function import TwinnedMultiheadSFNetwork
+from common.util import (
+    grad_false,
+    hard_update,
+    pile_sa_pairs,
+    soft_update,
+    update_params,
+)
+from common.value import MultiheadSFNetwork
 from torch.optim import Adam
 
 import wandb
 
 
-class CompositionAgent(RainbowAgent):
+class CompositionAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 
@@ -24,49 +28,59 @@ class CompositionAgent(RainbowAgent):
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
         self.tau = self.agent_cfg["tau"]
-        
+
         self.td_target_update_interval = int(
             self.agent_cfg["td_target_update_interval"]
         )
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
-        self.entropy_tuning = self.agent_cfg["entropy_tuning"]
 
-        if self.agent_cfg.get("augmentHeads", True):
+        self.entropy_tuning = self.agent_cfg["entropy_tuning"]
+        self.use_target_net = self.agent_cfg.get("use_target_net", True)
+        self.use_twinned_net = self.agent_cfg.get("use_twinned_net", True)
+        self.use_collective_learning = self.agent_cfg.get(
+            "use_collective_learning", False
+        )
+
+        self.explore_method = self.agent_cfg["explore_method"]
+        self.exploit_method = self.agent_cfg["exploit_method"]
+
+        self.augmentHeads = self.agent_cfg.get("augmentHeads", False)
+        if self.augmentHeads:
             self.pseudo_w = torch.tensor(
-                self.env_cfg["task"]["taskSet_achievable"], device="cuda:0", dtype=torch.float32
+                self.env_cfg["task"]["taskSet_achievable"],
+                device=self.device,
+                dtype=torch.float32,
             )
         else:
             self.pseudo_w = torch.eye(self.feature_dim).to(self.device)  # base tasks
 
         self.n_heads = self.pseudo_w.shape[0]
 
-        self.sf = TwinnedMultiheadSFNetwork(
+        self.sf = MultiheadSFNetwork(
             observation_dim=self.observation_dim,
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
             **self.value_net_kwargs,
         ).to(self.device)
-        self.sf = torch.jit.script(self.sf)
 
-        self.sf_target = TwinnedMultiheadSFNetwork(
-            observation_dim=self.observation_dim,
-            feature_dim=self.feature_dim,
-            action_dim=self.action_dim,
-            n_heads=self.n_heads,
-            **self.value_net_kwargs,
-        ).to(self.device)
-        self.sf_target = torch.jit.script(self.sf_target)
+        if self.use_target_net:
+            self.sf_target = MultiheadSFNetwork(
+                observation_dim=self.observation_dim,
+                feature_dim=self.feature_dim,
+                action_dim=self.action_dim,
+                n_heads=self.n_heads,
+                **self.value_net_kwargs,
+            ).to(self.device)
 
-        hard_update(self.sf_target, self.sf)
-        grad_false(self.sf_target)
+            hard_update(self.sf_target, self.sf)
+            grad_false(self.sf_target)
 
         self.policy = MultiheadGaussianPolicy(
             observation_dim=self.observation_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
-            device=self.device,
             **self.policy_net_kwargs,
         ).to(self.device)
 
@@ -75,21 +89,19 @@ class CompositionAgent(RainbowAgent):
             self.policy.parameters(), lr=self.policy_lr, betas=[0.9, 0.999]
         )
 
-        self.prev_impact = torch.zeros((self.n_env, self.n_heads, self.action_dim)).to(
-            self.device
-        )
         self.comp = Compositions(
             self.agent_cfg,
             self.policy,
             self.sf,
-            self.prev_impact,
+            self.n_env,
             self.n_heads,
             self.action_dim,
             self.feature_dim,
+            self.device,
         )
 
         # masks used for vectorizing SFs head selction
-        self.mask = torch.eye(self.n_heads, device="cuda:0").unsqueeze(dim=-1)
+        self.mask = torch.eye(self.n_heads, device=self.device).unsqueeze(dim=-1)
         self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
         self.mask = self.mask.bool()
 
@@ -112,28 +124,26 @@ class CompositionAgent(RainbowAgent):
         # init params
         self.learn_steps = 0
 
-    def explore(self, s, w):
+    def explore(self, s, w, id):
         # [N, A] <-- [N, S], [N, H, A], [N, F]
-        a = self.comp.composition_fn(s, w, mode="explore")
+        a = self.comp.act(s, w, id, "explore", self.explore_method)
         return a  # [N, A]
 
-    def exploit(self, s, w):
+    def exploit(self, s, w, id):
         # [N, A] <-- [N, S], [N, H, A], [N, F]
-        a = self.comp.composition_fn(s, w, mode="exploit")
+        a = self.comp.act(s, w, id, "exploit", self.exploit_method)
         return a  # [N, A]
 
     def reset_env(self):
-        self.prev_impact = torch.zeros((self.n_env, self.n_heads, self.action_dim)).to(
-            self.device
-        )
-        self.comp.impact_x_idx = []
-        self.comp.policy_idx = []
+        self.comp.reset()
         return super().reset_env()
 
     def learn(self):
         self.learn_steps += 1
 
-        if self.learn_steps % self.td_target_update_interval == 0:
+        if (
+            self.learn_steps % self.td_target_update_interval == 0
+        ) and self.use_target_net:
             soft_update(self.sf_target, self.sf, self.tau)
 
         batch = self.replay_buffer.sample(self.mini_batch_size)
@@ -177,7 +187,7 @@ class CompositionAgent(RainbowAgent):
     def update_sf(self, batch):
         (s, f, a, _, s_next, dones) = batch
 
-        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]        
+        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]
         target_sf = self.calc_target_sf(f, s_next, dones)  # [N, H, F]
 
         loss1 = (curr_sf1 - target_sf).pow(2).mean()  # R <-- [N, H, F]
@@ -191,8 +201,8 @@ class CompositionAgent(RainbowAgent):
         # TD errors for updating priority weights
         errors = torch.mean(torch.abs(curr_sf1.detach() - target_sf), (1, 2))
 
-        # update sf scale 
-        self.comp.sf_norm_coeff_feat = curr_sf1.mean([0, 1]).abs()
+        # update sf scale
+        self.comp.update_sf_norm(curr_sf1.mean([0, 1]).abs())
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()
@@ -203,14 +213,20 @@ class CompositionAgent(RainbowAgent):
         return sf_loss, errors, mean_sf1, mean_sf2, target_sf
 
     def update_policy(self, batch):
-        (s, f, a, r, s_next, dones) = batch
+        (s, _, _, _, _, _) = batch
 
-        a_heads, entropies, _ = self.policy(s)  # [N,H,A], [N, H, 1] <-- [N,S]
+        if self.use_collective_learning:  # TODO
+            a_heads = self.comp.act(
+                s, self.pseudo_w, id=None, mode="exploitation", composition="sfgpi"
+            )
+        else:
+            a_heads, entropies, _ = self.policy.sample(
+                s
+            )  # [N,H,A], [N, H, 1] <-- [N,S]
 
         penalty_act = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
 
         qs = self.calc_qs_from_sf(s, a_heads)
-
         qs = qs.unsqueeze(2)  # [N,H,1]
 
         loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * penalty_act
@@ -246,15 +262,18 @@ class CompositionAgent(RainbowAgent):
 
         return qs
 
-    def calc_target_sf(self, f, s_next, dones):
-        _, _, a_next = self.policy(s_next)  # [N, H, 1],[N, H, A] <-- [N, S]
+    def calc_target_sf(self, f, s, dones):
+        _, _, a = self.policy.sample(s)  # [N, H, 1], [N, H, A] <-- [N, S]
 
         with torch.no_grad():
-            s_tiled, a_tiled = pile_sa_pairs(s_next, a_next)
+            s_tiled, a_tiled = pile_sa_pairs(s, a)
             # [NHa, S], [NHa, A] <-- [N, S], [N, Ha, A]
 
-            next_sf1, next_sf2 = self.sf_target(s_tiled, a_tiled)
-            # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
+            if self.use_target_net:
+                next_sf1, next_sf2 = self.sf_target(s_tiled, a_tiled)
+                # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
+            else:
+                next_sf1, next_sf2 = self.sf(s_tiled, a_tiled)
 
             next_sf = self.process_sfs(next_sf1, next_sf2)
             # [N, Ha, F] <-- [NHa, Hsf, F]
@@ -266,47 +285,30 @@ class CompositionAgent(RainbowAgent):
 
         return target_sf  # [N, H, F]
 
-    def calc_priority_error(self, batch):
-        (s, f, a, _, s_next, dones) = batch
-
-        with torch.no_grad():
-            curr_sf1, curr_sf2 = self.sf(s, a)
-            curr_sf = self.process_sfs(curr_sf1, curr_sf2)
-
-        target_sf = self.calc_target_sf(f, s_next, dones)
-        error = torch.mean(torch.abs(curr_sf - target_sf), (1, 2))
-        return error.unsqueeze(1).cpu().numpy()
-
     def process_sfs(self, sf1, sf2):
-        sf1, sf2 = self.mask_select_and_reshape_sfs(sf1, sf2)
+        sf1 = self.mask_select_and_reshape_sfs(sf1)
+        sf2 = self.mask_select_and_reshape_sfs(sf2)
         sf = self.calc_sf_from_double_sfs(sf1, sf2)
         return sf
 
-    def mask_select_and_reshape_sfs(self, sf1, sf2):
+    def mask_select_and_reshape_sfs(self, sf):
         # [N, Ha, F] <-- [NHa, Hsf, F]
-        sf1 = torch.masked_select(sf1, self.mask).view(
+        return torch.masked_select(sf, self.mask).view(
             self.mini_batch_size, self.n_heads, self.feature_dim
         )
-        sf2 = torch.masked_select(sf2, self.mask).view(
-            self.mini_batch_size, self.n_heads, self.feature_dim
-        )
-        return sf1, sf2
 
     def calc_sf_from_double_sfs(self, sf1, sf2):
-        sf = torch.min(sf1, sf2)  # [N, H, F]
-        return sf
+        return torch.min(sf1, sf2)  # [N, H, F]
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"
         print("saving model at ", path)
         Path(path).mkdir(parents=True, exist_ok=True)
         self.policy.save(path + "policy")
-        self.sf.SF1.save(path + "sf1")
-        self.sf.SF2.save(path + "sf2")
+        self.sf.save(path + "sf")
 
     def load_torch_model(self, path):
         self.policy.load(path + "policy")
-        self.sf.SF1.load(path + "sf1")
-        self.sf.SF2.load(path + "sf2")
+        self.sf.load(path + "sf")
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)

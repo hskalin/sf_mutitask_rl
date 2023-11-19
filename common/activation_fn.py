@@ -9,21 +9,21 @@ class FTA(nn.Module):
     Reference: fuzzy tiling activations: a simple approach to learning sparse representations online, Yangchen Pan et al. 2021
     """
 
-    def __init__(self, upper_limit: float=2.0, delta: float=0.125):
+    def __init__(self, upper_limit: float = 2.0, delta: float = 0.125):
         """
-        :param lower_limit: is the lower limit $l$
-        :param upper_limit: is the upper limit $u$
+        :param limit: is the limit $[-u, u]$
         :param delta: is the bin size $\delta$
-        :param eta: is the parameter $\eta$ that detemines the softness of the boundaries.
         """
         super().__init__()
 
-        lower_limit = -upper_limit 
+        lower_limit = -upper_limit
         eta = delta
 
         # Initialize tiling vector
         # $$\mathbf{c} = (l, l + \delta, l + 2 \delta, \dots, u - 2 \delta, u - \delta)$$
-        self.c = nn.Parameter(torch.arange(lower_limit, upper_limit, delta), requires_grad=False)
+        self.c = nn.Parameter(
+            torch.arange(lower_limit, upper_limit, delta), requires_grad=False
+        )
         # The input vector expands by a factor equal to the number of bins $\frac{u - l}{\delta}$
         self.nbins = len(self.c)
         # $\delta$
@@ -46,11 +46,14 @@ class FTA(nn.Module):
         z.unsqueeze_(-1)
 
         # $$\phi_\eta(z) = 1 - I_{\eta,+} \big( \max(\mathbf{c} - z, 0) + \max(z - \delta - \mathbf{c}, 0) \big)$$
-        z = 1. - self.fuzzy_i_plus(torch.clip(self.c - z, min=0.) + torch.clip(z - self.delta - self.c, min=0.))
+        z = 1.0 - self.fuzzy_i_plus(
+            torch.clip(self.c - z, min=0.0)
+            + torch.clip(z - self.delta - self.c, min=0.0)
+        )
 
         # Reshape back to original number of dimensions.
         # The last dimension size gets expanded by the number of bins, $\frac{u - l}{\delta}$.
-        return z.view(-1, z.shape[-2]*z.shape[-1])
+        return z.view(-1, z.shape[-2] * z.shape[-1])
 
 
 if __name__ == "__main__":

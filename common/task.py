@@ -13,8 +13,9 @@ class TaskObject:
         self.device = device
 
         self.initW = torch.tensor(initW, device=self.device, dtype=torch.float32)
-        self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
         self.dim = int(self.initW.shape[0])
+
+        self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
 
         if self.randTasks:
             if self.randMethod != "uniform":
@@ -36,7 +37,7 @@ class TaskObject:
             taskSet = self.task_cfg["taskSet_single"]
         else:
             raise ValueError(f"Warning: {randMethod} is not implemented")
-        return torch.tensor(taskSet, dtype=torch.float32 ,device=self.device)
+        return torch.tensor(taskSet, dtype=torch.float32, device=self.device)
 
     def sample_tasks(self):
         if self.randMethod == "uniform":
@@ -58,14 +59,17 @@ class TaskObject:
         self.id = id
 
     def normalize_task(self, w):
-        return w / w.norm(1, 1, keepdim=True)
+        w /= w.norm(1, 1, keepdim=True)
+        return w
 
     def sample_taskID(self, ratio):
         """sample tasks based on their ratio"""
         return torch.multinomial(ratio, self.n_env, replacement=True)
 
     def reset_taskRatio(self):
-        self.taskRatio = torch.ones(len(self.taskSet), device=self.device)/len(self.taskSet)
+        self.taskRatio = torch.ones(len(self.taskSet), device=self.device) / len(
+            self.taskSet
+        )
 
 
 class SmartTask:
@@ -74,7 +78,7 @@ class SmartTask:
         self.task_cfg = self.env_cfg["task"]
         self.device = device
         self.verbose = self.task_cfg.get("verbose", False)
-        
+
         self.n_env = self.env_cfg["num_envs"]
         use_feature = self.env_cfg["feature"]["use_feature"]
         env_dim = self.env_cfg["dim"]
@@ -112,16 +116,21 @@ class SmartTask:
 
             if self.verbose:
                 print("[Task] Train.W[0]: ", self.Train.W[0])
-                print("[Task] task ratio: ", self.Train.taskRatio)
-                print("[Task] counts: ", torch.bincount(self.Train.id))
+                print("[Task] Train.taskRatio: ", self.Train.taskRatio)
+                print("[Task] Sampled Tasks: ", torch.bincount(self.Train.id))
 
     def adapt_task(self, episode_r):
-        """update task ratio based on reward, e.g. the more reward the less likely for a task to be sampled"""
+        """
+        Update task ratio based on reward.
+        The more reward the less likely for a task to be sampled.
+        """
         task_performance = self.Train.taskRatio.index_add(
             dim=0, index=self.Train.id, source=episode_r.float()
-        )/torch.bincount(self.Train.id)
+        ) / torch.bincount(self.Train.id)
+
         new_ratio = task_performance**-1
-        self.Train.taskRatio = new_ratio/new_ratio.norm(1,keepdim=True)
+        new_ratio /= new_ratio.norm(1, keepdim=True)
+        self.Train.taskRatio = new_ratio
 
 
 class PointMassTask(SmartTask):

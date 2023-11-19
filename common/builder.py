@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-import common.activation_fn as activation_fn
 
 
 # imported from rltorch
@@ -61,6 +60,7 @@ def create_linear_base(model, units, hidden_units, layernorm, hidden_activation)
         units = next_units
     return model, units
 
+
 def create_linear_network(
     input_dim,
     output_dim,
@@ -72,7 +72,40 @@ def create_linear_network(
 ):
     model = []
     units = input_dim
-    model, units = create_linear_base(model, units, hidden_units, layernorm, hidden_activation)
+    model, units = create_linear_base(
+        model, units, hidden_units, layernorm, hidden_activation
+    )
+
+    model.append(nn.Linear(units, output_dim))
+    if output_activation is not None:
+        model.append(str_to_activation[output_activation])
+
+    return nn.Sequential(*model).apply(
+        initialize_weights(str_to_initializer[initializer])
+    )
+
+
+def create_multihead_linear_model(
+    input_dim,
+    output_dim,
+    hidden_units=[],
+    hidden_activation="relu",
+    output_activation=None,
+    layernorm=False,
+    fuzzytiling=False,
+    initializer="xavier_uniform",
+):
+    model = []
+    units = input_dim
+    model, units = create_linear_base(
+        model, units, hidden_units, layernorm, hidden_activation
+    )
+
+    if fuzzytiling:
+        model.pop()
+        fta = activation_fn.FTA()
+        model.append(fta)
+        units *= fta.nbins
 
     model.append(nn.Linear(units, output_dim))
     if output_activation is not None:
@@ -94,34 +127,6 @@ def create_dqn_base(num_channels, initializer="xavier_uniform"):
         Flatten(),
     ).apply(initialize_weights(str_to_initializer[initializer]))
 
-
-def create_multihead_linear_model(
-    input_dim,
-    output_dim,
-    hidden_units=[],
-    hidden_activation="relu",
-    output_activation=None,
-    layernorm=False,
-    fuzzytiling=False,
-    initializer="xavier_uniform",
-):
-    model = []
-    units = input_dim
-    model, units = create_linear_base(model, units, hidden_units, layernorm, hidden_activation)
-
-    if fuzzytiling:
-        model.pop()
-        fta = activation_fn.FTA()
-        model.append(fta)
-        units *= fta.nbins
-
-    model.append(nn.Linear(units, output_dim))
-    if output_activation is not None:
-        model.append(str_to_activation[output_activation])
-
-    return nn.Sequential(*model).apply(
-        initialize_weights(str_to_initializer[initializer])
-    )
 
 class Flatten(nn.Module):
     def forward(self, x):

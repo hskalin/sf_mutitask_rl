@@ -1,52 +1,77 @@
-import torch
 import functorch
-from torch.distributions import Normal
+import torch
 from common.util import pile_sa_pairs
+from torch.distributions import Normal
 
 Epsilon = 1e-6
 
 
 class Compositions:
-    def __init__(self, agent_cfg, policy, sf, prev_impact, n_heads, action_dim, feature_dim) -> None:
+    def __init__(
+        self, agent_cfg, policy, sf, n_env, n_heads, action_dim, feature_dim, device
+    ) -> None:
         self.policy = policy
         self.sf = sf
-        self.prev_impact = prev_impact
+        self.n_env = n_env
         self.n_heads = n_heads
         self.feature_dim = feature_dim
         self.action_dim = action_dim
-        self.sf_norm_coeff_feat = torch.ones(
-            (self.feature_dim), device=torch.device("cuda:0"), dtype=torch.float32
-        )
+        self.device = device
 
+        self.record_impact = False
         self.impact_x_idx = []  # record primitive impact on x-axis
         self.policy_idx = []  # record primitive summon frequency
 
-        self.agent_name = agent_cfg["name"]
-        if self.agent_name == "sfgpi":
-            self.composition_fn = self.sfgpi
-            self.record_impact = False
-        elif self.agent_name == "msf":
-            self.composition_fn = self.msf
-            self.record_impact = False
-        elif self.agent_name == "sfcpi":
-            self.composition_fn = self.sfcpi
-            self.record_impact = False
-        elif self.agent_name == "dac":
-            self.composition_fn = self.dac
+        self.norm_task_by_sf = agent_cfg["norm_task_by_sf"]
+        if self.norm_task_by_sf:
+            self.sf_norm_coeff = torch.ones(
+                (self.feature_dim), device=device, dtype=torch.float32
+            )
+
+        self.mask_nullcomp = torch.eye(n_heads).unsqueeze(dim=-1).bool().to(device)
+
+    def act(self, s, w, id, mode="exploit", composition="sfgpi"):
+        if composition == "null" or composition is None:
+            return self.null_comp(s, id)
+
+        if self.norm_task_by_sf:
+            w /= self.sf_norm_coeff.abs()  # normalized by SF scale
+            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
+
+        return self.composition_methods(composition)(s, w, mode)
+
+    def composition_methods(self, method="sfgpi"):
+        if method == "dac" or method == "dacgpi":
             self.record_impact = True
-        elif self.agent_name == "dacgpi":
-            self.composition_fn = self.dacgpi
-            self.record_impact = True
-        elif self.agent_name == "pickplace":
-            self.composition_fn = self.pickplace
+        else:
+            self.record_impact = False
+
+        if method == "sfgpi":
+            return self.sfgpi
+        elif method == "msf":
+            return self.msf
+        elif method == "sfcpi":
+            return self.sfcpi
+        elif method == "dac":
+            return self.dac
+        elif method == "dacgpi":
+            return self.dacgpi
         else:
             raise NotImplementedError
 
+    def update_sf_norm(self, sf_norm):
+        self.sf_norm_coeff = sf_norm
+
+    def null_comp(self, s, id):
+        acts, _, _ = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
+        a = torch.masked_select(acts, self.mask_nullcomp[id])
+        return a.view(-1, acts.shape[2])
+
     def sfgpi(self, s, w, mode):
         if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
+            acts, _, _ = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
         elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
+            _, _, acts = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
 
         qs = self.gpe(s, acts, w)  # [N, H, H] <-- [N, S], [N, H, A], [N, F]
         a = self.gpi(acts, qs)  # [N, A] <-- [N, H, A], [N, H, H]
@@ -85,90 +110,17 @@ class Compositions:
 
     def dacgpi(self, s, w, mode):
         if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
+            a, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
         elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
+            _, _, a = self.policy(s)  # [N, H, A]  <-- [N, S]
 
-        kappa = self.cpe(s, acts, w)
-        a = self.gpi(acts, kappa, rule="k")
+        kappa = self.cpe(s, a, w)
+        a = self.gpi(a, kappa, rule="k")
         return a
 
-    def pickplace(self, s, w, mode):  # only works for 2d simple env as baseline
-        if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
-        elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
-
-        axx = acts[:, 0, 0].unsqueeze(1)  # [N,1] <-- [N, H, A]
-        ayy = acts[:, 1, 1].unsqueeze(1)  # [N,1] <-- [N, H, A]
-        return torch.cat([axx, ayy], 1)  # [N,2]
-
-    def sfgpi(self, s, w, mode):
-        if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
-        elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
-
-        qs = self.gpe(s, acts, w)  # [N, H, H] <-- [N, S], [N, H, A], [N, F]
-        a = self.gpi(acts, qs)  # [N, A] <-- [N, H, A], [N, H, H]
-        return a
-
-    def msf(self, s, w, mode):
-        means, log_stds = self.policy.get_mean_std(s)  # [N, H, A]
-        composed_mean, composed_std = self.cpi(means, log_stds, w, rule="mcp")
-        if mode == "explore":
-            a = torch.tanh(Normal(composed_mean, composed_std).rsample())
-        elif mode == "exploit":
-            a = composed_mean
-        return a
-
-    def sfcpi(self, s, w, mode):
-        means, log_stds = self.policy.get_mean_std(s)  # [N, H, A]
-        # [N, Ha, Hsf] <-- [N, S], [N, H, A], [N, F]
-        qs = self.gpe(s, means, w)
-        qs = qs.mean(2)  # [N, H]
-        composed_mean, composed_std = self.cpi(means, log_stds, qs, rule="mcp")
-        if mode == "explore":
-            a = torch.tanh(Normal(composed_mean, composed_std).rsample())
-        elif mode == "exploit":
-            a = composed_mean
-        return a
-
-    def dac(self, s, w, mode):
-        means, log_stds = self.policy.get_mean_std(s)  # [N, H, A]
-        kappa = self.cpe(s, means, w)
-        composed_mean, composed_std = self.cpi(means, log_stds, kappa, rule="mca")
-        if mode == "explore":
-            a = torch.tanh(Normal(composed_mean, composed_std).rsample())
-        elif mode == "exploit":
-            a = composed_mean
-        return a
-
-    def dacgpi(self, s, w, mode):
-        if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
-        elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
-
-        kappa = self.cpe(s, acts, w)
-        a = self.gpi(acts, kappa, rule="k")
-        return a
-
-    def pickplace(self, s, w, mode):  # only works for 2d simple env as baseline
-        if mode == "explore":
-            acts, _, _ = self.policy(s)  # [N, H, A]  <-- [N, S]
-        elif mode == "exploit":
-            _, _, acts = self.policy(s)  # [N, H, A]  <-- [N, S]
-
-        axx = acts[:, 0, 0].unsqueeze(1)  # [N,1] <-- [N, H, A]
-        ayy = acts[:, 1, 1].unsqueeze(1)  # [N,1] <-- [N, H, A]
-        return torch.cat([axx, ayy], 1)  # [N,2]
-
-    def gpe(self, s, acts, w):
+    def gpe(self, s, a, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
-        curr_sf = self.calc_curr_sf(s, acts)
-        w = w/w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
-        w /= self.sf_norm_coeff_feat.abs() # normalized by SF scale
+        curr_sf = self.calc_curr_sf(s, a)
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w)
@@ -198,10 +150,10 @@ class Compositions:
     def cpi(self, means, log_stds, gating, rule="mcp", k=0.9):
         # select top k% value
         gating -= torch.amin(gating, dim=1, keepdim=True)
-        gating_max = torch.amax(gating, dim=1, keepdim=True).repeat_interleave(gating.shape[1],1)
-        gating = torch.where(gating<gating_max*k, 0, gating)   
-
-        # scale gating
+        gating_max = torch.amax(gating, dim=1, keepdim=True).repeat_interleave(
+            gating.shape[1], 1
+        )
+        gating = torch.where(gating < gating_max * k, 0, gating)
         gating /= gating.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         if rule == "mcp":
@@ -242,6 +194,7 @@ class Compositions:
         j = functorch.vmap(functorch.jacrev(func, argnums=1))(s, a)  # [NHa,Hsf,F,A]
         j = j.view(-1, self.n_heads, self.n_heads, self.feature_dim, self.action_dim)
         cur_impact = j.mean((1, 2)).abs()  # [N,F,A]<-[N,Ha,Hsf,F,A]
+
         self.sf = self.sf.train()
 
         impact = (self.prev_impact + cur_impact) / 2
@@ -251,3 +204,10 @@ class Compositions:
         idx = impact.argmax(1)
         self.impact_x_idx.extend(idx[:, 0].reshape(-1).cpu().numpy())
         return impact
+
+    def reset(self):
+        self.prev_impact = torch.zeros(
+            (self.n_env, self.n_heads, self.action_dim), device=self.device
+        )
+        self.impact_x_idx = []  # record primitive impact on x-axis
+        self.policy_idx = []  # record primitive summon frequency

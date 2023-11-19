@@ -1,4 +1,4 @@
-import common.builder as builder
+import builder as builder
 import torch
 import torch.nn as nn
 
@@ -188,6 +188,10 @@ class TwinnedMultiheadSFNetwork(BaseNetwork):
         sf2 = self.SF2(observations, actions)
         return sf1, sf2
 
+    def add_head(self, nheads=1):
+        self.SF1.add_head(nheads)
+        self.SF2.add_head(nheads)
+
 
 if __name__ == "__main__":
     from torch.profiler import ProfilerActivity, profile, record_function
@@ -205,7 +209,7 @@ if __name__ == "__main__":
     obs = torch.rand(1000, obs_dim).to(device)
     act = torch.rand(1000, act_dim).to(device)
 
-    sfn = TwinnedMultiheadSFNetwork(
+    sf = TwinnedMultiheadSFNetwork(
         observation_dim=obs_dim,
         feature_dim=featdim,
         action_dim=act_dim,
@@ -213,7 +217,7 @@ if __name__ == "__main__":
         layernorm=layernorm,
         fuzzytiling=fuzzytiling,
     ).to(device)
-    sfn_scripted = torch.jit.script(sfn)
+    sf_scripted = torch.jit.script(sf)
 
     with profile(
         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -224,6 +228,6 @@ if __name__ == "__main__":
     ) as prof1:
         with record_function("model_inference"):
             for _ in range(times):
-                sfn_scripted(obs, act)
+                sf_scripted(obs, act)
 
     print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))

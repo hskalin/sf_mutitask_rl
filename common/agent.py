@@ -1,3 +1,4 @@
+import copy
 import datetime
 import warnings
 from abc import ABC, abstractmethod
@@ -145,7 +146,8 @@ class IsaacAgent(AbstractAgent):
         return episode_r, episode_steps
 
     def step(self, episode_steps, s):
-        a = self.act(s, self.task.Train.W)
+        a = self.act(s, self.task.Train)
+        assert not torch.isinf(a).any(), "detect action infinity"
 
         self.env.step(a)
         done = self.env.reset_buf.clone()
@@ -153,6 +155,7 @@ class IsaacAgent(AbstractAgent):
         self.env.reset()
 
         r = self.calc_reward(s_next, self.task.Train.W)
+        assert not torch.isinf(r).any(), "detect reward infinity"
 
         masked_done = False if episode_steps >= self.episode_max_step else done
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
@@ -199,7 +202,7 @@ class IsaacAgent(AbstractAgent):
 
             s = self.reset_env()
             for _ in range(self.env_max_steps):
-                a = self.act(s, self.task.Eval.W, "exploit")
+                a = self.act(s, self.task.Eval, "exploit")
                 self.env.step(a)
                 s_next = self.env.obs_buf.clone()
                 self.env.reset()
@@ -214,8 +217,8 @@ class IsaacAgent(AbstractAgent):
         print(f"===== finish evaluate ====")
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
-    def act(self, s, w, mode="explore"):
-        w = np2ts(w)
+    def act(self, s, task, mode="explore"):
+        w = copy.copy(np2ts(task.W))
         s = check_obs(s, self.observation_dim)
 
         with torch.no_grad():
@@ -253,19 +256,34 @@ class IsaacAgent(AbstractAgent):
         raise NotImplementedError
 
 
-class RainbowAgent(IsaacAgent):
+class MultitaskAgent(IsaacAgent):
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
 
-        # TODO: implement prioritized exp replay
+        # TODO: implement
         self.per = self.buffer_cfg["prioritize_replay"]
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
     def train_episode(self, gui_app=None, gui_rew=None):
-        episode_r, episode_steps = super().train_episode(
-            gui_app=gui_app, gui_rew=gui_rew
-        )
+        episode_r, _ = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
 
         if self.adaptive_task:
             self.task.adapt_task(episode_r)
+
+    def act(self, s, task, mode="explore"):
+        w = copy.copy(np2ts(task.W))
+        id = copy.copy(np2ts(task.id))
+        s = check_obs(s, self.observation_dim)
+
+        with torch.no_grad():
+            if (self.steps <= self.min_n_experience) and mode == "explore":
+                a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+
+            if mode == "explore":
+                a = self.explore(s, w, id)
+            elif mode == "exploit":
+                a = self.exploit(s, w, id)
+
+        a = check_act(a, self.action_dim)
+        return a
