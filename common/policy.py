@@ -102,6 +102,10 @@ class GaussianPolicyBuilder(nn.Module):
 
 
 class GaussianPolicy(BaseNetwork):
+    LOG_STD_MAX = 2
+    LOG_STD_MIN = -5
+    eps = 1e-6
+
     def __init__(
         self,
         observation_dim,
