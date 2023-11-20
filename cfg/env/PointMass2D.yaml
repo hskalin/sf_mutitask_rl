@@ -2,10 +2,9 @@ env_name: "PointMass2D"
 num_envs: 1024
 
 goal_lim: 10
-vel_lim: 5
 goal_vel_lim: 5
+vel_lim: 5
 
-dim: 2
 episode_max_step: 500
 total_episodes: 30
 max_episode_length: 500
@@ -18,7 +17,7 @@ eval_episodes: 1
 
 save_model: False  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
-log_interval: 5
+log_interval: 5 # wandb log
 
 task:
   verbose: True
@@ -26,13 +25,15 @@ task:
   rand_task:      True
   rand_vel_targets:  True
 
+  # proximity reward
   proximity_threshold: 3
 
   # targets for play
   target_pos:       [0, 0, 2] # x, y
   target_vel:       [0, 0, 0] # vx, vy, vz
 
-  task_wTrain:      [0, 0, 0.2, 1]  # |p|, v, |v|, prox
+  # |p|, v, |v|, prox
+  task_wTrain:      [0, 0, 0.2, 1]  
   task_wEval: [0, 0, 0.2, 1]
 
   # can be "uniform", "permute", "identity", "achievable"
@@ -50,7 +51,7 @@ task:
 
 feature:
   verbose: True
-  pos_index: 0
+  dim: 2 # pointmass N dim
   use_feature: [True, True, True, True] #[position norm, velocity error, velocity norm, proximity to goal] 
   
 sim:

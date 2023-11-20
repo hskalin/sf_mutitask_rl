@@ -37,16 +37,15 @@ class CompositionAgent(MultitaskAgent):
 
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
         self.use_target_net = self.agent_cfg.get("use_target_net", True)
-        self.use_twinned_net = self.agent_cfg.get("use_twinned_net", True)
         self.use_collective_learning = self.agent_cfg.get(
             "use_collective_learning", False
         )
 
-        self.explore_method = self.agent_cfg["explore_method"]
-        self.exploit_method = self.agent_cfg["exploit_method"]
+        self.explore_method = self.agent_cfg.get("explore_method", "null")
+        self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
-        self.augmentHeads = self.agent_cfg.get("augmentHeads", False)
-        if self.augmentHeads:
+        self.augment_heads = self.agent_cfg.get("augment_heads", False)
+        if self.augment_heads:
             self.pseudo_w = torch.tensor(
                 self.env_cfg["task"]["taskSet_achievable"],
                 device=self.device,

@@ -164,10 +164,21 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             self.ln = nn.LayerNorm(in_dim, elementwise_affine=True)
 
         self.l1_1 = nn.Linear(observation_dim + action_dim, hidden_dim)
-        self.l1_2 = nn.Linear(in_dim, hidden_dim)
-
         self.l2_1 = nn.Linear(observation_dim + action_dim, hidden_dim)
-        self.l2_2 = nn.Linear(in_dim, hidden_dim)
+
+        if fta:
+            self.ln_l1 = nn.LayerNorm(in_dim, elementwise_affine=False)
+            self.fta_l1 = FTA(delta=fta_delta)
+
+            self.ln_l2 = nn.LayerNorm(in_dim, elementwise_affine=False)
+            self.fta_l2 = FTA(delta=fta_delta)
+
+            unit = in_dim * (self.fta_l1.nbins)
+        else:
+            unit = in_dim
+
+        self.l1_2 = nn.Linear(unit, hidden_dim)
+        self.l2_2 = nn.Linear(unit, hidden_dim)
 
         if num_layers > 2:
             self.l1_3 = nn.Linear(in_dim, hidden_dim)
@@ -190,15 +201,6 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             self.l2_7 = nn.Linear(in_dim, hidden_dim)
             self.l2_8 = nn.Linear(in_dim, hidden_dim)
 
-        if fta:
-            self.ln_l1 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
-            self.fta_l1 = FTA(delta=fta_delta)
-
-            self.ln_l2 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
-            self.fta_l2 = FTA(delta=fta_delta)
-
-            hidden_dim *= self.fta_l1.nbins
-
         self.out1 = nn.Linear(hidden_dim, out_dim)
         self.out2 = nn.Linear(hidden_dim, out_dim)
 
@@ -214,6 +216,14 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
 
         x1 = self.ln(x1) if self.layernorm else x1
         x2 = self.ln(x2) if self.layernorm else x2
+
+        if self.fta:
+            x1 = self.ln_l1(x1)
+            x1 = self.fta_l1(x1)
+
+            x2 = self.ln_l2(x2)
+            x2 = self.fta_l2(x2)
+
         x1 = F.relu(self.l1_2(x1))
         x2 = F.relu(self.l2_2(x2))
 
@@ -268,13 +278,6 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             x1 = F.relu(self.l1_8(x1))
             x2 = F.relu(self.l2_8(x2))
 
-        if self.fta:
-            x1 = self.ln_l1(x1)
-            x1 = self.fta_l1(x1)
-
-            x2 = self.ln_l2(x2)
-            x2 = self.fta_l2(x2)
-
         x1 = self.out1(x1).view(-1, self.max_nheads, self.feature_dim)
         x2 = self.out2(x2).view(-1, self.max_nheads, self.feature_dim)
 
@@ -288,14 +291,13 @@ class MultiheadSFNetwork(BaseNetwork):
         feature_dim,
         action_dim,
         n_heads,
-        hidden_dim=4,
-        num_layers=64,
+        hidden_dim=64,
+        num_layers=4,
         resnet=False,
         layernorm=False,
         fta=False,
         fta_delta=0.25,
         max_nheads=int(100),
-        jit=True,
     ) -> None:
         super().__init__()
         self.n_heads = n_heads
@@ -343,13 +345,13 @@ if __name__ == "__main__":
     hidden_dim = 64
     num_layers = 4
 
-    resnet = True
-    layernorm = True
-    fta = True
+    resnet = False
+    layernorm = False
+    fta = False
     device = "cuda"
 
     times = 1000
-    obs = torch.rand(128, obs_dim).to(device)
+    obs = 1000 * torch.rand(128, obs_dim).to(device)
     act = torch.rand(128, act_dim).to(device)
 
     sf1 = MultiheadSFNetwork(
@@ -363,16 +365,15 @@ if __name__ == "__main__":
         layernorm=layernorm,
         fta=fta,
     ).to(device)
-    sf1 = torch.jit.script(sf1)
 
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
-    ) as prof1:
-        with record_function("model_inference"):
-            for _ in range(times):
-                sf1(obs, act)
+    # with profile(
+    #     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    #     record_shapes=True,
+    #     profile_memory=True,
+    #     with_stack=True,
+    # ) as prof1:
+    #     with record_function("model_inference"):
+    #         for _ in range(times):
+    #             sf1(obs, act)
 
-    print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    # print(prof1.key_averages().table(sort_by="cuda_time_total", row_limit=10))

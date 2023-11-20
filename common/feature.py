@@ -34,10 +34,18 @@ class PointMassFeature(FeatureAbstract):
         self.use_feature = self.feature_cfg["use_feature"]
         self.verbose = self.feature_cfg.get("verbose", False)
 
-        self.envdim = int(self.env_cfg["dim"])
-        self.Kp = torch.tensor(self.env_cfg["goal_lim"], dtype= torch.float64, device=self.device)
-        self.Kv = torch.tensor(self.env_cfg["vel_lim"], dtype= torch.float64, device=self.device)
-        self.proxThresh = torch.tensor(self.env_cfg["task"]["proximity_threshold"], dtype= torch.float64, device=self.device)
+        self.envdim = int(self.env_cfg["feature"]["dim"])
+        self.Kp = torch.tensor(
+            self.env_cfg["goal_lim"], dtype=torch.float64, device=self.device
+        )
+        self.Kv = torch.tensor(
+            self.env_cfg["vel_lim"], dtype=torch.float64, device=self.device
+        )
+        self.proxThresh = torch.tensor(
+            self.env_cfg["task"]["proximity_threshold"],
+            dtype=torch.float64,
+            device=self.device,
+        )
         self.proxRange = 1 / self.compute_gaussDist(
             mu=self.proxThresh**2, sigma=self.Kp, scale=-12.8
         )
@@ -124,11 +132,18 @@ class PointerFeature(FeatureAbstract):
 
         self.use_feature = self.feature_cfg["use_feature"]
         self.verbose = self.feature_cfg.get("verbose", False)
-        
-        self.envdim = int(self.env_cfg["dim"])
-        self.Kp = torch.tensor(self.env_cfg["goal_lim"], dtype= torch.float64, device=device)
-        self.Kv = torch.tensor(self.env_cfg["vel_lim"], dtype= torch.float64, device=device)
-        self.proxThresh = torch.tensor(self.env_cfg["task"]["proximity_threshold"], dtype= torch.float64, device=device)
+
+        self.Kp = torch.tensor(
+            self.env_cfg["goal_lim"], dtype=torch.float64, device=device
+        )
+        self.Kv = torch.tensor(
+            self.env_cfg["vel_lim"], dtype=torch.float64, device=device
+        )
+        self.proxThresh = torch.tensor(
+            self.env_cfg["task"]["proximity_threshold"],
+            dtype=torch.float64,
+            device=device,
+        )
         self.Ka = torch.pi
 
         (
@@ -143,7 +158,7 @@ class PointerFeature(FeatureAbstract):
             self.use_posY,
             self.use_vel_norm,
             self.use_ang_norm,
-            self.use_angvel_norm
+            self.use_angvel_norm,
         ]
         self.dim = sum(self.feature_dim)
 
@@ -205,7 +220,6 @@ class PointerFeature(FeatureAbstract):
 
     def compute_gaussDist(self, mu, sigma, scale):
         return torch.exp(scale * mu / sigma**2)
-
 
 
 def feature_constructor(env_cfg, device):

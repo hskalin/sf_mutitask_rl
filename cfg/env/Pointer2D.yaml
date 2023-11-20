@@ -5,7 +5,6 @@ goal_lim: 10
 goal_vel_lim: 5
 vel_lim: 5
 
-dim: 2
 episode_max_step: 500
 total_episodes: 25
 max_episode_length: 500
@@ -18,7 +17,7 @@ eval_episodes: 1
 
 save_model: False  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
-log_interval: 5
+log_interval: 5 # wandb log
 
 task:
   verbose: True
@@ -26,6 +25,7 @@ task:
   rand_task:       True
   rand_vel_targets:   True
 
+  # proximity reward
   proximity_threshold: 2
 
   # targets for play
@@ -34,23 +34,30 @@ task:
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
-  task_wTrain:      [1, 0, 0.2, 0.5, 0.0]  # |px|, |py|, |v|, |ang|, |angvel|
+  # specify task weight |px|, |py|, |v|, |ang|, |angvel|
+  task_wTrain: [1, 0, 0.2, 0.5, 0.0]  
   task_wEval: [0, 0, 0, 1, 0]
 
   # can be "uniform", "permute", "identity", "achievable", "single"
   rand_method: "achievable"
   adaptive_task: True
+
   # set of achievable task weights
-  taskSet_achievable:   [[1,0,0,0,0],
-              [0,1,0,0,0],
-              [0,0,1,0,0],
-              [0,0,0,1,0],
-              [0,0,0,0,1],
-              [1,1,0,0,0],
-              [1,1,0,1,0],
-              [1,1,0,0,1],
-              [0,0,1,1,0],
-              [0,0,1,0,1]]
+  taskSet_achievable:   [
+    [1,0,0,0,0],
+    [0,1,0,0,0],
+    [0,0,1,0,0],
+    [0,0,0,1,0],
+    [0,0,0,0,1],
+    [1,1,0,0,0],
+    [1,1,0,1,0],
+    [1,1,0,0,1],
+    [0,0,1,1,0],
+    [0,0,1,0,1],
+    [1, 0, 0.2, 0.5, 0.0]
+    ]
+
+  taskSet_single: [[1,1,0,0,0]]
 
   # task_wa: [[1,0,0,0,0],
   #           [0,0,1,0,0],
@@ -83,11 +90,10 @@ task:
   #           [0,0,1,1,0],
   #           [0,0,1,0,1]]
 
-  taskSet_single: [[1,1,0,0,0]]
 
-feature:
+feature: # |px|, |py|, |v|, |ang|, |angvel|
+  dim: 2 # pointer N dim
   verbose: True
-  pos_index: 3    # pos start index in obs space
   use_feature: [True, True, True, True, True]
 
   

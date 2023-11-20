@@ -81,7 +81,7 @@ class SmartTask:
 
         self.n_env = self.env_cfg["num_envs"]
         use_feature = self.env_cfg["feature"]["use_feature"]
-        env_dim = self.env_cfg["dim"]
+        env_dim = self.env_cfg["feature"]["dim"]
         self.randTasks = self.task_cfg.get("rand_task", False)
         self.randMethod = self.task_cfg.get("rand_method", None)
         self.adaptiveTask = self.task_cfg.get("adaptive_task", False)
