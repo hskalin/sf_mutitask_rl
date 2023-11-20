@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from common.activation_fn import FTA
+from sf_mutitask_rl.common.activation import FTA
 
 
 # Initialize Policy weights

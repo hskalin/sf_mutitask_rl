@@ -102,8 +102,10 @@ def create_multihead_linear_model(
     )
 
     if fuzzytiling:
+        from .activation import FTA
+
         model.pop()
-        fta = activation_fn.FTA()
+        fta = FTA()
         model.append(fta)
         units *= fta.nbins
 

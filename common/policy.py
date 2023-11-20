@@ -1,4 +1,4 @@
-from common.activation_fn import FTA
+from sf_mutitask_rl.common.activation import FTA
 import common.builder as builder
 import common.distribution as distribution
 import common.util as util
