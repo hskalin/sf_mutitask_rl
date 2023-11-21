@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
-from common.vec_buffer import VectorizedReplayBuffer
+from common.vec_buffer import VectorizedReplayBuffer, VecPrioritizedReplayBuffer
 from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
@@ -58,13 +58,19 @@ class IsaacAgent(AbstractAgent):
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
 
-        self.replay_buffer = VectorizedReplayBuffer(
-            self.observation_shape,
-            self.action_shape,
-            self.feature_shape,
-            self.buffer_cfg["capacity"],
-            self.device,
-        )
+        if self.buffer_cfg["prioritized_replay"]:
+            self.replay_buffer = VecPrioritizedReplayBuffer(
+                device=self.device,
+                **self.buffer_cfg,
+            )
+        else:
+            self.replay_buffer = VectorizedReplayBuffer(
+                self.observation_shape,
+                self.action_shape,
+                self.feature_shape,
+                device=self.device,
+                **self.buffer_cfg,
+            )
         self.mini_batch_size = int(self.buffer_cfg["mini_batch_size"])
         self.min_n_experience = int(self.buffer_cfg["min_n_experience"])
 
@@ -181,10 +187,10 @@ class IsaacAgent(AbstractAgent):
 
     def save_to_buffer(self, s, a, r, s_next, done, masked_done):
         f = self.feature.extract(s)
-
         r = r[:, None] * self.reward_scale
         done = done[:, None]
         masked_done = masked_done[:, None]
+
         self.replay_buffer.add(s, f, a, r, s_next, masked_done)
 
     def evaluate(self):
@@ -259,9 +265,6 @@ class IsaacAgent(AbstractAgent):
 class MultitaskAgent(IsaacAgent):
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
-
-        # TODO: implement
-        self.per = self.buffer_cfg["prioritize_replay"]
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 

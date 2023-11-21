@@ -1,8 +1,20 @@
 import torch
+from torchrl.data import LazyTensorStorage, TensorDictPrioritizedReplayBuffer
+from tensordict import TensorDict
 
 
 class VectorizedReplayBuffer:
-    def __init__(self, obs_shape, action_shape, feature_shape, capacity, device):
+    def __init__(
+        self,
+        obs_shape,
+        action_shape,
+        feature_shape,
+        capacity,
+        device,
+        mini_batch_size=64,
+        *args,
+        **kwargs,
+    ):
         """Create Vectorized Replay buffer.
         Parameters
         ----------
@@ -15,6 +27,7 @@ class VectorizedReplayBuffer:
         """
 
         self.device = device
+        self.batch_size = mini_batch_size
 
         self.obses = torch.empty(
             (capacity, *obs_shape), dtype=torch.float32, device=self.device
@@ -70,7 +83,7 @@ class VectorizedReplayBuffer:
         self.idx = (self.idx + num_observations) % self.capacity
         self.full = self.full or self.idx == 0
 
-    def sample(self, batch_size):
+    def sample(self, batch_size=None):
         """Sample a batch of experiences.
         Parameters
         ----------
@@ -91,6 +104,8 @@ class VectorizedReplayBuffer:
         not_dones_no_max: torch tensor
             inverse of whether the episode ended at this tuple of (observation, action) or not, specifically exlcuding maximum episode steps
         """
+        if batch_size is None:
+            batch_size = self.batch_size
 
         idxs = torch.randint(
             0,
@@ -105,6 +120,58 @@ class VectorizedReplayBuffer:
         next_obses = self.next_obses[idxs]
         dones = self.dones[idxs]
 
-        # (s, f, a, r, s_next, dones) = batch
+        return {
+            "obs": obses,
+            "feature": features,
+            "action": actions,
+            "reward": rewards,
+            "next_obs": next_obses,
+            "done": dones,
+        }
 
-        return (obses, features, actions, rewards, next_obses, dones)
+
+class VecPrioritizedReplayBuffer:
+    def __init__(
+        self,
+        capacity,
+        device,
+        alpha=0.7,
+        beta=1.1,
+        mini_batch_size=64,
+        *args,
+        **kwargs,
+    ):
+        self.device = device
+        self.rb = TensorDictPrioritizedReplayBuffer(
+            alpha=alpha,
+            beta=beta,
+            storage=LazyTensorStorage(capacity, device=self.device),
+            batch_size=mini_batch_size,
+        )
+
+    def add(self, obs, feature, action, reward, next_obs, done):
+        data = TensorDict(
+            {
+                "obs": obs,
+                "feature": feature,
+                "action": action,
+                "reward": reward,
+                "next_obs": next_obs,
+                "done": done,
+            },
+            obs.shape[0],
+        )
+        self.rb.extend(data)
+
+    def sample(self, ndata=None):
+        if ndata is not None:
+            d = self.rb.sample(ndata)
+        else:
+            d = self.rb.sample()
+        return d
+
+    def update_tensordict_priority(self, sample):
+        self.rb.update_tensordict_priority(sample)
+
+    def __len__(self):
+        return len(self.rb)

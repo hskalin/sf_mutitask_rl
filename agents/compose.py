@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import isaacgym
 import torch
 from common.agent import MultitaskAgent
@@ -24,6 +25,7 @@ class CompositionAgent(MultitaskAgent):
 
         self.lr = self.agent_cfg["lr"]
         self.policy_lr = self.agent_cfg["policy_lr"]
+        self.lr_schedule = self.agent_cfg["lr_schedule"]
         self.value_net_kwargs = self.agent_cfg["value_net_kwargs"]
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
@@ -34,8 +36,9 @@ class CompositionAgent(MultitaskAgent):
         )
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
-
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
+        self.prioritized_replay = self.buffer_cfg["prioritized_replay"]
+
         self.use_target_net = self.agent_cfg.get("use_target_net", True)
         self.use_collective_learning = self.agent_cfg.get(
             "use_collective_learning", False
@@ -87,6 +90,9 @@ class CompositionAgent(MultitaskAgent):
         self.policy_optimizer = Adam(
             self.policy.parameters(), lr=self.policy_lr, betas=[0.9, 0.999]
         )
+        if self.lr_schedule:
+            self.lrScheduler_sf = ReduceLROnPlateau(self.sf_optimizer, "min")
+            self.lrScheduler_policy = ReduceLROnPlateau(self.policy_optimizer, "min")
 
         self.comp = Compositions(
             self.agent_cfg,
@@ -150,10 +156,18 @@ class CompositionAgent(MultitaskAgent):
         sf_loss, errors, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
         policy_loss, entropies, penalty_act = self.update_policy(batch)
 
+        if self.lr_schedule:
+            self.lrScheduler_sf.step(sf_loss)
+            self.lrScheduler_policy.step(policy_loss)
+
         if self.entropy_tuning:
             entropy_loss = self.calc_entropy_loss(entropies)
             update_params(self.alpha_optimizer, None, entropy_loss)
             self.alpha = self.log_alpha.exp()
+
+        if self.prioritized_replay:
+            batch.set("td_error", errors)
+            self.replay_buffer.update_tensordict_priority(batch)
 
         if self.learn_steps % self.log_interval == 0:
             metrics = {
@@ -184,13 +198,27 @@ class CompositionAgent(MultitaskAgent):
             wandb.log(metrics)
 
     def update_sf(self, batch):
-        (s, f, a, _, s_next, dones) = batch
+        (s, f, a, _, s_next, dones) = (
+            batch["obs"],
+            batch["feature"],
+            batch["action"],
+            batch["reward"],
+            batch["next_obs"],
+            batch["done"],
+        )
+
+        if self.prioritized_replay:
+            weights = batch["_weight"]
+            weights = weights[:, None, None]
+        else:
+            weights = 1
 
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <-- [N, S], [N,A]
         target_sf = self.calc_target_sf(f, s_next, dones)  # [N, H, F]
 
-        loss1 = (curr_sf1 - target_sf).pow(2).mean()  # R <-- [N, H, F]
-        loss2 = (curr_sf2 - target_sf).pow(2).mean()  # R <-- [N, H, F]
+        loss1 = torch.mean((curr_sf1 - target_sf).pow(2) * weights)  # R <-- [N, H, F]
+        loss2 = torch.mean((curr_sf2 - target_sf).pow(2) * weights)  # R <-- [N, H, F]
+
         sf_loss = loss1 + loss2
 
         self.sf_optimizer.zero_grad(set_to_none=True)
@@ -212,7 +240,7 @@ class CompositionAgent(MultitaskAgent):
         return sf_loss, errors, mean_sf1, mean_sf2, target_sf
 
     def update_policy(self, batch):
-        (s, _, _, _, _, _) = batch
+        s = batch["obs"]
 
         a_heads, entropies, _ = self.policy.sample(s)  # [N,H,A], [N, H, 1] <-- [N,S]
 

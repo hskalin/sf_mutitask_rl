@@ -29,12 +29,14 @@ class SACAgent(IsaacAgent):
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
         self.tau = self.agent_cfg["tau"]
+
         self.td_target_update_interval = int(
             self.agent_cfg["td_target_update_interval"]
         )
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
+        self.prioritized_replay = self.buffer_cfg["prioritized_replay"]
 
         self.critic = QNetwork(
             observation_dim=self.observation_dim,
@@ -96,15 +98,18 @@ class SACAgent(IsaacAgent):
             soft_update(self.critic_target, self.critic, self.tau)
 
         batch = self.replay_buffer.sample(self.mini_batch_size)
-        weights = 1
 
-        q_loss, errors, mean_q1 = self.update_critic(batch, weights)
-        policy_loss, entropies = self.update_policy(batch, weights)
+        q_loss, errors, mean_q1 = self.update_critic(batch)
+        policy_loss, entropies = self.update_policy(batch)
 
         if self.entropy_tuning:
-            entropy_loss = self.calc_entropy_loss(entropies, weights)
+            entropy_loss = self.calc_entropy_loss(entropies)
             update_params(self.alpha_optimizer, None, entropy_loss)
             self.alpha = self.log_alpha.exp()
+
+        if self.prioritized_replay:
+            batch.set("td_error", errors)
+            self.replay_buffer.update_tensordict_priority(batch)
 
         if self.learn_steps % self.log_interval == 0:
             metrics = {
@@ -123,8 +128,20 @@ class SACAgent(IsaacAgent):
 
             wandb.log(metrics)
 
-    def update_critic(self, batch, weights):
-        (s, f, a, r, s_next, dones) = batch
+    def update_critic(self, batch):
+        (s, _, a, r, s_next, dones) = (
+            batch["obs"],
+            batch["feature"],
+            batch["action"],
+            batch["reward"],
+            batch["next_obs"],
+            batch["done"],
+        )
+
+        if self.prioritized_replay:
+            weights = batch["_weight"]
+        else:
+            weights = 1
 
         curr_q1, curr_q2 = self.calc_current_q(s, a)
         target_q = self.calc_target_q(r, s_next, dones)
@@ -148,8 +165,8 @@ class SACAgent(IsaacAgent):
 
         return q_loss, errors, mean_q1
 
-    def update_policy(self, batch, weights):
-        (s, f, a, r, s_next, dones) = batch
+    def update_policy(self, batch):
+        s = batch["obs"]
 
         # We re-sample actions to calculate expectations of Q.
         sampled_a, entropy, _ = self.policy.sample(s)
@@ -159,16 +176,16 @@ class SACAgent(IsaacAgent):
         q = torch.min(q1, q2)
 
         # Policy objective is maximization of (Q + alpha * entropy).
-        policy_loss = torch.mean((-q - self.alpha * entropy) * weights)
+        policy_loss = torch.mean((-q - self.alpha * entropy))
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
         return policy_loss.detach().item(), entropy
 
-    def calc_entropy_loss(self, entropy, weights):
+    def calc_entropy_loss(self, entropy):
         # Intuitively, we increse alpha when entropy is less than target
         # entropy, vice versa.
         entropy_loss = -torch.mean(
-            self.log_alpha * (self.target_entropy - entropy).detach() * weights
+            self.log_alpha * (self.target_entropy - entropy).detach()
         )
         return entropy_loss
 
@@ -184,14 +201,6 @@ class SACAgent(IsaacAgent):
 
         target_q = r + (~dones) * self.gamma * next_q
         return target_q
-
-    def calc_priority_error(self, batch):
-        (s, _, a, r, s_next, dones) = batch
-        with torch.no_grad():
-            curr_q1, _ = self.calc_current_q(s, a)
-        target_q = self.calc_target_q(r, s_next, dones)
-        error = torch.abs(curr_q1 - target_q).cpu().numpy()
-        return error
 
     def save_torch_model(self):
         from pathlib import Path

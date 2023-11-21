@@ -6,11 +6,13 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.0001
+    min: 0.001
     max: 0.01
   agent.policy_lr:
-    min: 0.0001
+    min: 0.001
     max: 0.01
+  agent.lr_schedule:
+    values: [True, False]
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
@@ -28,6 +30,8 @@ parameters:
   agent.value_net_kwargs.resnet:
     values: [True, False]
   agent.value_net_kwargs.fta:
+    values: [True, False]
+  buffer.prioritized_replay:
     values: [True, False]
   env.num_envs:
     values: [1024]
