@@ -98,9 +98,13 @@ class SACAgent(IsaacAgent):
             soft_update(self.critic_target, self.critic, self.tau)
 
         batch = self.replay_buffer.sample(self.mini_batch_size)
+        if self.prioritized_replay:
+            weights = batch["_weight"]
+        else:
+            weights = 1
 
-        q_loss, errors, mean_q1 = self.update_critic(batch)
-        policy_loss, entropies = self.update_policy(batch)
+        q_loss, errors, mean_q1 = self.update_critic(batch, weights)
+        policy_loss, entropies = self.update_policy(batch, weights)
 
         if self.entropy_tuning:
             entropy_loss = self.calc_entropy_loss(entropies)
@@ -128,7 +132,7 @@ class SACAgent(IsaacAgent):
 
             wandb.log(metrics)
 
-    def update_critic(self, batch):
+    def update_critic(self, batch, weights):
         (s, _, a, r, s_next, dones) = (
             batch["obs"],
             batch["feature"],
@@ -137,11 +141,6 @@ class SACAgent(IsaacAgent):
             batch["next_obs"],
             batch["done"],
         )
-
-        if self.prioritized_replay:
-            weights = batch["_weight"]
-        else:
-            weights = 1
 
         curr_q1, curr_q2 = self.calc_current_q(s, a)
         target_q = self.calc_target_q(r, s_next, dones)
@@ -165,7 +164,7 @@ class SACAgent(IsaacAgent):
 
         return q_loss, errors, mean_q1
 
-    def update_policy(self, batch):
+    def update_policy(self, batch, weights):
         s = batch["obs"]
 
         # We re-sample actions to calculate expectations of Q.
@@ -176,16 +175,16 @@ class SACAgent(IsaacAgent):
         q = torch.min(q1, q2)
 
         # Policy objective is maximization of (Q + alpha * entropy).
-        policy_loss = torch.mean((-q - self.alpha * entropy))
+        policy_loss = torch.mean((-q - self.alpha * entropy) * weights)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
         return policy_loss.detach().item(), entropy
 
-    def calc_entropy_loss(self, entropy):
+    def calc_entropy_loss(self, entropy, weights):
         # Intuitively, we increse alpha when entropy is less than target
         # entropy, vice versa.
         entropy_loss = -torch.mean(
-            self.log_alpha * (self.target_entropy - entropy).detach()
+            self.log_alpha * (self.target_entropy - entropy).detach() * weights
         )
         return entropy_loss
 
