@@ -118,12 +118,17 @@ class Compositions:
         a = self.gpi(a, kappa, rule="k")
         return a
 
-    def gpe(self, s, a, w):
+    def gpe(self, s, a, w, rule=None):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.calc_curr_sf(s, a)
+        curr_sf = curr_sf.float()
 
-        # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
-        qs = torch.einsum("ijkl,il->ijk", curr_sf.float(), w)
+        if rule == "pseudo_weight":
+            # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[Hsf,F]
+            qs = torch.einsum("ijkl,kl->ijk", curr_sf, w)
+        else:
+            # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
+            qs = torch.einsum("ijkl,il->ijk", curr_sf, w)
         return qs  # [N,Ha,Hsf]
 
     def gpi(self, acts, value, rule="q"):

@@ -214,19 +214,18 @@ class CompositionAgent(MultitaskAgent):
     def update_policy(self, batch):
         (s, _, _, _, _, _) = batch
 
-        if self.use_collective_learning:  # TODO
-            a_heads = self.comp.act(
-                s, self.pseudo_w, id=None, mode="exploitation", composition="sfgpi"
-            )
-        else:
-            a_heads, entropies, _ = self.policy.sample(
-                s
-            )  # [N,H,A], [N, H, 1] <-- [N,S]
+        a_heads, entropies, _ = self.policy.sample(s)  # [N,H,A], [N, H, 1] <-- [N,S]
 
         penalty_act = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
 
-        qs = self.calc_qs_from_sf(s, a_heads)
-        qs = qs.unsqueeze(2)  # [N,H,1]
+        if self.use_collective_learning:
+            qs = self.comp.gpe(
+                s, a_heads, self.pseudo_w, rule="pseudo_weight"
+            )  # [N, Ha, Hsf] <-- [N, S], [N, H, A], [H, F]
+            qs = qs.argmax(2, keepdim=True)  # [N, H, 1]
+        else:
+            qs = self.calc_qs_from_sf(s, a_heads)
+            qs = qs.unsqueeze(2)  # [N,H,1]
 
         loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * penalty_act
         # [N, H, 1] <--  [N, H, 1], [N,1,1], [N, H, 1]
@@ -256,8 +255,8 @@ class CompositionAgent(MultitaskAgent):
         # [N, Ha, F] <-- [NHa, Hsf, F]
 
         qs = torch.einsum(
-            "ijk,kj->ij", curr_sf, self.pseudo_w.T
-        )  # [N,H]<-- [N,H,F]*[F, H]
+            "ijk,jk->ij", curr_sf, self.pseudo_w
+        )  # [N,H]<-- [N,H,F]*[H,F]
 
         return qs
 
