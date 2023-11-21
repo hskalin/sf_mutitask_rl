@@ -1,7 +1,5 @@
-from abc import ABC, abstractmethod
 import torch
 import itertools
-from dataclasses import dataclass
 
 
 class TaskObject:
@@ -71,6 +69,12 @@ class TaskObject:
             self.taskSet
         )
 
+    def add_task(self, w: torch.tensor):
+        w = w.view(-1, self.dim)
+        self.taskSet = torch.cat([self.taskSet, w], 0)
+        self.reset_taskRatio()
+        self.W = self.sample_tasks()
+
 
 class SmartTask:
     def __init__(self, env_cfg, device) -> None:
@@ -131,6 +135,9 @@ class SmartTask:
         new_ratio = task_performance**-1
         new_ratio /= new_ratio.norm(1, keepdim=True)
         self.Train.taskRatio = new_ratio
+
+    def add_task(self, w: torch.tensor):
+        self.Train.add_task(w)
 
 
 class PointMassTask(SmartTask):

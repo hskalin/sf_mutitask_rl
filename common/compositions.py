@@ -28,17 +28,9 @@ class Compositions:
                 (self.feature_dim), device=device, dtype=torch.float32
             )
 
-        self.mask_nullcomp = torch.eye(n_heads).unsqueeze(dim=-1).bool().to(device)
-
-    def act(self, s, w, id, mode="exploit", composition="sfgpi"):
-        if composition == "null" or composition is None:
-            return self.null_comp(s, id)
-
-        if self.norm_task_by_sf:
-            w /= self.sf_norm_coeff.abs()  # normalized by SF scale
-            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
-
-        return self.composition_methods(composition)(s, w, mode)
+        self.mask_nullcomp = (
+            torch.eye(self.n_heads).unsqueeze(dim=-1).bool().to(self.device)
+        )
 
     def composition_methods(self, method="sfgpi"):
         if method == "dac" or method == "dacgpi":
@@ -58,6 +50,22 @@ class Compositions:
             return self.dacgpi
         else:
             raise NotImplementedError
+
+    def add_head(self, nheads):
+        self.n_heads += nheads
+        self.mask_nullcomp = (
+            torch.eye(self.n_heads).unsqueeze(dim=-1).bool().to(self.device)
+        )
+
+    def act(self, s, w, id, mode="exploit", composition="sfgpi"):
+        if composition == "null" or composition is None:
+            return self.null_comp(s, id)
+
+        if self.norm_task_by_sf:
+            w /= self.sf_norm_coeff.abs()  # normalized by SF scale
+            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
+
+        return self.composition_methods(composition)(s, w, mode)
 
     def update_sf_norm(self, sf_norm):
         self.sf_norm_coeff = sf_norm
@@ -123,7 +131,7 @@ class Compositions:
         curr_sf = self.calc_curr_sf(s, a)
         curr_sf = curr_sf.float()
 
-        if rule == "pseudo_weight":
+        if rule == "primitive":
             # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[Hsf,F]
             qs = torch.einsum("ijkl,kl->ijk", curr_sf, w)
         else:

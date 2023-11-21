@@ -6,19 +6,19 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.001
+    min: 0.0005
     max: 0.01
   agent.policy_lr:
-    min: 0.001
+    min: 0.0005
     max: 0.01
-  agent.lr_schedule:
-    values: [True, False]
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
-    values: [1, 3, 5]
+    values: [2]
   agent.explore_method:
     values: ["null", "sfgpi"]
+  agent.lr_schedule:
+    values: [True, False]
   agent.norm_task_by_sf:
     values: [True, False]
   agent.use_collective_learning:
@@ -27,9 +27,13 @@ parameters:
     values: [True, False]
   agent.policy_net_kwargs.fta:
     values: [True, False]
+  agent.policy_net_kwargs.layernorm:
+    values: [True, False]
   agent.value_net_kwargs.resnet:
     values: [True, False]
   agent.value_net_kwargs.fta:
+    values: [False, False]
+  agent.value_net_kwargs.layernorm:
     values: [True, False]
   buffer.prioritized_replay:
     values: [True, False]

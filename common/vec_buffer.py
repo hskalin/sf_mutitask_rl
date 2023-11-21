@@ -135,8 +135,8 @@ class VecPrioritizedReplayBuffer:
         self,
         capacity,
         device,
-        alpha=0.7,
-        beta=1.1,
+        alpha=0.6,
+        beta=0.4,
         mini_batch_size=64,
         *args,
         **kwargs,
@@ -175,3 +175,32 @@ class VecPrioritizedReplayBuffer:
 
     def __len__(self):
         return len(self.rb)
+
+
+if __name__ == "__main__":
+    capacity = 10
+    device = "cuda"
+    data_size = 10
+
+    buf = VecPrioritizedReplayBuffer(capacity, device)
+
+    obs = torch.rand(data_size, 5)
+    feature = torch.rand(data_size, 3)
+    action = torch.rand(data_size, 2)
+    reward = torch.rand(data_size, 1)
+    next_obs = torch.rand(data_size, 5)
+    done = torch.rand(data_size, 1)
+
+    buf.add(obs, feature, action, reward, next_obs, done)
+    print(len(buf))
+
+    sample = buf.sample(5)
+    print("index", sample["index"])
+
+    sample = buf.sample(5)
+    sample.set("td_error", 100 * torch.ones(sample.shape))
+    print("index", sample["index"])
+    buf.update_tensordict_priority(sample)
+
+    sample = buf.sample(10)
+    print("index", sample["index"])
