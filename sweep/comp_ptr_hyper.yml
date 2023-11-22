@@ -29,11 +29,11 @@ parameters:
     values: [True, False]
   agent.policy_net_kwargs.layernorm:
     values: [True]
-  agent.value_net_kwargs.resnet:
+  agent.sf_net_kwargs.resnet:
     values: [True]
-  agent.value_net_kwargs.fta:
-    values: [False]
-  agent.value_net_kwargs.layernorm:
+  agent.sf_net_kwargs.fta:
+    values: [True, False]
+  agent.sf_net_kwargs.layernorm:
     values: [True]
   buffer.prioritized_replay:
     values: [False]

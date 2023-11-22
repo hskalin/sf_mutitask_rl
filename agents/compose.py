@@ -25,7 +25,7 @@ class CompositionAgent(MultitaskAgent):
         self.lr = self.agent_cfg["lr"]
         self.policy_lr = self.agent_cfg["policy_lr"]
         self.lr_schedule = self.agent_cfg["lr_schedule"]
-        self.value_net_kwargs = self.agent_cfg["value_net_kwargs"]
+        self.sf_net_kwargs = self.agent_cfg["sf_net_kwargs"]
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
         self.tau = self.agent_cfg["tau"]
@@ -59,7 +59,7 @@ class CompositionAgent(MultitaskAgent):
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
-            **self.value_net_kwargs,
+            **self.sf_net_kwargs,
         ).to(self.device)
 
         self.sf_target = MultiheadSFNetwork(
@@ -67,7 +67,7 @@ class CompositionAgent(MultitaskAgent):
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
-            **self.value_net_kwargs,
+            **self.sf_net_kwargs,
         ).to(self.device)
 
         hard_update(self.sf_target, self.sf)
@@ -163,7 +163,7 @@ class CompositionAgent(MultitaskAgent):
             weights = 1
 
         sf_loss, errors, mean_sf1, mean_sf2, target_sf = self.update_sf(batch, weights)
-        policy_loss, entropies, penalty_act = self.update_policy(batch, weights)
+        policy_loss, entropies, action_norm = self.update_policy(batch, weights)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
@@ -186,7 +186,7 @@ class CompositionAgent(MultitaskAgent):
             metrics = {
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
-                "loss/penalty_act": penalty_act,
+                "loss/action_norm": action_norm,
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
                 "state/target_sf": target_sf,
@@ -256,18 +256,18 @@ class CompositionAgent(MultitaskAgent):
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()
-        mean_sf1 = curr_sf1.detach().mean().item()
-        mean_sf2 = curr_sf2.detach().mean().item()
+        curr_sf1 = curr_sf1.detach().mean().item()
+        curr_sf2 = curr_sf2.detach().mean().item()
         target_sf = target_sf.detach().mean().item()
 
-        return sf_loss, errors, mean_sf1, mean_sf2, target_sf
+        return sf_loss, errors, curr_sf1, curr_sf2, target_sf
 
     def update_policy(self, batch, weights):
         s = batch["obs"]
 
         a_heads, entropies, _ = self.policy.sample(s)  # [N,H,A], [N, H, 1] <-- [N,S]
 
-        penalty_act = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
+        action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
 
         if self.use_collective_learning:
             qs = self.gpe(
@@ -277,7 +277,8 @@ class CompositionAgent(MultitaskAgent):
             qs = self._calc_qs_from_sf(s, a_heads)
             qs = qs.unsqueeze(2)  # [N,H,1]
 
-        loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * penalty_act
+        loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * action_norm
+
         # [N, H, 1] <--  [N, H, 1], [N,1,1], [N, H, 1]
         policy_loss = torch.mean(loss * weights)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
@@ -285,7 +286,7 @@ class CompositionAgent(MultitaskAgent):
         return (
             policy_loss.detach().item(),
             entropies,
-            penalty_act.mean().detach().item(),
+            action_norm.mean().detach().item(),
         )
 
     def gpe(self, s, a, w):
@@ -301,23 +302,23 @@ class CompositionAgent(MultitaskAgent):
 
     def _calc_entropy_loss(self, entropy, weights):
         loss = self.log_alpha * (self.target_entropy - entropy).detach()
+
         # [N, H, 1] <--  [N, H, 1], [N,1,1]
         entropy_loss = -torch.mean(loss * weights)
         return entropy_loss
 
     def _calc_qs_from_sf(self, s, a):
-        s_tiled, a_tiled = pile_sa_pairs(s, a)
         # [NHa, S], [NHa, A] <-- [N, S], [N, Ha, A]
+        s_tiled, a_tiled = pile_sa_pairs(s, a)
 
-        curr_sf1, curr_sf2 = self.sf(s_tiled, a_tiled)
         # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
+        curr_sf1, curr_sf2 = self.sf(s_tiled, a_tiled)
 
-        curr_sf = self._process_sfs(curr_sf1, curr_sf2)
         # [N, Ha, F] <-- [NHa, Hsf, F]
+        curr_sf = self._process_sfs(curr_sf1, curr_sf2)
 
-        qs = torch.einsum(
-            "ijk,jk->ij", curr_sf, self.w_primitive
-        )  # [N,H]<-- [N,H,F]*[H,F]
+        # [N,H]<-- [N,H,F]*[H,F]
+        qs = torch.einsum("ijk,jk->ij", curr_sf, self.w_primitive)
 
         return qs
 
@@ -325,36 +326,32 @@ class CompositionAgent(MultitaskAgent):
         _, _, a = self.policy.sample(s)  # [N, H, 1], [N, H, A] <-- [N, S]
 
         with torch.no_grad():
-            s_tiled, a_tiled = pile_sa_pairs(s, a)
             # [NHa, S], [NHa, A] <-- [N, S], [N, Ha, A]
+            s_tiled, a_tiled = pile_sa_pairs(s, a)
 
-            next_sf1, next_sf2 = self.sf_target(s_tiled, a_tiled)
             # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
+            next_sf1, next_sf2 = self.sf_target(s_tiled, a_tiled)
 
-            next_sf = self._process_sfs(next_sf1, next_sf2)
             # [N, Ha, F] <-- [NHa, Hsf, F]
+            next_sf = self._process_sfs(next_sf1, next_sf2)
 
-        f = torch.tile(f[:, None, :], (self.n_heads, 1))  # [N,H,F] <-- [N,F]
-        target_sf = f + torch.einsum(
-            "ijk,il->ijk", next_sf, (~dones) * self.gamma
-        )  # [N, H, F] <-- [N, H, F]+ [N, H, F]
+        # [N,H,F] <-- [N,F]
+        f = torch.tile(f[:, None, :], (self.n_heads, 1))
+
+        # [N, H, F] <-- [N, H, F]+ [N, H, F]
+        target_sf = f + torch.einsum("ijk,il->ijk", next_sf, (~dones) * self.gamma)
 
         return target_sf  # [N, H, F]
 
     def _process_sfs(self, sf1, sf2):
-        sf = self._calc_sf_from_double_sfs(sf1, sf2)
-        sf = self._mask_select_and_reshape_sfs(sf)
-        return sf
+        sf = torch.min(sf1, sf2)  # [NHa, Hsf, F]
 
-    def _mask_select_and_reshape_sfs(self, sf):
-        # [NHa, F] <-- [NHa, Hsf, F]
+        # [NHa, F] <-- [NHa, Hsf, F], [NHa, Hsf, F]
         sf = torch.masked_select(sf, self.mask)
+
         # [N, Ha, F] <-- [NHa, F]
         sf = sf.view(self.mini_batch_size, self.n_heads, self.feature_dim)
         return sf
-
-    def _calc_sf_from_double_sfs(self, sf1, sf2):
-        return torch.min(sf1, sf2)  # [N, H, F]
 
     def _create_entropy_tuner(self):
         self.alpha_lr = self.agent_cfg["alpha_lr"]

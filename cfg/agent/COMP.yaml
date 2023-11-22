@@ -16,7 +16,7 @@ grad_clip: null
 augment_heads: True
 norm_task_by_sf: True
 use_collective_learning: False
-value_net_kwargs: 
+sf_net_kwargs: 
     hidden_dim: 64
     num_layers: 4
     resnet: True
