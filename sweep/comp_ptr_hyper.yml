@@ -6,21 +6,21 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.0005
+    min: 0.0001
     max: 0.01
   agent.policy_lr:
-    min: 0.0005
+    min: 0.0001
     max: 0.01
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
-    values: [1, 3, 5]
+    values: [1]
   agent.explore_method:
-    values: ["null", "sfgpi"]
+    values: ["null"]
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:
-    values: [True, False]
+    values: [True]
   agent.use_collective_learning:
     values: [True, False]
   agent.policy_net_kwargs.resnet:
@@ -28,18 +28,20 @@ parameters:
   agent.policy_net_kwargs.fta:
     values: [True, False]
   agent.policy_net_kwargs.layernorm:
-    values: [True, False]
+    values: [True]
   agent.value_net_kwargs.resnet:
-    values: [True, False]
+    values: [True]
   agent.value_net_kwargs.fta:
-    values: [False, False]
+    values: [False]
   agent.value_net_kwargs.layernorm:
-    values: [True, False]
+    values: [True]
   buffer.prioritized_replay:
     values: [False]
   env.num_envs:
     values: [1024]
-  env.task.rand_method:
+  env.task.taskSet_train:
+    values: ["achievable", "redundant"]
+  env.task.taskSet_eval:
     values: ["achievable"]
 
 command:

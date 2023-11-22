@@ -77,12 +77,12 @@ class Compositions:
 
     def sfgpi(self, s, w, mode):
         if mode == "explore":
-            acts, _, _ = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
+            acts, _, _ = self.policy.sample(s)  # [N, Ha, A]  <-- [N, S]
         elif mode == "exploit":
-            _, _, acts = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
+            _, _, acts = self.policy.sample(s)  # [N, Ha, A]  <-- [N, S]
 
-        qs = self.gpe(s, acts, w)  # [N, H, H] <-- [N, S], [N, H, A], [N, F]
-        a = self.gpi(acts, qs)  # [N, A] <-- [N, H, A], [N, H, H]
+        qs = self.gpe(s, acts, w)  # [N, Ha, Hsf] <-- [N, S], [N, Ha, A], [N, F]
+        a = self.gpi(acts, qs)  # [N, A] <-- [N, Ha, A], [N, Ha, Hsf]
         return a
 
     def msf(self, s, w, mode):
@@ -98,7 +98,7 @@ class Compositions:
         means, log_stds = self.policy.get_mean_std(s)  # [N, H, A]
         # [N, Ha, Hsf] <-- [N, S], [N, H, A], [N, F]
         qs = self.gpe(s, means, w)
-        qs = qs.mean(2)  # [N, H]
+        qs = qs.mean(2)  # [N, Ha]
         composed_mean, composed_std = self.cpi(means, log_stds, qs, rule="mcp")
         if mode == "explore":
             a = torch.tanh(Normal(composed_mean, composed_std).rsample())
@@ -126,33 +126,30 @@ class Compositions:
         a = self.gpi(a, kappa, rule="k")
         return a
 
-    def gpe(self, s, a, w, rule=None):
+    def gpe(self, s, a, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
-        curr_sf = self.calc_curr_sf(s, a)
-        curr_sf = curr_sf.float()
+        curr_sf = self.calc_sf(s, a, self.sf)
 
-        if rule == "primitive":
-            # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[Hsf,F]
-            qs = torch.einsum("ijkl,kl->ijk", curr_sf, w)
-        else:
-            # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
-            qs = torch.einsum("ijkl,il->ijk", curr_sf, w)
+        # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
+        qs = torch.einsum("ijkl,il->ijk", curr_sf, w)
         return qs  # [N,Ha,Hsf]
 
     def gpi(self, acts, value, rule="q"):
         if rule == "q":
-            value_flat = value.flatten(1)  # [N, HH] <-- [N, H, Ha]
-            idx = torch.div(value_flat.argmax(1), self.n_heads, rounding_mode="floor")
+            value_flat = value.flatten(1)  # [N, Ha*Hsf] <-- [N, Ha, Hsf]
+            idx_max = value_flat.argmax(1)  # [N]
+            idx = torch.div(idx_max, self.n_heads, rounding_mode="floor")  # [N]
             idx = idx[:, None].repeat(1, self.action_dim).unsqueeze(1)  # [N,1,A]<-[N]
         elif rule == "k":
             idx = value.argmax(1).unsqueeze(1)  # [N, 1, A] <-- [N, H, A]
-        a = torch.gather(acts, 1, idx).squeeze(1)  # [N, A] <-- [N, H, A]
+
+        a = torch.gather(acts, 1, idx).squeeze(1)  # [N, A] <-- [N, Ha, A]
         # record policy freqeuncy
         self.policy_idx.extend(idx.reshape(-1).cpu().numpy())
         return a  # [N, A]
 
     def cpe(self, s, a, w):
-        curr_sf = self.calc_curr_sf(s, a)  # [N,Ha,Hsf,F]<--[N,S],[N,Ha,A]
+        curr_sf = self.calc_sf(s, a, self.sf)  # [N,Ha,Hsf,F]<--[N,S],[N,Ha,A]
         impact = self.calc_impact(s, a)  # [N,F,A]<--[N,Ha,Hsf,F],[N,Ha,A]
         kappa = self.calc_advantage(curr_sf)  # [N,Hsf,F] <-- [N, Ha, Hsf, F]
         kappa = torch.relu(kappa)  # filterout advantage below 0
@@ -181,15 +178,17 @@ class Compositions:
         composed_mean = composed_std * torch.einsum("ijk,ijk->ik", means, w_div_std)
         return composed_mean, composed_std
 
-    def calc_curr_sf(self, s, a):
-        s_tiled, a_tiled = pile_sa_pairs(s, a)
+    def calc_sf(self, s, a, sf_model):
         # [NHa, S], [NHa, A] <-- [N, S], [N, Ha, A]
+        s_tiled, a_tiled = pile_sa_pairs(s, a)
 
-        curr_sf1, curr_sf2 = self.sf(s_tiled, a_tiled)
         # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
-        curr_sf = torch.min(curr_sf1, curr_sf2)
-        curr_sf = curr_sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)
-        return curr_sf  # [N, Ha, Hsf, F]
+        sf1, sf2 = sf_model(s_tiled, a_tiled)
+        sf = torch.min(sf1, sf2)
+
+        # [N, Ha, Hsf, F]
+        sf = sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)
+        return sf
 
     def calc_advantage(self, value):  # [N,Ha,Hsf,F]
         adv = value.mean(1, keepdim=True) - value.mean((1, 2), keepdim=True)

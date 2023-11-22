@@ -7,7 +7,6 @@ vel_lim: 5
 
 episode_max_step: 500
 total_episodes: 30
-max_episode_length: 500
 
 mode: "train" # train or test
 
@@ -37,11 +36,13 @@ task:
   task_wEval: [0, 0, 0.2, 1]
 
   # can be "uniform", "permute", "identity", "achievable"
-  rand_method: "achievable"
+  taskSet_train: "achievable"
+  taskSet_eval: "achievable"
   adaptive_task: True
 
   # set of achievable task weights
-  taskSet_achievable: [[1, 0, 0, 0, 0],
+  taskSet:
+    achievable: [[1, 0, 0, 0, 0],
             [0, 1, 1, 0, 0], 
             [0, 1, 0, 0, 0], 
             [0, 0, 1, 0, 0],

@@ -40,12 +40,11 @@ class IsaacAgent(AbstractAgent):
         assert self.feature.dim == self.task.dim, "feature and task dimension mismatch"
 
         self.n_env = self.env_cfg["num_envs"]
-        self.env_max_steps = self.env_cfg["max_episode_length"]  # eval steps
         self.episode_max_step = self.env_cfg["episode_max_step"]
-        self.log_interval = self.env_cfg["log_interval"]
         self.total_episodes = int(self.env_cfg["total_episodes"])
         self.total_timesteps = self.n_env * self.episode_max_step * self.total_episodes
 
+        self.log_interval = self.env_cfg["log_interval"]
         self.eval = self.env_cfg["eval"]
         self.eval_interval = self.env_cfg["eval_interval"]
         self.eval_episodes = self.env_cfg["eval_episodes"]
@@ -199,7 +198,7 @@ class IsaacAgent(AbstractAgent):
             return
 
         print(
-            f"===== evaluate at episode: {self.episodes} for {self.env_max_steps} steps ===="
+            f"===== evaluate at episode: {self.episodes} for {self.episode_max_step} steps ===="
         )
 
         returns = torch.zeros((episodes,), dtype=torch.float32)
@@ -207,7 +206,7 @@ class IsaacAgent(AbstractAgent):
             episode_r = 0.0
 
             s = self.reset_env()
-            for _ in range(self.env_max_steps):
+            for _ in range(self.episode_max_step):
                 a = self.act(s, self.task.Eval, "exploit")
                 self.env.step(a)
                 s_next = self.env.obs_buf.clone()
@@ -224,25 +223,28 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, task, mode="explore"):
-        w = copy.copy(np2ts(task.W))
         s = check_obs(s, self.observation_dim)
 
+        a = self._act(s, task, mode)
+
+        a = check_act(a, self.action_dim)
+        return a
+
+    def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
                 a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+
+            w = copy.copy(np2ts(task.W))
 
             if mode == "explore":
                 a = self.explore(s, w)
             elif mode == "exploit":
                 a = self.exploit(s, w)
-
-        a = check_act(a, self.action_dim)
         return a
 
-    def calc_reward(self, s, w, episodicFeature=None):
+    def calc_reward(self, s, w):
         f = self.feature.extract(s)
-        if episodicFeature is not None:
-            episodicFeature += torch.linalg.norm(f, axis=0)
         r = torch.sum(w * f, 1)
         return r
 
@@ -274,19 +276,16 @@ class MultitaskAgent(IsaacAgent):
         if self.adaptive_task:
             self.task.adapt_task(episode_r)
 
-    def act(self, s, task, mode="explore"):
-        w = copy.copy(np2ts(task.W))
-        id = copy.copy(np2ts(task.id))
-        s = check_obs(s, self.observation_dim)
-
+    def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
                 a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+
+            w = copy.copy(np2ts(task.W))
+            id = copy.copy(np2ts(task.id))
 
             if mode == "explore":
                 a = self.explore(s, w, id)
             elif mode == "exploit":
                 a = self.exploit(s, w, id)
-
-        a = check_act(a, self.action_dim)
         return a

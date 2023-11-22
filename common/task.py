@@ -3,10 +3,10 @@ import itertools
 
 
 class TaskObject:
-    def __init__(self, initW, n_env, randTasks, randMethod, task_cfg, device) -> None:
+    def __init__(self, initW, n_env, randTasks, taskSetType, task_cfg, device) -> None:
         self.n_env = n_env
         self.randTasks = randTasks
-        self.randMethod = randMethod
+        self.taskSetType = taskSetType
         self.task_cfg = task_cfg
         self.device = device
 
@@ -16,29 +16,32 @@ class TaskObject:
         self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
 
         if self.randTasks:
-            if self.randMethod != "uniform":
-                self.taskSet = self.define_taskSet(self.randMethod)
+            if self.taskSetType != "uniform":
+                self.taskSet = self.define_taskSet(self.taskSetType)
                 self.reset_taskRatio()
             self.W = self.sample_tasks()
 
-    def define_taskSet(self, randMethod):
-        if randMethod == "permute":
+    def define_taskSet(self, taskSetType):
+        taskset = self.task_cfg["taskSet"]
+        if taskSetType == "permute":
             taskSet = list(itertools.product([0, 1], repeat=self.dim))
             taskSet.pop(0)  # remove all zero vector
-        elif randMethod == "identity":
+        elif taskSetType == "identity":
             taskSet = [
                 [1 if i == j else 0 for j in range(self.dim)] for i in range(self.dim)
             ]
-        elif randMethod == "achievable":
-            taskSet = self.task_cfg["taskSet_achievable"]
-        elif randMethod == "single":
-            taskSet = self.task_cfg["taskSet_single"]
+        elif taskSetType == "achievable":
+            taskSet = taskset["achievable"]
+        elif taskSetType == "redundant":
+            taskSet = taskset["redundant"]
+        elif taskSetType == "single":
+            taskSet = taskset["single"]
         else:
-            raise ValueError(f"Warning: {randMethod} is not implemented")
+            raise ValueError(f"Warning: {taskSetType} is not implemented")
         return torch.tensor(taskSet, dtype=torch.float32, device=self.device)
 
     def sample_tasks(self):
-        if self.randMethod == "uniform":
+        if self.taskSetType == "uniform":
             tasks = torch.rand((self.n_env, self.dim), device=self.device)
         else:
             id = self.sample_taskID(self.taskRatio)
@@ -87,24 +90,33 @@ class SmartTask:
         use_feature = self.env_cfg["feature"]["use_feature"]
         env_dim = self.env_cfg["feature"]["dim"]
         self.randTasks = self.task_cfg.get("rand_task", False)
-        self.randMethod = self.task_cfg.get("rand_method", None)
-        self.adaptiveTask = self.task_cfg.get("adaptive_task", False)
+        self.taskSet_train = self.task_cfg.get("taskSet_train", None)
+        self.taskSet_eval = self.task_cfg.get("taskSet_eval", None)
         self.intervalWeightRand = self.task_cfg.get("intervalWeightRand", 2)
 
         wTrain = self.define_task(use_feature, env_dim, self.task_cfg["task_wTrain"])
         wEval = self.define_task(use_feature, env_dim, self.task_cfg["task_wEval"])
-        # self.minWeightVecs = 5
 
         self.Train = TaskObject(
-            wTrain, self.n_env, self.randTasks, self.randMethod, self.task_cfg, device
+            wTrain,
+            self.n_env,
+            self.randTasks,
+            self.taskSet_train,
+            self.task_cfg,
+            device,
         )
         self.Eval = TaskObject(
-            wEval, self.n_env, self.randTasks, "achievable", self.task_cfg, device
+            wEval, self.n_env, self.randTasks, self.taskSet_eval, self.task_cfg, device
         )
+
         self.dim = int(self.Train.dim)
 
         if self.verbose:
-            print("[Task] evaluation task:\n", self.Eval.W)
+            print("[Task] training task set: \n", self.Train.taskSetType)
+            print("[Task] training tasks: \n", self.Train.W)
+            print("[Task] evaluation task set: \n", self.Eval.taskSetType)
+            print("[Task] evaluation tasks: \n", self.Eval.W)
+            print("\n")
 
     def define_task(self):
         """define initial task weight as a vector"""
@@ -119,9 +131,14 @@ class SmartTask:
             self.Train.sample_tasks()
 
             if self.verbose:
+                print("[Task] sample new tasks:")
                 print("[Task] Train.W[0]: ", self.Train.W[0])
                 print("[Task] Train.taskRatio: ", self.Train.taskRatio)
-                print("[Task] Sampled Tasks: ", torch.bincount(self.Train.id))
+                print("[Task] Train Task Counts: ", torch.bincount(self.Train.id))
+                print("[Task] Eval.W[0]: ", self.Eval.W[0])
+                print("[Task] Train.taskRatio: ", self.Eval.taskRatio)
+                print("[Task] Eval Task Counts: ", torch.bincount(self.Eval.id))
+                print("\n")
 
     def adapt_task(self, episode_r):
         """
@@ -136,8 +153,15 @@ class SmartTask:
         new_ratio /= new_ratio.norm(1, keepdim=True)
         self.Train.taskRatio = new_ratio
 
+        if self.verbose:
+            print(
+                f"[Task] updated task ratio: {new_ratio} \n as inverse of return {task_performance} \n"
+            )
+
     def add_task(self, w: torch.tensor):
         self.Train.add_task(w)
+        if self.verbose:
+            print(f"[Task] new task {w} added to train task set \n")
 
 
 class PointMassTask(SmartTask):
