@@ -85,13 +85,17 @@ class CompositionAgent(MultitaskAgent):
             self.policy.parameters(), lr=self.policy_lr, betas=[0.9, 0.999]
         )
         if self.lr_schedule:
-            self.lrScheduler_sf = torch.optim.lr_scheduler.OneCycleLR(
-                self.sf_optimizer, max_lr=10 * self.lr, total_steps=self.total_timesteps
+            self.lrScheduler_sf = torch.optim.lr_scheduler.LinearLR(
+                self.sf_optimizer,
+                start_factor=1,
+                end_factor=0.1,
+                total_iters=self.total_timesteps,
             )
-            self.lrScheduler_policy = torch.optim.lr_scheduler.OneCycleLR(
+            self.lrScheduler_policy = torch.optim.lr_scheduler.LinearLR(
                 self.policy_optimizer,
-                max_lr=10 * self.policy_lr,
-                total_steps=self.total_timesteps,
+                start_factor=1,
+                end_factor=0.1,
+                total_iters=self.total_timesteps,
             )
 
         self.comp = Compositions(
@@ -323,7 +327,7 @@ class CompositionAgent(MultitaskAgent):
         return qs
 
     def _calc_target_sf(self, f, s, dones):
-        _, _, a = self.policy.sample(s)  # [N, H, 1], [N, H, A] <-- [N, S]
+        _, _, a = self.policy.sample(s)  # [N, H, A] <-- [N, S]
 
         with torch.no_grad():
             # [NHa, S], [NHa, A] <-- [N, S], [N, Ha, A]
@@ -338,7 +342,7 @@ class CompositionAgent(MultitaskAgent):
         # [N,H,F] <-- [N,F]
         f = torch.tile(f[:, None, :], (self.n_heads, 1))
 
-        # [N, H, F] <-- [N, H, F]+ [N, H, F]
+        # [N, H, F] <-- [N, H, F] + [N, H, F]
         target_sf = f + torch.einsum("ijk,il->ijk", next_sf, (~dones) * self.gamma)
 
         return target_sf  # [N, H, F]

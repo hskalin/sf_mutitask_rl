@@ -67,9 +67,6 @@ class Compositions:
 
         return self.composition_methods(composition)(s, w, mode)
 
-    def update_sf_norm(self, sf_norm):
-        self.sf_norm_coeff = sf_norm
-
     def null_comp(self, s, id):
         acts, _, _ = self.policy.sample(s)  # [N, H, A]  <-- [N, S]
         a = torch.masked_select(acts, self.mask_nullcomp[id])
@@ -216,6 +213,9 @@ class Compositions:
         idx = impact.argmax(1)
         self.impact_x_idx.extend(idx[:, 0].reshape(-1).cpu().numpy())
         return impact
+
+    def update_sf_norm(self, sf_norm):
+        self.sf_norm_coeff = sf_norm
 
     def reset(self):
         self.prev_impact = torch.zeros(

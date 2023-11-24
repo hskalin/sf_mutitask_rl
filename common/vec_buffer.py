@@ -130,6 +130,72 @@ class VectorizedReplayBuffer:
         }
 
 
+class FrameStackedReplayBuffer(VectorizedReplayBuffer):
+    def __init__(
+        self,
+        obs_shape,
+        action_shape,
+        feature_shape,
+        capacity,
+        n_env,
+        stack_size,
+        device,
+        mini_batch_size=64,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            obs_shape,
+            action_shape,
+            feature_shape,
+            capacity,
+            device,
+            mini_batch_size,
+            *args,
+            **kwargs,
+        )
+        self.n_env = n_env
+        self.stack_size = stack_size
+
+        self.stacked_obses = torch.empty(
+            (capacity, *obs_shape, stack_size), dtype=torch.float32, device=self.device
+        )
+        self.stackable = []
+
+    def add(self, obs, feature, action, reward, next_obs, done):
+        super().add(obs, feature, action, reward, next_obs, done)
+
+        self.idx >= self.stack_size * self.n_env
+
+    def sample(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        idxs = torch.randint(
+            0,
+            self.capacity if self.full else self.idx,
+            (batch_size,),
+            device=self.device,
+        )
+        obses = self.obses[idxs]  # [N, F]
+        stacked_obses = self.stacked_obses[idxs]  # [N, F, S]
+        features = self.features[idxs]
+        actions = self.actions[idxs]
+        rewards = self.rewards[idxs]
+        next_obses = self.next_obses[idxs]
+        dones = self.dones[idxs]
+
+        return {
+            "obs": obses,
+            "stacked_obses": stacked_obses,
+            "feature": features,
+            "action": actions,
+            "reward": rewards,
+            "next_obs": next_obses,
+            "done": dones,
+        }
+
+
 class VecPrioritizedReplayBuffer:
     def __init__(
         self,
@@ -181,15 +247,26 @@ if __name__ == "__main__":
     capacity = 10
     device = "cuda"
     data_size = 10
+    stack_size = 2
 
-    buf = VecPrioritizedReplayBuffer(capacity, device)
+    obs_dim = 5
+    feat_dim = 3
+    act_dim = 2
+    rew_dim = 1
+    done_dim = 1
 
-    obs = torch.rand(data_size, 5)
-    feature = torch.rand(data_size, 3)
-    action = torch.rand(data_size, 2)
-    reward = torch.rand(data_size, 1)
-    next_obs = torch.rand(data_size, 5)
-    done = torch.rand(data_size, 1)
+    obs = torch.rand(data_size, obs_dim)
+    feature = torch.rand(data_size, feat_dim)
+    action = torch.rand(data_size, act_dim)
+    reward = torch.rand(data_size, rew_dim)
+    next_obs = torch.rand(data_size, obs_dim)
+    done = torch.rand(data_size, done_dim)
+
+    # buf = VecPrioritizedReplayBuffer(capacity, device)
+    buf = FrameStackedReplayBuffer(
+        obs_shape=obs_dim,
+        action_shape=act_dim,
+    )
 
     buf.add(obs, feature, action, reward, next_obs, done)
     print(len(buf))

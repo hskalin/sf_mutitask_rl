@@ -22,10 +22,12 @@ sf_net_kwargs:
     resnet: True
     layernorm: True
     fta: False
+    max_nheads: 20
 policy_net_kwargs: 
     hidden_dim: 32
     num_layers: 4
     resnet: True
     layernorm: True
-    fta: False
+    fta: True
+    max_nheads: 20
     

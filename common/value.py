@@ -206,10 +206,10 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             self.l2_8 = nn.Linear(in_dim, hidden_dim)
 
         if fta:
-            self.ln_l1 = nn.LayerNorm(in_dim, elementwise_affine=False)
+            self.ln_l1 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
             self.fta_l1 = FTA(delta=fta_delta)
 
-            self.ln_l2 = nn.LayerNorm(in_dim, elementwise_affine=False)
+            self.ln_l2 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
             self.fta_l2 = FTA(delta=fta_delta)
 
             hidden_dim *= self.fta_l1.nbins
@@ -387,6 +387,7 @@ if __name__ == "__main__":
         layernorm=layernorm,
         fta=fta,
     ).to(device)
+    sf1(obs, act)
 
     # with profile(
     #     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],

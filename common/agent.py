@@ -120,7 +120,6 @@ class IsaacAgent(AbstractAgent):
 
         s = self.reset_env()
         for _ in range(self.episode_max_step):
-            # episodeRet = self.env.return_buf.clone()
             episodeLen = self.env.progress_buf.clone()
 
             s_next, r, done = self.step(episode_steps, s)
@@ -146,7 +145,7 @@ class IsaacAgent(AbstractAgent):
                 break
 
         wandb.log({"reward/train": self.game_rewards.get_mean()})
-        wandb.log({"length/train": self.game_lengths.get_mean()})
+        wandb.log({"reward/episode_length": self.game_lengths.get_mean()})
 
         return episode_r, episode_steps
 
@@ -252,9 +251,6 @@ class IsaacAgent(AbstractAgent):
         raise NotImplementedError
 
     def exploit(self):
-        raise NotImplementedError
-
-    def calc_priority_error(self):
         raise NotImplementedError
 
     def save_torch_model(self):

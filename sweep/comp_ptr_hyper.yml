@@ -20,8 +20,6 @@ parameters:
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:
-    values: [True]
-  agent.use_collective_learning:
     values: [True, False]
   agent.policy_net_kwargs.resnet:
     values: [True, False]
@@ -30,9 +28,9 @@ parameters:
   agent.policy_net_kwargs.layernorm:
     values: [True]
   agent.sf_net_kwargs.resnet:
-    values: [True]
-  agent.sf_net_kwargs.fta:
     values: [True, False]
+  agent.sf_net_kwargs.fta:
+    values: [False]
   agent.sf_net_kwargs.layernorm:
     values: [True]
   buffer.prioritized_replay:
@@ -40,7 +38,7 @@ parameters:
   env.num_envs:
     values: [1024]
   env.task.taskSet_train:
-    values: ["achievable", "redundant"]
+    values: ["achievable"] # "redundant"
   env.task.taskSet_eval:
     values: ["achievable"]
 
