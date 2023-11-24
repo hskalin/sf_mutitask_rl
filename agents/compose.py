@@ -274,7 +274,7 @@ class CompositionAgent(MultitaskAgent):
         action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
 
         if self.use_collective_learning:
-            qs = self.gpe(
+            qs = self._collective_learning(
                 s, a_heads, self.w_primitive
             )  # [N, H, 1] <-- [N, S], [N, H, A], [H, F]
         else:
@@ -293,7 +293,7 @@ class CompositionAgent(MultitaskAgent):
             action_norm.mean().detach().item(),
         )
 
-    def gpe(self, s, a, w):
+    def _collective_learning(self, s, a, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         sf = self.comp.calc_sf(s, a, self.sf)
 
@@ -389,6 +389,7 @@ class CompositionAgent(MultitaskAgent):
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"
+        
         print("saving model at ", path)
         Path(path).mkdir(parents=True, exist_ok=True)
         self.policy.save(path + "policy")

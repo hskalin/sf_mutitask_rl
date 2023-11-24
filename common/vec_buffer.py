@@ -160,12 +160,9 @@ class FrameStackedReplayBuffer(VectorizedReplayBuffer):
         self.stacked_obses = torch.empty(
             (capacity, *obs_shape, stack_size), dtype=torch.float32, device=self.device
         )
-        self.stackable = []
 
     def add(self, obs, feature, action, reward, next_obs, done):
         super().add(obs, feature, action, reward, next_obs, done)
-
-        self.idx >= self.stack_size * self.n_env
 
     def sample(self, batch_size=None):
         if batch_size is None:
@@ -194,6 +191,25 @@ class FrameStackedReplayBuffer(VectorizedReplayBuffer):
             "next_obs": next_obses,
             "done": dones,
         }
+
+    def stack_obs(self, idx):
+        if self.full:
+            ra = (self.n_env * torch.arange(0, self.stack_size - 1)).repeat(
+                idx.shape[0]
+            )
+            ids = idx[:, None] - ra  # [N sample, N stack] <-- [N sample]
+
+            obsp = self.obses[ids]  # [N sample, N stack, S]
+            dop = self.dones[ids]  # [N sample, N stack, 1]
+
+            d = dop.nonzero()
+            dop[d[0], d[1] :] = 1
+            obsp = (1 - dop) * obsp
+
+        else:
+            ids = idx - self.n_env * torch.arange(0, self.stack_size - 1)
+            obsp = self.obses[torch.where(ids < 0, -1, ids)]
+            obsp[ids < 0] = 0
 
 
 class VecPrioritizedReplayBuffer:
