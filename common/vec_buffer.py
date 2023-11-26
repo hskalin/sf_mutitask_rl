@@ -156,6 +156,7 @@ class FrameStackedReplayBuffer(VectorizedReplayBuffer):
         self.stacked_obses = torch.empty(
             (capacity, *obs_shape, stack_size), dtype=torch.float32, device=self.device
         )
+
         self.ra = self.n_env * torch.arange(1, self.stack_size + 1)
         self.ra = self.ra.to(self.device)
 
