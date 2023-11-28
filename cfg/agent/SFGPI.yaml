@@ -23,4 +23,4 @@ policy_net_kwargs:
     layernorm: False
     fta: False
     
-augmentHeads: True
+augmentHeads: False
