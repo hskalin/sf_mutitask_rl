@@ -80,6 +80,9 @@ class CompositionAgent(MultitaskAgent):
             **self.policy_net_kwargs,
         ).to(self.device)
 
+        print(self.policy)
+        print(self.n_heads)
+
         self.sf_optimizer = Adam(self.sf.parameters(), lr=self.lr, betas=[0.9, 0.999])
         self.policy_optimizer = Adam(
             self.policy.parameters(), lr=self.policy_lr, betas=[0.9, 0.999]

@@ -87,6 +87,9 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent.w_eval[:] = weights[:]
         agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
 
+    def update_target_ang(val):
+        agent.env.goal_rot[..., 2] = float(val)
+
     def update_targ_vel(val):
         agent.env.goal_lvel[..., 0] = float(val)
 
@@ -166,6 +169,18 @@ def launch_rlg_hydra(cfg: DictConfig):
         command=update_targ_vel,
     )
     targ_vel_slide.pack()
+
+    targ_ang_slide = Scale(
+        root,
+        from_=-3.14,
+        to=3.14,
+        digits=3,
+        resolution=0.05,
+        label="target yaw",
+        orient=HORIZONTAL,
+        command=update_target_ang,
+    )
+    targ_ang_slide.pack()
 
     rew = DoubleVar(name="reward")  # instantiate the IntVar variable class
     rew.set(0.0)  # set it to 0 as the initial value
