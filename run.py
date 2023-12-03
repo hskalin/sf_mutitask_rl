@@ -19,8 +19,11 @@ import wandb
 def launch_rlg_hydra(cfg: DictConfig):
     cfg_dict = omegaconf_to_dict(cfg)
 
-    # wandb.init(mode="disabled")
-    wandb.init()
+    if cfg_dict["wandb_log"]:
+        wandb.init()
+    else:
+        wandb.init(mode="disabled")
+        
     print(wandb.config, "\n\n")
     wandb_dict = fix_wandb(wandb.config)
 
