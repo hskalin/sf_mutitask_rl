@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
+from torch.optim import Adam
 
 
 class Chomp1d(nn.Module):
@@ -55,6 +56,7 @@ class TemporalBlock(nn.Module):
             self.relu2,
             self.dropout2,
         )
+        # 1x1 convolution for residual connection
         self.downsample = (
             nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         )
@@ -70,6 +72,7 @@ class TemporalBlock(nn.Module):
     def forward(self, x):
         out = self.net(x)
         res = x if self.downsample is None else self.downsample(x)
+        # residual connection
         return self.relu(out + res)
 
 
@@ -79,7 +82,7 @@ class TemporalConvNet(nn.Module):
         layers = []
         num_levels = len(num_channels)
         for i in range(num_levels):
-            dilation_size = 2**i
+            dilation_size = 2**i # dilated conv
             in_channels = num_inputs if i == 0 else num_channels[i - 1]
             out_channels = num_channels[i]
             layers += [
@@ -113,22 +116,51 @@ class TCN(nn.Module):
 
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("device: ", device)
+    print("validating TCN performance")
+
+    # parameters
     obs_dim = 11
-    out_dim = 7
-    num_channels = [3, 5]
+    out_dim = 11
+    # I suppose these are hidden layer sizes? so the obs dim is reduced to this size
+    num_channels = [5, 7, 5] 
     kernel_size = 3
 
-    n_sample = 13
+    # data
+    batch_size = 50
+    n_sample = 1000 
     sequence_length = 17
+    
+    x = torch.rand(n_sample, obs_dim, sequence_length, device=device)
+    y = x[...,-1].clone()
 
-    obs = torch.rand(n_sample, obs_dim, sequence_length)
-
-    net = TCN(
+    # init model
+    tcnnet = TCN(
         in_dim=obs_dim,
         out_dim=out_dim,
         num_channels=num_channels,
         kernel_size=kernel_size,
     )
+    tcnnet = tcnnet.to(device=device)
+    
+    # training
+    print("training")
+    optimizer = Adam(tcnnet.parameters(), lr=0.01, eps=1e-5)
+    loss_fn = nn.MSELoss()
+    
+    # epochs
+    for i in range(10):
+        tcnnet.train()
+        train_loss = 0.0
+        for j in range(n_sample//batch_size):
+            optimizer.zero_grad() # Reset gradients
+            z = tcnnet(x[j*batch_size:(j+1)*batch_size]) # forwad pass
+            J = loss_fn(z[...], y[j*batch_size:(j+1)*batch_size]) # calc loss
+            J.backward() # backward pass
+            optimizer.step() # update weights
 
-    out = net(obs)
-    print(out)
+            train_loss += (J.detach().item() - train_loss) / (j + 1)
+
+        print(f"Epoch: {i}\t train loss: {train_loss}")
+
