@@ -4,7 +4,7 @@ import os
 import random
 import time
 from distutils.util import strtobool
-from env.wrapper.multiTask import MultiTaskEnv
+from env.wrapper.multiTask import multitaskenv_constructor
 from common.util import AverageMeter
 
 import gym
@@ -79,8 +79,7 @@ class PPO_agent:
 
         self.device = cfg["rl_device"]
 
-        env_spec = MultiTaskEnv(env_cfg=self.env_cfg)
-        self.env, _, _ = env_spec.getEnv()
+        self.env, _, _ = multitaskenv_constructor(env_cfg=self.env_cfg)
 
         self.run_name = (
             f"{self.env_cfg['env_name']}__{self.agent_cfg['name']}__{int(time.time())}"

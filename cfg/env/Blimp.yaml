@@ -40,31 +40,25 @@
 
 
 env_name: "Blimp"
-num_envs: 4
+num_envs: 1024
 
 goal_lim: 20
 goal_vel_lim: 5
 vel_lim: 5
 
-dim: 2
 episode_max_step: 1000
-total_episodes: 25
+total_episodes: 100
 max_episode_length: 1000
-# reward:
-#   success: 
-#     coeff": 1
-# success_threshold: [1, 1, 1, 1]  # pos[m], vel[m/s], ang[rad], angvel[rad/s]
-log_interval: 5
 
 mode: "train" # train or test
 
 eval: True
-eval_interval: 2
+eval_interval: 10
 eval_episodes: 1
+
 save_model: False  # save model after evaluation
-render: False  # render env
-record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
+log_interval: 5 # wandb log
 
 blimp:
   mass: 8.907
@@ -98,13 +92,16 @@ aero:
   wind_std: 0.3
 
 task:
+  verbose: True
+
   init_vel:           True
   rand_weights:       False
   rand_vel_targets:   False
 
   spawn_height: 15
 
-  proximity_threshold: 2
+  # proximity reward
+  proximity_threshold: 2 # [m]
 
   # targets for play
   target_pos:     [0, 0, 2] # x, y
@@ -112,12 +109,15 @@ task:
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
-  task_w:      [1, 0, 0.2, 0.5, 0.0]  # |px|, |py|, |v|, |ang|, |angvel|
-  task_w_eval: [0, 0, 0, 1, 0]
+  # specify initial task weight
+  # |px|, |py|, |v|, |ang|, |angvel|
+  task_wTrain: [1, 0, 0.2, 0.5, 0.0]  
+  task_wEval: [0, 0, 0, 1, 0]
 
   # can be "uniform", "permute", "identity", "achievable", "single"
-  task_w_randType: "achievable"
-  task_w_randAdaptive: True
+  rand_method: "achievable"
+  adaptive_task: True
+
   # set of achievable task weights
   task_wa:   [[1,0,0,0,0],
               [0,1,0,0,0],
@@ -132,10 +132,9 @@ task:
 
   task_ws: [[1,1,0,0,0]]
 
-feature:
-  pos_index: 3    # pos start index in obs space
-  type: "regular"
-  regular: [True, True, True, True, True]
+feature: # |px|, |py|, |v|, |ang|, |angvel|
+  verbose: True
+  use_feature: [True, True, True, True, True]
 
   
 sim:

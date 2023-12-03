@@ -173,14 +173,6 @@ def grad_false(network):
         param.requires_grad = False
 
 
-def check_samples(obj):
-    if obj.ndim > 1:
-        n_samples = obj.shape[0]
-    else:
-        n_samples = 1
-    return n_samples
-
-
 def assert_shape(tensor, expected_shape):
     tensor_shape = tensor.shape
     assert len(tensor_shape) == len(
@@ -201,6 +193,14 @@ def ts2np(obj: torch.Tensor) -> np.ndarray:
     if isinstance(obj, torch.Tensor):
         obj = obj.cpu().detach().numpy()
     return obj
+
+
+def check_samples(obj):
+    if obj.ndim > 1:
+        n_samples = obj.shape[0]
+    else:
+        n_samples = 1
+    return n_samples
 
 
 def check_obs(obs, obs_dim):

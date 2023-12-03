@@ -28,7 +28,6 @@ def launch_rlg_hydra(cfg: DictConfig):
     update_dict(cfg_dict, wandb_dict)
 
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
-    # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
     print_dict(cfg_dict)
 
     torch.manual_seed(cfg_dict["seed"])

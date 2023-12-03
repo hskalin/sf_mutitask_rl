@@ -4,8 +4,13 @@ from torch.optim import Adam
 import wandb
 from common.agent import IsaacAgent
 from common.policy import GaussianPolicy
-from common.util import grad_false, hard_update, soft_update, update_params
-from common.value_function import TwinnedQNetwork
+from common.util import (
+    grad_false,
+    hard_update,
+    soft_update,
+    update_params,
+)
+from common.value import QNetwork
 
 
 class SACAgent(IsaacAgent):
@@ -24,27 +29,26 @@ class SACAgent(IsaacAgent):
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
         self.gamma = self.agent_cfg["gamma"]
         self.tau = self.agent_cfg["tau"]
+
         self.td_target_update_interval = int(
             self.agent_cfg["td_target_update_interval"]
         )
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.droprate = self.value_net_kwargs["droprate"]
+        self.prioritized_replay = self.buffer_cfg["prioritized_replay"]
 
-        self.critic = TwinnedQNetwork(
+        self.critic = QNetwork(
             observation_dim=self.observation_dim,
             action_dim=self.action_dim,
             **self.value_net_kwargs,
         ).to(self.device)
 
-        self.critic_target = TwinnedQNetwork(
+        self.critic_target = QNetwork(
             observation_dim=self.observation_dim,
             action_dim=self.action_dim,
             **self.value_net_kwargs,
         ).to(self.device)
-        if self.droprate <= 0.0:
-            self.critic_target = self.critic_target.eval()
 
         hard_update(self.critic_target, self.critic)
         grad_false(self.critic_target)
@@ -55,8 +59,6 @@ class SACAgent(IsaacAgent):
             **self.policy_net_kwargs,
         ).to(self.device)
 
-        # self.q1_optimizer = Adam(self.critic.Q1.parameters(), lr=self.lr)
-        # self.q2_optimizer = Adam(self.critic.Q2.parameters(), lr=self.lr)
         self.q_optimizer = Adam(
             self.critic.parameters(), lr=self.lr, betas=[0.9, 0.999]
         )
@@ -95,26 +97,23 @@ class SACAgent(IsaacAgent):
         if self.learn_steps % self.td_target_update_interval == 0:
             soft_update(self.critic_target, self.critic, self.tau)
 
-        # if self.per:
-        #     batch, indices, weights = self.replay_buffer.sample(self.mini_batch_size)
-        # else:
         batch = self.replay_buffer.sample(self.mini_batch_size)
-        weights = 1
+        if self.prioritized_replay:
+            weights = batch["_weight"]
+        else:
+            weights = 1
 
         q_loss, errors, mean_q1 = self.update_critic(batch, weights)
         policy_loss, entropies = self.update_policy(batch, weights)
 
-        # update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
-        # update_params(self.q1_optimizer, self.critic.Q1, q1_loss, self.grad_clip)
-        # update_params(self.q2_optimizer, self.critic.Q2, q2_loss, self.grad_clip)
-
         if self.entropy_tuning:
-            entropy_loss = self.calc_entropy_loss(entropies, weights)
+            entropy_loss = self.calc_entropy_loss(entropies)
             update_params(self.alpha_optimizer, None, entropy_loss)
             self.alpha = self.log_alpha.exp()
 
-        # if self.per:
-        #     self.replay_buffer.update_priority(indices, errors.cpu().numpy())
+        if self.prioritized_replay:
+            batch.set("td_error", errors)
+            self.replay_buffer.update_tensordict_priority(batch)
 
         if self.learn_steps % self.log_interval == 0:
             metrics = {
@@ -134,7 +133,14 @@ class SACAgent(IsaacAgent):
             wandb.log(metrics)
 
     def update_critic(self, batch, weights):
-        (s, f, a, r, s_next, dones) = batch
+        (s, _, a, r, s_next, dones) = (
+            batch["obs"],
+            batch["feature"],
+            batch["action"],
+            batch["reward"],
+            batch["next_obs"],
+            batch["done"],
+        )
 
         curr_q1, curr_q2 = self.calc_current_q(s, a)
         target_q = self.calc_target_q(r, s_next, dones)
@@ -159,17 +165,14 @@ class SACAgent(IsaacAgent):
         return q_loss, errors, mean_q1
 
     def update_policy(self, batch, weights):
-        (s, f, a, r, s_next, dones) = batch
+        s = batch["obs"]
 
         # We re-sample actions to calculate expectations of Q.
         sampled_a, entropy, _ = self.policy.sample(s)
         # expectations of Q with clipped double Q technique
         q1, q2 = self.critic(s, sampled_a)
 
-        if self.droprate > 0.0:
-            q = 0.5 * (q1 + q2)
-        else:
-            q = torch.min(q1, q2)
+        q = torch.min(q1, q2)
 
         # Policy objective is maximization of (Q + alpha * entropy).
         policy_loss = torch.mean((-q - self.alpha * entropy) * weights)
@@ -198,26 +201,16 @@ class SACAgent(IsaacAgent):
         target_q = r + (~dones) * self.gamma * next_q
         return target_q
 
-    def calc_priority_error(self, batch):
-        (s, _, a, r, s_next, dones) = batch
-        with torch.no_grad():
-            curr_q1, curr_q2 = self.calc_current_q(s, a)
-        target_q = self.calc_target_q(r, s_next, dones)
-        error = torch.abs(curr_q1 - target_q).cpu().numpy()
-        return error
-
     def save_torch_model(self):
         from pathlib import Path
 
         path = self.log_path + f"model{self.episodes}/"
         Path(path).mkdir(parents=True, exist_ok=True)
         self.policy.save(path + "policy")
-        self.critic.Q1.save(path + "critic1")
-        self.critic.Q2.save(path + "critic2")
+        self.critic.save(path + "critic")
 
     def load_torch_model(self, path):
         self.policy.load(path + "policy")
-        self.critic.Q1.load(path + "critic1")
-        self.critic.Q2.load(path + "critic2")
+        self.critic.load(path + "critic")
         hard_update(self.critic_target, self.critic)
         grad_false(self.critic_target)

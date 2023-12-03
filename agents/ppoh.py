@@ -4,7 +4,7 @@ import os
 import random
 import time
 from distutils.util import strtobool
-from env.wrapper.multiTask import MultiTaskEnv
+from env.wrapper.multiTask import multitaskenv_constructor
 
 import gym
 
@@ -78,8 +78,7 @@ class PPOHagent:
 
         self.device = cfg["rl_device"]
 
-        # env_spec = MultiTaskEnv(env_cfg=self.env_cfg)
-        # self.env, _, _ = env_spec.getEnv()
+        # self.env, _, _ = multitaskenv_constructor(env_cfg=self.env_cfg)
 
         cfg["agent"] = cfg["agent"]["SFGPI"]
         self.primitive = CompositionAgent(cfg)

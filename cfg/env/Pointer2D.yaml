@@ -5,30 +5,26 @@ goal_lim: 10
 goal_vel_lim: 5
 vel_lim: 5
 
-dim: 2
 episode_max_step: 500
-total_episodes: 25
-max_episode_length: 500
-# reward:
-#   success: 
-#     coeff": 1
-# success_threshold: [1, 1, 1, 1]  # pos[m], vel[m/s], ang[rad], angvel[rad/s]
-log_interval: 5
+total_episodes: 30
 
 mode: "train" # train or test
 
 eval: True
-eval_interval: 2
+eval_interval: 3
 eval_episodes: 1
+
 save_model: False  # save model after evaluation
-render: False  # render env
-record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
+log_interval: 5 # wandb log
 
 task:
-  rand_weights:       True
-  rand_vel_targets:   True
+  verbose: True
 
+  rand_task: True # randomize train and eval tasks
+  rand_vel_targets: True
+
+  # proximity reward
   proximity_threshold: 2
 
   # targets for play
@@ -37,61 +33,101 @@ task:
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
-  task_w:      [1, 0, 0.2, 0.5, 0.0]  # |px|, |py|, |v|, |ang|, |angvel|
-  task_w_eval: [0, 0, 0, 1, 0]
+  # specify task weight |px|, |py|, |v|, |ang|, |angvel|
+  task_wTrain: [1, 0, 0, 0.5, 0]  
+  task_wEval: [0, 0, 0, 1, 0]
 
-  # can be "uniform", "permute", "identity", "achievable", "single"
-  task_w_randType: "achievable"
-  task_w_randAdaptive: True
-  # set of achievable task weights
-  task_wa:   [[1,0,0,0,0],
-              [0,1,0,0,0],
-              [0,0,1,0,0],
-              [0,0,0,1,0],
-              [0,0,0,0,1],
-              [1,1,0,0,0],
-              [1,1,0,1,0],
-              [1,1,0,0,1],
-              [0,0,1,1,0],
-              [0,0,1,0,1]]
+  # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
+  taskSet_train: "redundant"
+  taskSet_eval: "achievable"
+  adaptive_task: True
 
-  # task_wa: [[1,0,0,0,0],
-  #           [0,0,1,0,0],
-  #           [0,0,0,1,0],
-  #           [0,0,0,0,1],
-  #           [1,0,1,0,0],
-  #           [1,0,1,1,0],
-  #           [1,0,0,1,0],
-  #           [1,0,0,0,1],
-  #           [0,0,1,1,0],
-  #           [0,0,1,0,1],
-  #           [0,1,0,0,0],
-  #           [0,0,1,0,0],
-  #           [0,0,0,1,0],
-  #           [0,0,0,0,1],
-  #           [0,1,1,0,0],
-  #           [0,1,1,1,0],
-  #           [0,1,0,1,0],
-  #           [0,1,0,0,1],
-  #           [0,0,1,1,0],
-  #           [0,0,1,0,1],
-  #           [1,1,0,0,0],
-  #           [0,0,1,0,0],
-  #           [0,0,0,1,0],
-  #           [0,0,0,0,1],
-  #           [1,1,1,0,0],
-  #           [1,1,1,1,0],
-  #           [1,1,0,1,0],
-  #           [1,1,0,0,1],
-  #           [0,0,1,1,0],
-  #           [0,0,1,0,1]]
+  # set of task weights
+  taskSet:
+    achievable:   [
+      [1,0,0,0,0],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,1,0,0,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [1, 0, 0, 0.5, 0],
+      [1, 0, 0.5, 0, 0.0]
+      ]
 
-  task_ws: [[1,1,0,0,0]]
+    redundant:   [
+      [1,0,0,0,0],
+      [1,0,0,0,0],
+      [0,1,0,0,0],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [0,0,0,0,1],
+      [1,1,0,0,0],
+      [1,1,0,0,0],
+      [1,1,0,1,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [0,0,1,0,1],
+      [1, 0, 0, 0.5, 0.0],
+      [1, 0, 0, 0.5, 0.0],
+      [1, 0, 0.5, 0, 0.0],
+      [1, 0, 0.5, 0, 0.0]
+      ]
 
-feature:
-  pos_index: 3    # pos start index in obs space
-  type: "regular"
-  regular: [True, True, True, True, True]
+    single: [
+      [1,1,0,0,0]
+      ]
+
+    long: [
+      [1,0,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,0,1,0,0],
+      [1,0,1,1,0],
+      [1,0,0,1,0],
+      [1,0,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [0,1,1,0,0],
+      [0,1,1,1,0],
+      [0,1,0,1,0],
+      [0,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [1,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,1,1,0,0],
+      [1,1,1,1,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1]
+      ]
+
+
+feature: # |px|, |py|, |v|, |ang|, |angvel|
+  dim: 2 # pointer N dim
+  verbose: True
+  use_feature: [True, True, True, True, True]
 
   
 sim:

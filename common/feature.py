@@ -1,158 +1,336 @@
+from abc import ABC, abstractmethod
+
 import torch
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 
 
-class pm_feature:
+class FeatureAbstract(ABC):
+    @abstractmethod
+    def extract(self, s):
+        """extract state and return hand-crafted features"""
+        pass
+
+
+class PointMassFeature(FeatureAbstract):
+    """features
+    pos_norm: position norm
+    vel_err: velocity error
+    vel_norm: velocity norm
+    prox: proximity to the goal
+    """
+
     def __init__(
         self,
         env_cfg,
-        combination=[True, True, True, True],
+        device,
     ) -> None:
+        super().__init__()
+
         self.env_cfg = env_cfg
-        self.envdim = env_cfg["dim"]
+        self.feature_cfg = self.env_cfg["feature"]
+        self.device = device
 
-        self._pos_norm = combination[0]
-        self._vel_err = combination[1]
-        self._vel_norm = combination[2]
-        self._prox = combination[3]
+        self.use_feature = self.feature_cfg["use_feature"]
+        self.verbose = self.feature_cfg.get("verbose", False)
 
-        self.dim = (
-            combination[0]  # pos
-            + self.envdim * combination[1]  # vel_err
-            + combination[2]  # vel_norm
-            + combination[3]  # prox
+        self.envdim = int(self.env_cfg["feature"]["dim"])
+        self.Kp = torch.tensor(
+            self.env_cfg["goal_lim"], dtype=torch.float64, device=self.device
         )
+        self.Kv = torch.tensor(
+            self.env_cfg["vel_lim"], dtype=torch.float64, device=self.device
+        )
+        self.ProxThresh = torch.tensor(
+            self.env_cfg["task"]["proximity_threshold"],
+            dtype=torch.float64,
+            device=self.device,
+        )
+        self.proxRange = 1 / self.compute_gaussDist(
+            mu=self.ProxThresh**2, sigma=self.Kp, scale=-12.8
+        )
+
+        (
+            self.use_pos_norm,
+            self.use_vel_err,
+            self.use_vel_norm,
+            self.use_prox,
+        ) = self.use_feature
+        self.feature_dim = [
+            self.use_pos_norm,
+            self.envdim * self.use_vel_err,
+            self.use_vel_norm,
+            self.use_prox,
+        ]
+        self.dim = int(sum(self.feature_dim))
+
+        self.stateParse_pos = slice(0, self.envdim)
+        self.stateParse_vel = slice(self.envdim, 2 * self.envdim)
+        self.stateParse_velAbsNorm = slice(2 * self.envdim, 2 * self.envdim + 1)
 
     def extract(self, s):
         features = []
 
-        Kp = self.env_cfg["goal_lim"]
-        Kv = self.env_cfg["vel_lim"]
-        prox_thresh = self.env_cfg["task"]["proximity_threshold"]
+        pos = s[:, self.stateParse_pos]
+        vel = s[:, self.stateParse_vel]
+        velAbsNorm = s[:, self.stateParse_velAbsNorm]
 
-        pos = s[:, 0 : self.envdim]
-        posSquaredNorm = torch.linalg.norm(pos, axis=1, keepdims=True) ** 2
-        posNormFeature = (
-            torch.exp(-7.2 * posSquaredNorm / Kp**2)
-            + torch.exp(-360 * posSquaredNorm / Kp**2)
-        ) / 2
-        if self._pos_norm:
-            features.append(posNormFeature)
+        if self.use_pos_norm:
+            posSquaredNorm = self.compute_posSquareNorm(pos)
+            featurePosNorm = self.compute_featurePosNorm(posSquaredNorm)
+            features.append(featurePosNorm)
 
-        vel = s[:, self.envdim : 2 * self.envdim]
-        if self._vel_err:
-            vel_feature = torch.exp(-16.0 * vel**2 / Kv**2)
-            features.append(vel_feature)
+        if self.use_vel_err:
+            featureVel = self.compute_featureVel(vel)
+            features.append(featureVel)
 
-        if self._vel_norm:
-            velSquaredNorm = s[:, 4:5] ** 2
-            velNormFeature = torch.exp(-16.0 * velSquaredNorm / Kv**2)
-            features.append(velNormFeature)
+        if self.use_vel_norm:
+            featureVelNorm = self.compute_featureVelNorm(velAbsNorm)
+            features.append(featureVelNorm)
 
-        if self._prox:
-            A = 1 / np.exp(-12.8 * prox_thresh**2 / Kp**2)
-            proximity_rew_gauss = A * torch.exp(-12.8 * posSquaredNorm / Kp**2)
-            proximity_rew = torch.where(
-                posSquaredNorm > prox_thresh**2, proximity_rew_gauss, 1
-            )
-            features.append(proximity_rew)
+        if self.use_prox:
+            posSquaredNorm = self.compute_posSquareNorm(pos)
+            proxFeature = self.compute_featureProx(posSquaredNorm)
+            features.append(proxFeature)
 
         return torch.cat(features, 1)
 
+    def compute_posSquareNorm(self, pos):
+        return torch.linalg.norm(pos, axis=1, keepdims=True) ** 2
 
-class pointer_feature:
+    def compute_featurePosNorm(self, posSquaredNorm, scale=[-7.2, -360]):
+        featurePosNorm = 0.5 * (
+            self.compute_gaussDist(posSquaredNorm, self.Kp, scale[0])
+            + self.compute_gaussDist(posSquaredNorm, self.Kp, scale[1])
+        )
+        return featurePosNorm
+
+    def compute_featureVel(self, vel, scale=-16):
+        return self.compute_gaussDist(vel**2, self.Kv, scale)
+
+    def compute_featureVelNorm(self, velAbsNorm, scale=-16):
+        return self.compute_gaussDist(velAbsNorm**2, self.Kv, scale)
+
+    def compute_featureProx(self, posSquaredNorm):
+        return torch.where(posSquaredNorm > self.ProxThresh**2, self.proxRange, 1)
+
+    def compute_gaussDist(self, mu, sigma, scale):
+        return torch.exp(scale * mu / sigma**2)
+
+
+class PointerFeature(FeatureAbstract):
     def __init__(
         self,
         env_cfg,
-        combination=[True, True, True, True],
+        device,
     ) -> None:
+        super().__init__()
+
         self.env_cfg = env_cfg
-        self.envdim = env_cfg["dim"]
+        self.feature_cfg = self.env_cfg["feature"]
+        self.device = device
 
-        self._px = combination[0]
-        self._py = combination[1]
-        self._vel_norm = combination[2]
-        self._ang_norm = combination[3]
-        self._angvel_norm = combination[4]
+        self.use_feature = self.feature_cfg["use_feature"]
+        self.verbose = self.feature_cfg.get("verbose", False)
 
-        self.dim = (
-            combination[0]  # pos_norm
-            + combination[1]  # vel_norm
-            + combination[2]  # ang_norm
-            + combination[3]  # angvel_norm
-            + combination[4]
+        self.Kp = torch.tensor(
+            self.env_cfg["goal_lim"], dtype=torch.float64, device=device
         )
+        self.Kv = torch.tensor(
+            self.env_cfg["vel_lim"], dtype=torch.float64, device=device
+        )
+        self.ProxThresh = torch.tensor(
+            self.env_cfg["task"]["proximity_threshold"],
+            dtype=torch.float64,
+            device=device,
+        )
+        self.Ka = torch.pi
+
+        (
+            self.use_posX,
+            self.use_posY,
+            self.use_vel_norm,
+            self.use_ang_norm,
+            self.use_angvel_norm,
+        ) = self.use_feature
+        self.feature_dim = [
+            self.use_posX,
+            self.use_posY,
+            self.use_vel_norm,
+            self.use_ang_norm,
+            self.use_angvel_norm,
+        ]
+        self.dim = sum(self.feature_dim)
+
+        self.proxScale = 1 / self.compute_gaussDist(
+            mu=self.ProxThresh**2, sigma=self.Kp, scale=-25
+        )
+
+        self.stateParse_yaw = slice(0, 1)
+        self.stateParse_posX = slice(3, 4)
+        self.stateParse_posY = slice(4, 5)
+        self.stateParse_vel = slice(5, 7)
+        self.stateParse_angvel = slice(7, 8)
 
     def extract(self, s):
         features = []
 
-        # pos = s[:, 3:5]
-        # pos_norm = torch.linalg.norm(pos, axis=1, keepdims=True)
+        errorYaw = s[:, self.stateParse_yaw]
+        errorPosX = s[:, self.stateParse_posX]
+        errorPosY = s[:, self.stateParse_posY]
+        errorVel = s[:, self.stateParse_vel]
+        errorAngVel = s[:, self.stateParse_angvel]
 
-        # if self._prox:
-        #     features.append(-pos_norm)
+        if self.use_posX:
+            featureProxX = self.compute_featureProx(errorPosX)
+            features.append(featureProxX)
 
-        # vel = s[:, 5:7]
-        # if self._vel_norm:
-        #     features.append(-torch.linalg.norm(vel, axis=1, keepdims=True))
+        if self.use_posY:
+            featureProxY = self.compute_featureProx(errorPosY)
+            features.append(featureProxY)
 
-        # ang = s[:, 0:1]
-        # if self._ang_norm:
-        #     features.append(-torch.linalg.norm(ang, axis=1, keepdims=True))
+        if self.use_vel_norm:
+            featureVelNorm = self.compute_featureVelNorm(errorVel)
+            features.append(featureVelNorm)
 
-        # angvel = s[:, 7:8]
-        # if self._angvel_norm:
-        #     features.append(-torch.linalg.norm(angvel, axis=1, keepdims=True))
+        if self.use_ang_norm:
+            featureAngNorm = self.compute_featureAngNorm(errorYaw)
+            features.append(featureAngNorm)
 
-        Kp = self.env_cfg["goal_lim"]
-        Kv = self.env_cfg["vel_lim"]
-        Ka = np.pi
-        prox_thresh = self.env_cfg["task"]["proximity_threshold"]
-
-        pxSquaredNorm = s[:, 3:4] ** 2
-        if self._px:
-            A = 1 / np.exp(-25 * prox_thresh**2 / Kp**2)
-            prox_x_rew_gauss = A * torch.exp(-25 * pxSquaredNorm / Kp**2)
-            prox_x_rew = torch.where(
-                pxSquaredNorm > prox_thresh**2, prox_x_rew_gauss, 1
-            )
-            features.append(prox_x_rew)
-
-        pySquaredNorm = s[:, 4:5] ** 2
-        if self._py:
-            A = 1 / np.exp(-25 * prox_thresh**2 / Kp**2)
-            prox_y_rew_gauss = A * torch.exp(-25 * pySquaredNorm / Kp**2)
-            prox_y_rew = torch.where(
-                pySquaredNorm > prox_thresh**2, prox_y_rew_gauss, 1
-            )
-            features.append(prox_y_rew)
-
-        # if self._px:
-        #     pxSquaredNorm = s[:, 3:4] ** 2
-        #     pxNormFeature = torch.exp(-25 * pxSquaredNorm / Kp**2)
-        #     features.append(pxNormFeature)
-
-        # if self._py:
-        #     pySquaredNorm = s[:, 4:5] ** 2
-        #     pyNormFeature = torch.exp(-25 * pySquaredNorm / Kp**2)
-        #     features.append(pyNormFeature)
-
-        if self._vel_norm:
-            vel = s[:, 5:7]
-            velSquaredNorm = torch.linalg.norm(vel, axis=1, keepdims=True) ** 2
-            # velSquaredNorm = s[:, 9:10] ** 2
-            velNormFeature = torch.exp(-30 * velSquaredNorm / Kv**2)
-            features.append(velNormFeature)
-
-        if self._ang_norm:
-            angSquaredNorm = s[:, 0:1] ** 2
-            angNormFeature = torch.exp(-50 * angSquaredNorm / Ka**2)
-            features.append(angNormFeature)
-
-        if self._angvel_norm:
-            avelSquaredNorm = s[:, 7:8] ** 2
-            avelNormFeature = torch.exp(-50 * avelSquaredNorm / Kv**2)
-            features.append(avelNormFeature)
+        if self.use_angvel_norm:
+            featureAngVelNorm = self.compute_featureAngVelNorm(errorAngVel)
+            features.append(featureAngVelNorm)
 
         return torch.concatenate(features, 1)
+
+    def compute_featureProx(self, errorPos, scale=-25):
+        squaredNorm_pos = errorPos**2
+        prox = self.proxScale * self.compute_gaussDist(squaredNorm_pos, self.Kp, scale)
+        return torch.where(squaredNorm_pos > self.ProxThresh**2, prox, 1)
+
+    def compute_featureVelNorm(self, errorVel, scale=-30):
+        SquaredNorm_vel = torch.linalg.norm(errorVel, axis=1, keepdims=True) ** 2
+        return self.compute_gaussDist(SquaredNorm_vel, self.Kv, scale)
+
+    def compute_featureAngNorm(self, errorYaw, scale=-50):
+        return self.compute_gaussDist(errorYaw**2, self.Ka, scale)
+
+    def compute_featureAngVelNorm(self, errorAngVel, scale=-50):
+        return self.compute_gaussDist(errorAngVel**2, self.Kv, scale)
+
+    def compute_gaussDist(self, mu, sigma, scale):
+        return torch.exp(scale * mu / sigma**2)
+
+
+class BlimpFeature(PointerFeature):
+    def __init__(
+        self,
+        env_cfg,
+        device,
+    ) -> None:
+        super().__init__(env_cfg, device)
+
+        self.env_cfg = env_cfg
+        self.feature_cfg = self.env_cfg["feature"]
+        self.device = device
+
+        self.use_feature = self.feature_cfg["use_feature"]
+        self.verbose = self.feature_cfg.get("verbose", False)
+
+        self.Kp = torch.tensor(
+            self.env_cfg["goal_lim"], dtype=torch.float64, device=device
+        )
+        self.Kv = torch.tensor(
+            self.env_cfg["vel_lim"], dtype=torch.float64, device=device
+        )
+        self.ProxThresh = torch.tensor(
+            self.env_cfg["task"]["proximity_threshold"],
+            dtype=torch.float64,
+            device=device,
+        )
+        self.Ka = torch.pi
+
+        (
+            self.use_posX,
+            self.use_posY,
+            self.use_vel_norm,
+            self.use_ang_norm,
+            self.use_angvel_norm,
+        ) = self.use_feature
+        self.feature_dim = [
+            self.use_posX,
+            self.use_posY,
+            self.use_vel_norm,
+            self.use_ang_norm,
+            self.use_angvel_norm,
+        ]
+        self.dim = sum(self.feature_dim)
+
+        self.proxScale = 1 / self.compute_gaussDist(
+            mu=self.ProxThresh**2, sigma=self.Kp, scale=-25
+        )
+
+        self.stateParse_yaw = slice(0, 1)
+        self.stateParse_posX = slice(3, 4)
+        self.stateParse_posY = slice(4, 5)
+        self.stateParse_vel = slice(5, 7)
+        self.stateParse_angvel = slice(7, 8)
+
+    def extract(self, s):
+        features = []
+
+        errorYaw = s[:, self.stateParse_yaw]
+        errorPosX = s[:, self.stateParse_posX]
+        errorPosY = s[:, self.stateParse_posY]
+        errorVel = s[:, self.stateParse_vel]
+        errorAngVel = s[:, self.stateParse_angvel]
+
+        if self.use_posX:
+            featureProxX = self.compute_featureProx(errorPosX)
+            features.append(featureProxX)
+
+        if self.use_posY:
+            featureProxY = self.compute_featureProx(errorPosY)
+            features.append(featureProxY)
+
+        if self.use_vel_norm:
+            featureVelNorm = self.compute_featureVelNorm(errorVel)
+            features.append(featureVelNorm)
+
+        if self.use_ang_norm:
+            featureAngNorm = self.compute_featureAngNorm(errorYaw)
+            features.append(featureAngNorm)
+
+        if self.use_angvel_norm:
+            featureAngVelNorm = self.compute_featureAngVelNorm(errorAngVel)
+            features.append(featureAngVelNorm)
+
+        return torch.concatenate(features, 1)
+
+    def compute_featureProx(self, errorPos, scale=-25):
+        squaredNorm_pos = errorPos**2
+        prox = self.proxScale * self.compute_gaussDist(squaredNorm_pos, self.Kp, scale)
+        return torch.where(squaredNorm_pos > self.ProxThresh**2, prox, 1)
+
+    def compute_featureVelNorm(self, errorVel, scale=-30):
+        SquaredNorm_vel = torch.linalg.norm(errorVel, axis=1, keepdims=True) ** 2
+        return self.compute_gaussDist(SquaredNorm_vel, self.Kv, scale)
+
+    def compute_featureAngNorm(self, errorYaw, scale=-50):
+        return self.compute_gaussDist(errorYaw**2, self.Ka, scale)
+
+    def compute_featureAngVelNorm(self, errorAngVel, scale=-50):
+        return self.compute_gaussDist(errorAngVel**2, self.Kv, scale)
+
+    def compute_gaussDist(self, mu, sigma, scale):
+        return torch.exp(scale * mu / sigma**2)
+
+
+def feature_constructor(env_cfg, device):
+    if "pointer" in env_cfg["env_name"].lower():
+        return PointerFeature(env_cfg, device)
+    elif "pointmass" in env_cfg["env_name"].lower():
+        return PointMassFeature(env_cfg, device)
+    else:
+        print(f'feature not implemented: {env_cfg["env_name"]}')
+        return None

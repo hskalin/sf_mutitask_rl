@@ -11,12 +11,16 @@ updates_per_step: 1
 reward_scale: 1.0
 grad_clip: null
 value_net_kwargs: 
-    sizes: [256, 256]
-    activation: "relu"
-    layernorm: True
-    droprate: 0.0
-policy_net_kwargs: 
-    sizes: [128, 128]
+    hidden_dim: 64
+    num_layers: 4
+    resnet: False
     layernorm: False
-
-augmentHeads: True
+    fta: False
+policy_net_kwargs: 
+    hidden_dim: 32
+    num_layers: 4
+    resnet: False
+    layernorm: False
+    fta: False
+    
+augmentHeads: False
