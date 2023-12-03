@@ -46,6 +46,8 @@ class TaskObject:
         else:
             id = self.sample_taskID(self.taskRatio)
 
+            assert len(self.taskSet) <= len(id), f"num envs {len(id)} is less than num taskSet {len(self.taskSet)}"
+
             # ensure that all task are in id
             for i in range(len(self.taskSet)):
                 if i not in id:

@@ -107,7 +107,7 @@ class SACAgent(IsaacAgent):
         policy_loss, entropies = self.update_policy(batch, weights)
 
         if self.entropy_tuning:
-            entropy_loss = self.calc_entropy_loss(entropies)
+            entropy_loss = self.calc_entropy_loss(entropies, weights)
             update_params(self.alpha_optimizer, None, entropy_loss)
             self.alpha = self.log_alpha.exp()
 

@@ -79,7 +79,7 @@ class PPO_agent:
 
         self.device = cfg["rl_device"]
 
-        self.env, _, _ = multitaskenv_constructor(env_cfg=self.env_cfg)
+        self.env, _, _ = multitaskenv_constructor(env_cfg=self.env_cfg, device=self.device)
 
         self.run_name = (
             f"{self.env_cfg['env_name']}__{self.agent_cfg['name']}__{int(time.time())}"
