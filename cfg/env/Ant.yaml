@@ -48,26 +48,38 @@ render: False  # render env
 record: False  # dump config, record video only works if env is rendered
 log_path: "logs/"  # config, video, model log path
 
-dim: 2
-
 task:
-  rand_weights:       True
-  rand_vel_targets:   True
-  task_w_randType: "identity"
-  task_w_randAdaptive: True
-  
-  task_w: [1,1]
-  task_w_eval: [1,1]
+  verbose: True
 
-  task_wa: [[1,0],
-            [0,1],
-            [1,1]]
+  rand_task:      True
 
+  # proximity reward
+  proximity_threshold: 3
 
+  # targets for play
+  # target_pos:       [0, 0, 2] # x, y
+  # target_vel:       [0, 0, 0] # vx, vy, vz
+
+  # |p|, v, |v|, prox
+  task_wEval:   [1, 1, 1]
+  task_wTrain:  [1, 1, 1]  
+
+  # can be "uniform", "permute", "identity", "achievable"
+  taskSet_train: "achievable"
+  taskSet_eval: "achievable"
+  adaptive_task: True
+
+  # set of achievable task weights
+  taskSet:
+    achievable: [[1,0,1],
+                [0,1,1],
+                [1,1,1]]
 
 feature:
-  type: "regular"
-  regular: [True, True]
+  verbose: True
+  dim: 2 # pointmass N dim
+  use_feature: [True, True, True] #[pos_x, pos_y, alive] 
+
 
 sim:
   sim_device: "cuda:0"

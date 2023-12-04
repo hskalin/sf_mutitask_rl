@@ -56,6 +56,7 @@ class PointMassFeature(FeatureAbstract):
             self.use_vel_norm,
             self.use_prox,
         ) = self.use_feature
+
         self.feature_dim = [
             self.use_pos_norm,
             self.envdim * self.use_vel_err,
@@ -325,12 +326,63 @@ class BlimpFeature(PointerFeature):
     def compute_gaussDist(self, mu, sigma, scale):
         return torch.exp(scale * mu / sigma**2)
 
+class AntFeature(FeatureAbstract):
+    """
+    features : tbd
+    """
+
+    def __init__(self, env_cfg, device) -> None:
+        super().__init__()
+
+        self.env_cfg = env_cfg
+        self.feature_cfg = self.env_cfg["feature"]
+        self.device = device
+
+        self.use_feature = self.feature_cfg["use_feature"]
+        self.verbose = self.feature_cfg.get("verbose", False)
+
+        self.envdim = int(self.env_cfg["feature"]["dim"])
+
+        (
+            self.use_pos_x,
+            self.use_pos_y,
+            self.use_alive
+        ) = self.use_feature
+
+        self.feature_dim = [
+            self.use_pos_x,
+            self.use_pos_y,
+            self.use_alive
+        ]
+
+        self.dim = int(sum(self.feature_dim))
+
+        self.stateParse_pos_x = slice(0,1)
+        self.stateParse_pos_y = slice(1,2)
+
+    def extract(self, s):
+        features = []
+
+        if self.use_pos_x:
+            features.append(s[:,0])
+
+        if self.use_pos_y:
+            features.append(s[:,0])
+
+        if self.use_alive:
+            features.append(s[:,0])
+
+        return torch.cat(features, 1)
+
+
 
 def feature_constructor(env_cfg, device):
     if "pointer" in env_cfg["env_name"].lower():
         return PointerFeature(env_cfg, device)
     elif "pointmass" in env_cfg["env_name"].lower():
         return PointMassFeature(env_cfg, device)
+    elif "ant" in env_cfg["env_name"].lower():
+        return AntFeature(env_cfg, device)
     else:
         print(f'feature not implemented: {env_cfg["env_name"]}')
         return None

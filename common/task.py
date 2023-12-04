@@ -190,12 +190,26 @@ class PointerTask(SmartTask):
         w_angvel_norm = c[4] * [w[4]]
         return w_px + w_py + w_vel_norm + w_ang_norm + w_angvel_norm
 
+class AntTask(SmartTask):
+    def __init__(self, env_cfg, device) -> None:
+        super().__init__(env_cfg, device)
+
+    def define_task(self, c, d, w):
+        w_px = c[0] * [w[0]]
+        w_py = c[1] * [w[1]]
+        w_alive = c[2] * [w[2]]
+
+        return w_px + w_py + w_alive
+        
+
 
 def task_constructor(env_cfg, device):
     if "pointer" in env_cfg["env_name"].lower():
         return PointerTask(env_cfg, device)
     elif "pointmass" in env_cfg["env_name"].lower():
         return PointMassTask(env_cfg, device)
+    elif "ant" in env_cfg["env_name"].lower():
+        return AntTask(env_cfg, device)
     else:
         print(f'task not implemented: {env_cfg["env_name"]}')
         return None
