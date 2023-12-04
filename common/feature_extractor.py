@@ -129,9 +129,19 @@ if __name__ == "__main__":
 
     # data
     batch_size = 50
-    n_sample = 1000 
+    n_sample = 1000
     sequence_length = 17
+
+    # lens = torch.randint(3, 7, (n_sample,))
+    # xlst = []
+    # y = torch.zeros((n_sample,), device=device)
+    # for i in range(n_sample):
+    #     xlst.append(torch.randn((obs_dim, lens[i]), device=device))
+    #     #y[i] = xlst[-1][...,-1]
     
+    # print(xlst)
+    # x = torch.nested.nested_tensor(xlst)
+
     x = torch.rand(n_sample, obs_dim, sequence_length, device=device)
     y = x[...,-1].clone()
 
@@ -143,6 +153,8 @@ if __name__ == "__main__":
         kernel_size=kernel_size,
     )
     tcnnet = tcnnet.to(device=device)
+
+    #print(tcnnet(x))
     
     # training
     print("training")
