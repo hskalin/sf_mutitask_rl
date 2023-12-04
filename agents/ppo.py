@@ -6,6 +6,7 @@ import time
 from distutils.util import strtobool
 from env.wrapper.multiTask import multitaskenv_constructor
 from common.util import AverageMeter
+from common.feature_extractor import TCN
 
 import gym
 import wandb
@@ -62,6 +63,38 @@ class Agent(nn.Module):
             self.critic(x),
         )
 
+class TCNAgent(Agent):
+    def __init__(self, env):
+        super().__init__(env)
+
+        channels = [env.num_obs, env.num_obs]
+        kernel_size = 3
+        self.tcn = TCN(
+            in_dim = env.num_obs,
+            out_dim = env.num_obs,
+            num_channels=channels,
+            kernel_size=kernel_size,
+        )
+
+    def get_value(self, x):
+        x = self.tcn(x)
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        x = self.tcn(x)
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return (
+            action,
+            probs.log_prob(action).sum(1),
+            probs.entropy().sum(1),
+            self.critic(x),
+        )
+
 
 class PPO_agent:
     def __init__(self, cfg):
@@ -87,13 +120,14 @@ class PPO_agent:
 
         self.writer = SummaryWriter(f"runs/{self.run_name}")
 
-        self.agent = Agent(self.env).to(self.device)
+        #self.agent = Agent(self.env).to(self.device)
+        self.agent = TCNAgent(self.env).to(self.device)
         self.optimizer = optim.Adam(
             self.agent.parameters(), lr=self.agent_cfg["learning_rate"], eps=1e-5
         )
 
-        self.game_rewards = AverageMeter(1, max_size=100).to("cuda:0")
-        self.game_lengths = AverageMeter(1, max_size=100).to("cuda:0")
+        self.game_rewards = AverageMeter(1, max_size=100).to(self.device)
+        self.game_lengths = AverageMeter(1, max_size=100).to(self.device)
 
         self._init_buffers()
         ###
@@ -156,7 +190,7 @@ class PPO_agent:
                 # ALGO LOGIC: action logic
                 with torch.no_grad():
                     action, logprob, _, value = self.agent.get_action_and_value(
-                        next_obs
+                        next_obs.unsqueeze(-1)
                     )
                     self.values[step] = value.flatten()
                 self.actions[step] = action
@@ -206,7 +240,7 @@ class PPO_agent:
 
             # bootstrap value if not done
             with torch.no_grad():
-                next_value = self.agent.get_value(next_obs).reshape(1, -1)
+                next_value = self.agent.get_value(next_obs.unsqueeze(-1)).reshape(1, -1)
                 advantages = torch.zeros_like(self.rewards).to(self.device)
                 lastgaelam = 0
                 for t in reversed(range(self.agent_cfg["num_steps"])):
@@ -251,7 +285,7 @@ class PPO_agent:
                     mb_inds = b_inds[start:end]
 
                     _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                        b_obs[mb_inds], b_actions[mb_inds]
+                        b_obs[mb_inds].unsqueeze(-1), b_actions[mb_inds]
                     )
                     logratio = newlogprob - b_logprobs[mb_inds]
                     ratio = logratio.exp()

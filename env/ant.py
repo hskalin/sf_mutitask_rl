@@ -413,7 +413,7 @@ def compute_heading_and_up(
     heading_proj = torch.bmm(
         heading_vec.view(num_envs, 1, 3), target_dirs.view(num_envs, 3, 1)
     ).view(num_envs)
-
+   
     return torso_quat, up_proj, heading_proj, up_vec, heading_vec
 
 

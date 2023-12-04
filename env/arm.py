@@ -208,8 +208,8 @@ class Arm(VecEnv):
         a1 = self.obs_buf[:, 0]
         a2 = self.obs_buf[:, 2]
 
-        l = torch.tensor([-3.14, -3], device="cuda:0")
-        h = torch.tensor([3.14, 3], device="cuda:0")
+        l = torch.tensor([-3.14, -3], device=self.device)
+        h = torch.tensor([3.14, 3], device=self.device)
 
         # pole_angle = self.obs_buf[:, 2]
         # pole_vel = self.obs_buf[:, 3]

@@ -94,8 +94,8 @@ class IsaacAgent(AbstractAgent):
         self.episodes = 0
 
         self.games_to_track = 100
-        self.game_rewards = AverageMeter(1, self.games_to_track).to("cuda:0")
-        self.game_lengths = AverageMeter(1, self.games_to_track).to("cuda:0")
+        self.game_rewards = AverageMeter(1, self.games_to_track).to(self.device)
+        self.game_lengths = AverageMeter(1, self.games_to_track).to(self.device)
         self.avgStepRew = AverageMeter(1, 20).to(self.device)
 
     def run(self):
@@ -232,7 +232,7 @@ class IsaacAgent(AbstractAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
 
             w = copy.copy(np2ts(task.W))
 
@@ -275,7 +275,7 @@ class MultitaskAgent(IsaacAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device="cuda:0") - 1
+                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
 
             w = copy.copy(np2ts(task.W))
             id = copy.copy(np2ts(task.id))

@@ -23,9 +23,9 @@ class Blimp(VecEnv):
         # blimp parameters
         # smoothning factor for fan thrusts
         self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
-        self.drag_bodies = torch.tensor(cfg["blimp"]["drag_body_idxs"], device="cuda:0")
-        self.body_areas = torch.tensor(cfg["blimp"]["areas"], device="cuda:0")
-        self.drag_coefs = torch.tensor(cfg["blimp"]["drag_coef"], device="cuda:0")
+        self.drag_bodies = torch.tensor(cfg["blimp"]["drag_body_idxs"], device=self.device)
+        self.body_areas = torch.tensor(cfg["blimp"]["areas"], device=self.device)
+        self.drag_coefs = torch.tensor(cfg["blimp"]["drag_coef"], device=self.device)
         self.blimp_mass = cfg["blimp"]["mass"]
 
         super().__init__(cfg=cfg)
@@ -55,13 +55,13 @@ class Blimp(VecEnv):
         self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # wind
-        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device="cuda:0")
+        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.device)
         self.wind_mag = cfg["aero"]["wind_mag"]
         self.wind_std = cfg["aero"]["wind_std"]
-        self.wind_mean = torch.zeros((self.num_envs,3), device="cuda:0")
+        self.wind_mean = torch.zeros((self.num_envs,3), device=self.device)
 
         # blimp
-        self.bouyancy = torch.zeros(self.num_envs, device="cuda:0")
+        self.bouyancy = torch.zeros(self.num_envs, device=self.device)
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -285,11 +285,11 @@ class Blimp(VecEnv):
         self.goal_rot[env_ids, 2] = rotations[:, 3]
 
         # randomize wind
-        self.wind_mean[env_ids] = self.wind_mag*(2*torch.rand((len(env_ids),3), device="cuda:0")*self.wind_dirs - self.wind_dirs)
+        self.wind_mean[env_ids] = self.wind_mag*(2*torch.rand((len(env_ids),3), device=self.device)*self.wind_dirs - self.wind_dirs)
 
         # randomize bouyancy
         self.bouyancy[env_ids] = torch.normal(-self.sim_params.gravity.z*self.blimp_mass, std=0.3, 
-                                        size=(len(env_ids),), device="cuda:0")
+                                        size=(len(env_ids),), device=self.device)
 
         if self.train and self.rand_vel_targets:
             self.goal_lvel[env_ids, :] = (2*(torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)*self.goal_vel_lim)
@@ -348,7 +348,7 @@ class Blimp(VecEnv):
                                             self.actions_tensor_prev[:,[3,4,7],:]*(1-self.ema_smooth)
         self.actions_tensor_prev[:,[3,4,7],:] = self.actions_tensor[:,[3,4,7],:]
         
-        dof_targets = torch.zeros((self.num_envs, 5), device="cuda:0")
+        dof_targets = torch.zeros((self.num_envs, 5), device=self.device)
 
         dof_targets[:, 0] =  2.0 * actions[:, 2]
         dof_targets[:, 1] =  0.5 * actions[:, 1]
