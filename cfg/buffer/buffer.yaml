@@ -6,3 +6,5 @@ prioritized_replay : False
 alpha : 0.6 
 beta : 0.4 
 eps : 1e-8
+framestacked_replay: True
+stack_size: 10

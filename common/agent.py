@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
-from common.vec_buffer import VectorizedReplayBuffer, VecPrioritizedReplayBuffer
+from common.vec_buffer import VectorizedReplayBuffer, FrameStackedReplayBuffer, VecPrioritizedReplayBuffer
 from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
@@ -56,20 +56,9 @@ class IsaacAgent(AbstractAgent):
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
+        self.obs_stackSize = 1
 
-        if self.buffer_cfg["prioritized_replay"]:
-            self.replay_buffer = VecPrioritizedReplayBuffer(
-                device=self.device,
-                **self.buffer_cfg,
-            )
-        else:
-            self.replay_buffer = VectorizedReplayBuffer(
-                self.observation_shape,
-                self.action_shape,
-                self.feature_shape,
-                device=self.device,
-                **self.buffer_cfg,
-            )
+        self.setup_replaybuffer()
         self.mini_batch_size = int(self.buffer_cfg["mini_batch_size"])
         self.min_n_experience = int(self.buffer_cfg["min_n_experience"])
 
@@ -97,6 +86,21 @@ class IsaacAgent(AbstractAgent):
         self.game_rewards = AverageMeter(1, self.games_to_track).to(self.device)
         self.game_lengths = AverageMeter(1, self.games_to_track).to(self.device)
         self.avgStepRew = AverageMeter(1, 20).to(self.device)
+
+    def setup_replaybuffer(self):
+        if self.buffer_cfg["prioritized_replay"]:
+            self.replay_buffer = VecPrioritizedReplayBuffer(
+                device=self.device,
+                **self.buffer_cfg,
+            )
+        else:
+            self.replay_buffer = VectorizedReplayBuffer(
+                self.observation_shape,
+                self.action_shape,
+                self.feature_shape,
+                device=self.device,
+                **self.buffer_cfg,
+            )
 
     def run(self):
         while True:
@@ -222,7 +226,7 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, task, mode="explore"):
-        s = check_obs(s, self.observation_dim)
+        s = check_obs(s, self.observation_dim*self.obs_stackSize)
 
         a = self._act(s, task, mode)
 
@@ -266,6 +270,7 @@ class MultitaskAgent(IsaacAgent):
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
+
     def train_episode(self, gui_app=None, gui_rew=None):
         episode_r, _ = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
 
@@ -285,3 +290,15 @@ class MultitaskAgent(IsaacAgent):
             elif mode == "exploit":
                 a = self.exploit(s, w, id)
         return a
+
+    def setup_replaybuffer(self):
+        super().setup_replaybuffer()
+
+        if self.buffer_cfg["framestacked_replay"]:
+            self.replay_buffer = FrameStackedReplayBuffer(
+                obs_shape=self.observation_shape,
+                action_shape=self.action_shape,
+                feature_shape=self.feature_shape,
+                device=self.device,
+                **self.buffer_cfg,
+            )

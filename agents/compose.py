@@ -176,9 +176,6 @@ class CompositionAgent(MultitaskAgent):
             self.lrScheduler_sf.step()
             self.lrScheduler_policy.step()
 
-            lr_sf = self.sf_optimizer.param_groups[0]["lr"]
-            lr_policy = self.policy_optimizer.param_groups[0]["lr"]
-
         if self.entropy_tuning:
             entropy_loss = self._calc_entropy_loss(entropies, weights)
             update_params(self.alpha_optimizer, None, entropy_loss)
@@ -204,8 +201,8 @@ class CompositionAgent(MultitaskAgent):
             if self.lr_schedule:
                 metrics.update(
                     {
-                        "state/lr_sf": lr_sf,
-                        "state/lr_policy": lr_policy,
+                        "state/lr_sf": self.sf_optimizer.param_groups[0]["lr"],
+                        "state/lr_policy": self.policy_optimizer.param_groups[0]["lr"],
                     }
                 )
             else:
@@ -403,3 +400,5 @@ class CompositionAgent(MultitaskAgent):
         self.sf.load(path + "sf")
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)
+
+
