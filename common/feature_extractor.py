@@ -177,8 +177,8 @@ class Perception:
         self.cfg = cfg
 
         self.channels = [40, 40]
-        self.kernel_size = 3
-        self.history = 5
+        self.kernel_size = 5
+        self.history = 10
 
         self.epochs = 20
         self.num_steps = 500
@@ -219,7 +219,10 @@ class Perception:
             for step in range(1, self.num_steps):
                 
                 # have to find a good way to get these
-                actions = torch.rand((self.num_envs, self.env.num_act), device=self.device)
+                #actions = torch.rand((self.num_envs, self.env.num_act), device=self.device)
+                actions = torch.sin(torch.ones((
+                    self.num_envs, self.env.num_act), device=self.device)*(step/100))
+
                 self.env.step(actions)
                 next_obs = self.env.obs_buf
                 self.env.reset()
@@ -233,9 +236,11 @@ class Perception:
                 J.backward()
                 self.optimizer.step()
 
+                #print(J.detach().item())
                 mseloss += (J.detach().item() - mseloss) / (step + 1)
 
             print(f"Epoch: {epoch}\t train loss: {mseloss}")
+        
 
 
 
