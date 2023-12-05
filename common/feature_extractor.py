@@ -176,7 +176,7 @@ class Perception:
     def __init__(self, cfg) -> None:
         self.cfg = cfg
 
-        self.channels = [40, 40]
+        self.channels = [100, 100]
         self.kernel_size = 5
         self.history = 10
 
@@ -216,12 +216,17 @@ class Perception:
             self.tcn.train()
             mseloss = 0.0
 
+            phis = torch.rand(
+                (self.num_envs, self.env.num_act), device=self.device)
+            freqs = torch.randint(1,3,
+                                  (self.num_envs, self.env.num_act), device=self.device)
+
             for step in range(1, self.num_steps):
                 
                 # have to find a good way to get these
                 #actions = torch.rand((self.num_envs, self.env.num_act), device=self.device)
-                actions = torch.sin(torch.ones((
-                    self.num_envs, self.env.num_act), device=self.device)*(step/100))
+                actions = torch.sin(torch.ones(
+                    (self.num_envs, self.env.num_act), device=self.device)*(step/(freqs*100)) + phis)
 
                 self.env.step(actions)
                 next_obs = self.env.obs_buf
@@ -266,6 +271,7 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     percep = Perception(cfg_dict)
     percep.train()
+    torch.save(percep.tcn.state_dict(), "../runs/ant/percep4.pth")
 
     wandb.finish()
 
