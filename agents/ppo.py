@@ -67,8 +67,8 @@ class TCNAgent(Agent):
     def __init__(self, env):
         super().__init__(env)
 
-        channels = [env.num_obs, env.num_obs]
-        kernel_size = 3
+        channels = [env.num_obs, env.num_obs, env.num_obs]
+        kernel_size = 5
         self.tcn1 = TCN(
             in_dim = env.num_obs,
             out_dim = env.num_obs,
@@ -302,9 +302,9 @@ class PPO_agent:
 
             # flatten the batch
             #b_obs = self.obs.reshape((-1, self.env.num_obs))
-            unfold_obs = self.obs.permute(1,2,0).unfold(2,self.history,1)
+            unfold_obs = self.obs.permute(1,2,0).unfold(2,self.history,1) # [Nenv, O, S-H+1, H] <-- [Nenv, O, S]
             b_obs = unfold_obs.permute(0,2,1,3).reshape(
-                self.num_envs*(self.num_steps - self.history+1), self.env.num_obs, self.history)
+                self.num_envs*(self.num_steps - self.history+1), self.env.num_obs, self.history) # [Nenv*(S-H+1), O, H]
             b_logprobs = self.logprobs.reshape(-1)
             b_actions = self.actions.reshape((-1, self.env.num_act))
             b_advantages = advantages.reshape(-1)
