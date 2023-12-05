@@ -1,7 +1,15 @@
+import isaacgym
+
 import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
 from torch.optim import Adam
+from env.wrapper.multiTask import multitaskenv_constructor
+
+import hydra
+import wandb
+from omegaconf import DictConfig
+from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
 
 class Chomp1d(nn.Module):
@@ -115,8 +123,7 @@ class TCN(nn.Module):
         return x
 
 
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def _verify_tcn(device):
     print("device: ", device)
     print("validating TCN performance")
 
@@ -132,16 +139,6 @@ if __name__ == "__main__":
     n_sample = 1000
     sequence_length = 17
 
-    # lens = torch.randint(3, 7, (n_sample,))
-    # xlst = []
-    # y = torch.zeros((n_sample,), device=device)
-    # for i in range(n_sample):
-    #     xlst.append(torch.randn((obs_dim, lens[i]), device=device))
-    #     #y[i] = xlst[-1][...,-1]
-    
-    # print(xlst)
-    # x = torch.nested.nested_tensor(xlst)
-
     x = torch.rand(n_sample, obs_dim, sequence_length, device=device)
     y = x[...,-1].clone()
 
@@ -154,8 +151,6 @@ if __name__ == "__main__":
     )
     tcnnet = tcnnet.to(device=device)
 
-    #print(tcnnet(x))
-    
     # training
     print("training")
     optimizer = Adam(tcnnet.parameters(), lr=0.01, eps=1e-5)
@@ -176,3 +171,110 @@ if __name__ == "__main__":
 
         print(f"Epoch: {i}\t train loss: {train_loss}")
 
+
+class Perception:
+    def __init__(self, cfg) -> None:
+        self.cfg = cfg
+
+        self.channels = [100, 100]
+        self.kernel_size = 5
+        self.history = 10
+
+        self.epochs = 20
+        self.num_steps = 500
+
+        self._init_env()
+
+        self.tcn = TCN(
+            in_dim=self.env.num_obs,
+            out_dim=self.env.num_obs,
+            num_channels=self.channels,
+            kernel_size=self.kernel_size,
+        )
+
+        self.optimizer = Adam(self.tcn.parameters(), lr=0.005, eps=1e-5)
+        self.loss_fn = nn.MSELoss()
+
+        # obs buffer to store sequences
+        self.obs = torch.zeros(
+            (self.num_envs, self.env.num_obs, self.num_steps),
+            device=self.device, dtype=torch.float
+        )
+
+    def _init_env(self):
+        self.num_envs = self.cfg["env"]["num_envs"]
+        self.device = self.cfg["rl_device"]
+        self.env, _, _ = multitaskenv_constructor(self.cfg["env"], device=self.device)
+
+    def train(self):
+        self.tcn.to(self.device)
+        next_obs = self.env.obs_buf
+
+        for epoch in range(self.epochs):
+            self.obs[...,0] = next_obs
+
+            self.tcn.train()
+            mseloss = 0.0
+
+            phis = torch.rand(
+                (self.num_envs, self.env.num_act), device=self.device)
+            freqs = torch.randint(1,3,
+                                  (self.num_envs, self.env.num_act), device=self.device)
+
+            for step in range(1, self.num_steps):
+                
+                # have to find a good way to get these
+                #actions = torch.rand((self.num_envs, self.env.num_act), device=self.device)
+                actions = torch.sin(torch.ones(
+                    (self.num_envs, self.env.num_act), device=self.device)*(step/(freqs*100)) + phis)
+
+                self.env.step(actions)
+                next_obs = self.env.obs_buf
+                self.env.reset()
+
+                self.obs[...,step] = next_obs
+                prev_idx = max(0, step - self.history)
+
+                self.optimizer.zero_grad()
+                pred_obs = self.tcn(self.obs[..., prev_idx:step])
+                J = self.loss_fn(pred_obs, next_obs)
+                J.backward()
+                self.optimizer.step()
+
+                #print(J.detach().item())
+                mseloss += (J.detach().item() - mseloss) / (step + 1)
+
+            print(f"Epoch: {epoch}\t train loss: {mseloss}")
+        
+
+
+
+@hydra.main(config_name="config", config_path="../cfg")
+def launch_rlg_hydra(cfg: DictConfig):
+    cfg_dict = omegaconf_to_dict(cfg)
+
+    if cfg_dict["wandb_log"]:
+        wandb.init()
+    else:
+        wandb.init(mode="disabled")
+        
+    print(wandb.config, "\n\n")
+    wandb_dict = fix_wandb(wandb.config)
+
+    print_dict(wandb_dict)
+    update_dict(cfg_dict, wandb_dict)
+
+    cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
+    print_dict(cfg_dict)
+
+    torch.manual_seed(cfg_dict["seed"])
+
+    percep = Perception(cfg_dict)
+    percep.train()
+    torch.save(percep.tcn.state_dict(), "../runs/ant/percep4.pth")
+
+    wandb.finish()
+
+
+if __name__ == "__main__":
+    launch_rlg_hydra()

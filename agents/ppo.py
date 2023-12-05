@@ -6,7 +6,7 @@ import time
 from distutils.util import strtobool
 from env.wrapper.multiTask import multitaskenv_constructor
 from common.util import AverageMeter
-from common.feature_extractor import TCN
+from common.feature_extractor import TCN, Perception
 
 import gym
 import wandb
@@ -69,7 +69,13 @@ class TCNAgent(Agent):
 
         channels = [env.num_obs, env.num_obs]
         kernel_size = 3
-        self.tcn = TCN(
+        self.tcn1 = TCN(
+            in_dim = env.num_obs,
+            out_dim = env.num_obs,
+            num_channels=channels,
+            kernel_size=kernel_size,
+        )
+        self.tcn2 = TCN(
             in_dim = env.num_obs,
             out_dim = env.num_obs,
             num_channels=channels,
@@ -77,12 +83,13 @@ class TCNAgent(Agent):
         )
 
     def get_value(self, x):
-        x = self.tcn(x)
-        return self.critic(x)
+        x1 = self.tcn1(x)
+        return self.critic(x1)
 
     def get_action_and_value(self, x, action=None):
-        x = self.tcn(x)
-        action_mean = self.actor_mean(x)
+        x1 = self.tcn1(x)
+        x2 = self.tcn2(x)
+        action_mean = self.actor_mean(x2)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
@@ -92,7 +99,7 @@ class TCNAgent(Agent):
             action,
             probs.log_prob(action).sum(1),
             probs.entropy().sum(1),
-            self.critic(x),
+            self.critic(x1),
         )
 
 
@@ -123,9 +130,19 @@ class PPO_agent:
 
         self.writer = SummaryWriter(f"runs/{self.run_name}")
 
-        #self.agent = Agent(self.env).to(self.device)
-        self.history = 5
-        self.agent = TCNAgent(self.env).to(self.device)
+        self.agent = Agent(self.env).to(self.device)
+        self.history = 10
+        #self.agent = TCNAgent(self.env).to(self.device)
+        self.percep = TCN(
+            self.env.num_obs,
+            self.env.num_obs,
+            [100,100],
+            5
+        )
+        self.percep.load_state_dict(torch.load("/home/nilaksh/rl/sf_mutitask_rl/runs/ant/percep4.pth"))
+        self.percep.to(self.device)
+        self.percep.eval()
+
         self.optimizer = optim.Adam(
             self.agent.parameters(), lr=self.agent_cfg["learning_rate"], eps=1e-5
         )
@@ -196,7 +213,7 @@ class PPO_agent:
                 with torch.no_grad():
                     action, logprob, _, value = self.agent.get_action_and_value(
                         #next_obs.unsqueeze(-1)
-                        self.obs.permute(1,2,0)[...,prev_idx:step+1]
+                        self.percep(self.obs.permute(1,2,0)[...,prev_idx:step+1])
                     )
                     self.values[step] = value.flatten()
                 self.actions[step] = action
@@ -248,7 +265,7 @@ class PPO_agent:
             with torch.no_grad():
                 next_value = self.agent.get_value(
                     #next_obs.unsqueeze(-1)
-                    self.obs.permute(1,2,0)[...,-self.history:]
+                    self.percep(self.obs.permute(1,2,0)[...,-self.history:])
                     ).reshape(1, -1)
                 advantages = torch.zeros_like(self.rewards).to(self.device)
                 lastgaelam = 0
@@ -300,7 +317,7 @@ class PPO_agent:
                     mb_inds = b_inds[start:end]
 
                     _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                        b_obs[mb_inds], b_actions[mb_inds]
+                        self.percep(b_obs[mb_inds]), b_actions[mb_inds]
                     )
                     logratio = newlogprob - b_logprobs[mb_inds]
                     ratio = logratio.exp()
@@ -394,6 +411,7 @@ class PPO_agent:
             )
 
             wandb.log(wandb_metrics)
+
 
         # envs.close()
         self.writer.close()
