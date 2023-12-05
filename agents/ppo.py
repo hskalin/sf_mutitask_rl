@@ -67,8 +67,8 @@ class TCNAgent(Agent):
     def __init__(self, env):
         super().__init__(env)
 
-        channels = [env.num_obs, env.num_obs]
-        kernel_size = 3
+        channels = [env.num_obs, env.num_obs, env.num_obs]
+        kernel_size = 5
         self.tcn1 = TCN(
             in_dim = env.num_obs,
             out_dim = env.num_obs,

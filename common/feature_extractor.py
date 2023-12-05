@@ -4,12 +4,12 @@ import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
 from torch.optim import Adam
-from env.wrapper.multiTask import multitaskenv_constructor
+# from env.wrapper.multiTask import multitaskenv_constructor
 
 import hydra
 import wandb
 from omegaconf import DictConfig
-from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
+# from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
 
 class Chomp1d(nn.Module):
@@ -120,6 +120,9 @@ class TCN(nn.Module):
         example = torch.rand(1, in_dim, stack_size)
         self.tcn = torch.jit.trace(self.tcn, example_inputs=example)
 
+        example2 = self.tcn(example)
+        self.linear = torch.jit.trace(self.linear, example_inputs=example2[:,:,-1])
+
     def forward(self, x):
         x = self.tcn(x)
         x = self.linear(x[:, :, -1])
@@ -134,8 +137,8 @@ def _verify_tcn(device):
     obs_dim = 11
     out_dim = 11
     # I suppose these are hidden layer sizes? so the obs dim is reduced to this size
-    num_channels = [5, 7, 5] 
-    kernel_size = 3
+    num_channels = [11, 11] 
+    kernel_size = 5
 
     # data
     batch_size = 50
@@ -150,6 +153,7 @@ def _verify_tcn(device):
         in_dim=obs_dim,
         out_dim=out_dim,
         num_channels=num_channels,
+        stack_size=sequence_length,
         kernel_size=kernel_size,
     )
     tcnnet = tcnnet.to(device=device)
@@ -280,4 +284,5 @@ def launch_rlg_hydra(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    launch_rlg_hydra()
+    # launch_rlg_hydra()
+    _verify_tcn("cuda")
