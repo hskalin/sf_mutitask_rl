@@ -3,7 +3,7 @@ total_timesteps: 30000000
 batch_size: 2048
 learning_rate: 0.0026
 minibatch_size: 1024
-num_steps: 16
+num_steps: 32
 anneal_lr: True
 gamma: 0.99
 gae_lambda: 0.95

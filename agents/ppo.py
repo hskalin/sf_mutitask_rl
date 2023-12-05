@@ -139,14 +139,16 @@ class PPO_agent:
             [100,100],
             5
         )
-        self.percep.load_state_dict(torch.load("/home/nilaksh/rl/sf_mutitask_rl/runs/ant/percep4.pth"))
+        self.percep.load_state_dict(torch.load("/home/nilaksh/rl/sf_mutitask_rl/runs/ant/percep.pth"))
         self.percep.to(self.device)
         self.percep.eval()
 
         self.optimizer = optim.Adam(
             self.agent.parameters(), lr=self.agent_cfg["learning_rate"], eps=1e-5
         )
-
+        self.optimizerPercep = optim.Adam(self.percep.parameters(), lr=0.005, eps=1e-5)
+        self.loss_fn = nn.MSELoss()
+        
         self.game_rewards = AverageMeter(1, max_size=100).to(self.device)
         self.game_lengths = AverageMeter(1, max_size=100).to(self.device)
 
@@ -219,6 +221,14 @@ class PPO_agent:
                 self.actions[step] = action
                 self.logprobs[step] = logprob
 
+                if step>1:
+                    self.percep.train()
+                    self.optimizer.zero_grad()
+                    pred_obs = self.percep(self.obs.permute(1,2,0)[..., prev_idx:step])
+                    J = self.loss_fn(pred_obs, next_obs)
+                    J.backward()
+                    self.optimizer.step()
+                    self.percep.eval()
                 # TRY NOT TO MODIFY: execute the game and log data.
 
                 # next_obs, rewards[step], next_done, info = envs.step(action)
