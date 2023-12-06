@@ -60,7 +60,6 @@ class IsaacAgent(AbstractAgent):
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
-        self.obs_stackSize = 1
 
         self.setup_replaybuffer()
         self.mini_batch_size = int(self.buffer_cfg["mini_batch_size"])
@@ -230,7 +229,7 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, task, mode="explore"):
-        s = check_obs(s, self.observation_dim * self.obs_stackSize)
+        s = check_obs(s, self.observation_dim)
 
         a = self._act(s, task, mode)
 

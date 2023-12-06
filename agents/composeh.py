@@ -128,7 +128,6 @@ class RMACompAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.prioritized_replay = self.buffer_cfg["prioritized_replay"]
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -186,6 +185,7 @@ class RMACompAgent(MultitaskAgent):
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
         ).to(self.device)
+
         self.adaptor = AdaptationModule(
             in_dim=self.observation_dim + self.action_dim,
             out_dim=self.latent_dim,
@@ -326,8 +326,12 @@ class RMACompAgent(MultitaskAgent):
         return a  # [N, A]
 
     def parse_state(self, s):
-        s, e = s[:, : self.env_latent_idx], s[:, self.env_latent_idx :]
-        return s, e  # [N, S+Z+A], [N,S], [N, Z]
+        if s.shape[1] > self.env_latent_idx:
+            # [N, S], [N,E]
+            s, e = s[:, : self.env_latent_idx], s[:, self.env_latent_idx :]
+        else:
+            e = None
+        return s, e
 
     def reset_env(self):
         self.comp.reset()
@@ -368,27 +372,17 @@ class RMACompAgent(MultitaskAgent):
 
         batch = self.replay_buffer.sample(self.mini_batch_size)
 
-        if self.prioritized_replay:
-            weights = batch["_weight"]
-            weights = weights[:, None, None]
-        else:
-            weights = 1
-
-        sf_loss, errors, mean_sf1, mean_sf2, target_sf = self.update_sf(batch, weights)
-        policy_loss, entropies, action_norm = self.update_policy(batch, weights)
+        sf_loss, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
+        policy_loss, entropies, action_norm = self.update_policy(batch)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
             self.lrScheduler_policy.step()
 
         if self.entropy_tuning:
-            entropy_loss = self._calc_entropy_loss(entropies, weights)
+            entropy_loss = self._calc_entropy_loss(entropies)
             update_params(self.alpha_optimizer, None, entropy_loss)
             self.alpha = self.log_alpha.exp()
-
-        if self.prioritized_replay:
-            batch.set("td_error", errors)
-            self.replay_buffer.update_tensordict_priority(batch)
 
         # start logging
         if self.learn_steps % self.log_interval == 0:
@@ -443,7 +437,7 @@ class RMACompAgent(MultitaskAgent):
             metrics = {"loss/adaptor": adaptor_loss}
             wandb.log(metrics)
 
-    def update_sf(self, batch, weights):
+    def update_sf(self, batch):
         (s, _, f, a, a_stack, _, s_next, dones) = (
             batch["obs"],
             batch["stacked_obs"],
@@ -467,17 +461,14 @@ class RMACompAgent(MultitaskAgent):
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <--[N, S+Z+A], [N,A]
         target_sf = self._calc_target_sf(f, s_next, dones)  # [N, H, F]
 
-        loss1 = torch.mean((curr_sf1 - target_sf).pow(2) * weights)  # R <-- [N, H, F]
-        loss2 = torch.mean((curr_sf2 - target_sf).pow(2) * weights)  # R <-- [N, H, F]
+        loss1 = torch.mean((curr_sf1 - target_sf).pow(2))  # R <-- [N, H, F]
+        loss2 = torch.mean((curr_sf2 - target_sf).pow(2))  # R <-- [N, H, F]
 
         sf_loss = loss1 + loss2
 
         self.sf_optimizer.zero_grad(set_to_none=True)
         sf_loss.backward()
         self.sf_optimizer.step()
-
-        # TD errors for updating priority weights
-        errors = torch.mean(torch.abs(curr_sf1.detach() - target_sf), (1, 2))
 
         # update sf scale
         self.comp.update_sf_norm(curr_sf1.mean([0, 1]).abs())
@@ -488,9 +479,9 @@ class RMACompAgent(MultitaskAgent):
         curr_sf2 = curr_sf2.detach().mean().item()
         target_sf = target_sf.detach().mean().item()
 
-        return sf_loss, errors, curr_sf1, curr_sf2, target_sf
+        return sf_loss, curr_sf1, curr_sf2, target_sf
 
-    def update_policy(self, batch, weights):
+    def update_policy(self, batch):
         s, a_stack = batch["obs"], batch["stacked_act"]
 
         s_raw, e = self.parse_state(s)  # [N, S], [N, E]
@@ -510,7 +501,7 @@ class RMACompAgent(MultitaskAgent):
         loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * action_norm
 
         # [N, H, 1] <--  [N, H, 1], [N,1,1], [N, H, 1]
-        policy_loss = torch.mean(loss * weights)
+        policy_loss = torch.mean(loss)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
         return (
@@ -540,11 +531,11 @@ class RMACompAgent(MultitaskAgent):
         )
         return adaptor_loss.detach().item()
 
-    def _calc_entropy_loss(self, entropy, weights):
+    def _calc_entropy_loss(self, entropy):
         loss = self.log_alpha * (self.target_entropy - entropy).detach()
 
         # [N, H, 1] <--  [N, H, 1], [N,1,1]
-        entropy_loss = -torch.mean(loss * weights)
+        entropy_loss = -torch.mean(loss)
         return entropy_loss
 
     def _calc_qs_from_sf(self, s, a):
