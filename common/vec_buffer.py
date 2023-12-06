@@ -134,6 +134,7 @@ class FrameStackedReplayBuffer:
     def __init__(
         self,
         obs_shape,
+        latent_shape,
         action_shape,
         feature_shape,
         capacity,
@@ -146,27 +147,38 @@ class FrameStackedReplayBuffer:
     ):
         self.device = device
         self.batch_size = mini_batch_size
-        self.capacity = capacity
+        self.capacity = int(capacity / n_env)
 
-        self.n_env = n_env
+        self.n_env = int(n_env)
         self.stack_size = stack_size
 
         self.obses = torch.empty(
             (self.capacity, n_env, *obs_shape), dtype=torch.float32, device=self.device
         )
+        self.latents = torch.empty(
+            (self.capacity, n_env, *latent_shape),
+            dtype=torch.float32,
+            device=self.device,
+        )
         self.features = torch.empty(
-            (self.capacity, n_env, *feature_shape), dtype=torch.float32, device=self.device
+            (self.capacity, n_env, *feature_shape),
+            dtype=torch.float32,
+            device=self.device,
         )
         self.next_obses = torch.empty(
             (self.capacity, n_env, *obs_shape), dtype=torch.float32, device=self.device
         )
         self.actions = torch.empty(
-            (self.capacity, n_env, *action_shape), dtype=torch.float32, device=self.device
+            (self.capacity, n_env, *action_shape),
+            dtype=torch.float32,
+            device=self.device,
         )
         self.rewards = torch.empty(
             (self.capacity, n_env, 1), dtype=torch.float32, device=self.device
         )
-        self.dones = torch.empty((self.capacity, n_env, 1), dtype=torch.bool, device=self.device)
+        self.dones = torch.empty(
+            (self.capacity, n_env, 1), dtype=torch.bool, device=self.device
+        )
 
         self.idx = 0
         self.full = False
@@ -177,12 +189,13 @@ class FrameStackedReplayBuffer:
     def __len__(self):
         return self.idx
 
-    def add(self, obs, feature, action, reward, next_obs, done):
-        if self.idx+1 == self.capacity:
+    def add(self, obs, latent, feature, action, reward, next_obs, done):
+        if self.idx + 1 == self.capacity:
             self.full = True
             self.idx = 0
 
         self.obses[self.idx] = obs
+        self.latents[self.idx] = latent
         self.features[self.idx] = feature
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
@@ -196,8 +209,8 @@ class FrameStackedReplayBuffer:
             batch_size = self.batch_size
 
         # select sample
-        idx1 = torch.randint( 
-            self.stack_size-1,
+        idx1 = torch.randint(
+            self.stack_size - 1,
             self.capacity if self.full else self.idx,
             (batch_size,),
             device=self.device,
@@ -210,10 +223,12 @@ class FrameStackedReplayBuffer:
             device=self.device,
         )
 
-        obses = self.obses[idx1, idx2]  # [B, F] <-- [N, Nenv, F]
-        stacked_obs = self.stack_obs(idx1, idx2)  # [B, F, S]
+        obses = self.obses[idx1, idx2]  # [B, F] <-- [N, NE, F]
+        stacked_obs = self.stackObj(self.obses, idx1, idx2)  # [B, F, S]
+        latents = self.latents[idx1, idx2]  # [B, F] <-- [N, NE, F]
         features = self.features[idx1, idx2]
         actions = self.actions[idx1, idx2]
+        stacked_act = self.stackObj(self.actions, idx1, idx2)  # [B, F, S]
         rewards = self.rewards[idx1, idx2]
         next_obses = self.next_obses[idx1, idx2]
         dones = self.dones[idx1, idx2]
@@ -221,40 +236,44 @@ class FrameStackedReplayBuffer:
         return {
             "obs": obses,
             "stacked_obs": stacked_obs,
+            "latent": latents,
             "feature": features,
             "action": actions,
+            "stacked_act": stacked_act,
             "reward": rewards,
             "next_obs": next_obses,
             "done": dones,
         }
-    
-    def stack_obs(self, idx1, idx2):
+
+    def stackObj(self, x, idx1, idx2):
         # [NE, F, N] <-- [N, NE, F]
-        stacked_obs = self.obses.permute(1,2,0)
+        stacked_obj = x.permute(1, 2, 0)
 
         # [NE, F, N-H+1, S] <-- [NE, F, N]
-        stacked_obs = stacked_obs.unfold(2, self.stack_size, 1)
+        stacked_obj = stacked_obj.unfold(2, self.stack_size, 1)
 
         # [N-H+1, NE, F, S] <-- [NE, F, N-H+1, S]
-        stacked_obs = stacked_obs.permute(2,0,1,3)
+        stacked_obj = stacked_obj.permute(2, 0, 1, 3)
 
         # [B, F, S] <-- [N-H+1, NE, F, S]
-        stacked_obs = stacked_obs[idx1-self.stack_size+1, idx2]
-        stacked_obs = torch.flip(stacked_obs, (2,)) # descending order
+        stacked_obj = stacked_obj[idx1 - self.stack_size + 1, idx2]
+        stacked_obj = torch.flip(stacked_obj, (2,))  # descending order
 
         # correct by dones
-        ra = self.ra.repeat((idx1.shape[0], 1)) # [B, S]
+        ra = self.ra.repeat((idx1.shape[0], 1))  # [B, S]
         ids1 = idx1[:, None] - ra  # [B, S] <-- [B]
-        ids2 = idx2[:, None].repeat_interleave(self.stack_size, 1) # [B, S] <-- [B]
-        dones = self.dones[ids1, ids2] # [B, S, 1] <-- [N, NE, 1]
-        dones[:,0]=False
+        ids2 = idx2[:, None].repeat_interleave(self.stack_size, 1)  # [B, S] <-- [B]
+        dones = self.dones[ids1, ids2]  # [B, S, 1] <-- [N, NE, 1]
+        dones[:, 0] = False
 
-        mask = torch.where(torch.cumsum(dones, 1) > 0, 0, 1).permute(0,2,1)  # [B, S, 1]
-        stacked_obs = mask * stacked_obs  # [B, S, F]
+        mask = torch.where(torch.cumsum(dones, 1) > 0, 0, 1).permute(
+            0, 2, 1
+        )  # [B, S, 1]
+        stacked_obj = mask * stacked_obj  # [B, S, F]
 
-        return stacked_obs # [B, F, S]
+        return stacked_obj  # [B, F, S]
 
-    
+
 class VecPrioritizedReplayBuffer:
     def __init__(
         self,
@@ -303,12 +322,12 @@ class VecPrioritizedReplayBuffer:
 
 
 if __name__ == "__main__":
-    capacity = 5
+    capacity = 20
     device = "cuda"
     data_size = 4
     stack_size = 3
 
-    n_env = 1
+    n_env = 2
     obs_dim = 4
     feat_dim = 4
     act_dim = 2
@@ -332,12 +351,12 @@ if __name__ == "__main__":
         reward = torch.rand(n_env, rew_dim)
         next_obs = torch.rand(n_env, obs_dim)
         done = torch.randint(0, 2, (n_env, done_dim))
-    
+
         buf.add(obs, feature, action, reward, next_obs, done)
 
     print(len(buf))
 
-    sample = buf.sample(1)
+    sample = buf.sample(5)
     print("buf.obs", buf.obses)
     print("buf.dones", buf.dones)
     print("obs", sample["obs"])

@@ -6,7 +6,11 @@ from pathlib import Path
 
 import torch
 from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
-from common.vec_buffer import VectorizedReplayBuffer, FrameStackedReplayBuffer, VecPrioritizedReplayBuffer
+from common.vec_buffer import (
+    VectorizedReplayBuffer,
+    FrameStackedReplayBuffer,
+    VecPrioritizedReplayBuffer,
+)
 from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
@@ -226,7 +230,7 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, task, mode="explore"):
-        s = check_obs(s, self.observation_dim*self.obs_stackSize)
+        s = check_obs(s, self.observation_dim * self.obs_stackSize)
 
         a = self._act(s, task, mode)
 
@@ -236,7 +240,10 @@ class IsaacAgent(AbstractAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
+                a = (
+                    2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
+                    - 1
+                )
 
             w = copy.copy(np2ts(task.W))
 
@@ -270,7 +277,6 @@ class MultitaskAgent(IsaacAgent):
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
-
     def train_episode(self, gui_app=None, gui_rew=None):
         episode_r, _ = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
 
@@ -280,7 +286,10 @@ class MultitaskAgent(IsaacAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
+                a = (
+                    2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
+                    - 1
+                )
 
             w = copy.copy(np2ts(task.W))
             id = copy.copy(np2ts(task.id))
