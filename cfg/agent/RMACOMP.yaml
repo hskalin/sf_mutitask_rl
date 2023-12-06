@@ -2,6 +2,7 @@ name: "composition_rma"
 explore_method: "null"
 exploit_method: "sfgpi"
 rma: False
+episodes_phase2: 100
 entropy_tuning: True
 alpha: 1.
 alpha_lr: 3e-4

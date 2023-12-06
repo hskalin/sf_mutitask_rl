@@ -4,6 +4,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
+from agents.composeh import RMACompAgent
 from agents.compose import CompositionAgent
 from agents.sac import SACAgent
 from agents.ppo import PPO_agent
@@ -23,7 +24,7 @@ def launch_rlg_hydra(cfg: DictConfig):
         wandb.init()
     else:
         wandb.init(mode="disabled")
-        
+
     print(wandb.config, "\n\n")
     wandb_dict = fix_wandb(wandb.config)
 
@@ -42,6 +43,8 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = PPOHagent(cfg=cfg)
     elif "ppo" in cfg_dict["agent"]["name"].lower():
         agent = PPO_agent(cfg=cfg)
+    elif "rma" in cfg_dict["agent"]["name"].lower():
+        agent = RMACompAgent(cfg_dict)
     else:
         agent = CompositionAgent(cfg_dict)
 

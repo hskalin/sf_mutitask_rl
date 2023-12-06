@@ -134,7 +134,6 @@ class FrameStackedReplayBuffer:
     def __init__(
         self,
         obs_shape,
-        latent_shape,
         action_shape,
         feature_shape,
         capacity,
@@ -154,11 +153,6 @@ class FrameStackedReplayBuffer:
 
         self.obses = torch.empty(
             (self.capacity, n_env, *obs_shape), dtype=torch.float32, device=self.device
-        )
-        self.latents = torch.empty(
-            (self.capacity, n_env, *latent_shape),
-            dtype=torch.float32,
-            device=self.device,
         )
         self.features = torch.empty(
             (self.capacity, n_env, *feature_shape),
@@ -189,13 +183,12 @@ class FrameStackedReplayBuffer:
     def __len__(self):
         return self.idx
 
-    def add(self, obs, latent, feature, action, reward, next_obs, done):
+    def add(self, obs, feature, action, reward, next_obs, done):
         if self.idx + 1 == self.capacity:
             self.full = True
             self.idx = 0
 
         self.obses[self.idx] = obs
-        self.latents[self.idx] = latent
         self.features[self.idx] = feature
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
@@ -225,7 +218,6 @@ class FrameStackedReplayBuffer:
 
         obses = self.obses[idx1, idx2]  # [B, F] <-- [N, NE, F]
         stacked_obs = self.stackObj(self.obses, idx1, idx2)  # [B, F, S]
-        latents = self.latents[idx1, idx2]  # [B, F] <-- [N, NE, F]
         features = self.features[idx1, idx2]
         actions = self.actions[idx1, idx2]
         stacked_act = self.stackObj(self.actions, idx1, idx2)  # [B, F, S]
@@ -236,7 +228,6 @@ class FrameStackedReplayBuffer:
         return {
             "obs": obses,
             "stacked_obs": stacked_obs,
-            "latent": latents,
             "feature": features,
             "action": actions,
             "stacked_act": stacked_act,

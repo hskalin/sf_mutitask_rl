@@ -8,10 +8,15 @@ import torch.nn.functional as F
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
-from common.policy import MultiheadGaussianPolicy
+from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
+    AverageMeter,
+    check_act,
+    check_obs,
+    dump_cfg,
     grad_false,
     hard_update,
+    np2ts,
     pile_sa_pairs,
     soft_update,
     update_params,
@@ -23,20 +28,22 @@ import wandb
 
 
 class ENVEncoderBuilder(nn.Module):
-    def __init__(self, in_dim, hidden_dim) -> None:
+    def __init__(self, in_dim, out_dim, hidden_dim) -> None:
         super().__init__()
 
         self.l1 = nn.Linear(in_dim, hidden_dim)
-        self.l2 = nn.Linear(hidden_dim, hidden_dim)
-        self.l3 = nn.Linear(hidden_dim, in_dim)
+        self.l2 = nn.Linear(in_dim + hidden_dim, hidden_dim)
+        self.l3 = nn.Linear(in_dim + hidden_dim, out_dim)
 
-        self.ln1 = nn.LayerNorm(hidden_dim)
-        self.ln2 = nn.LayerNorm(hidden_dim)
-        self.ln3 = nn.LayerNorm(hidden_dim)
+        self.ln1 = nn.LayerNorm(in_dim)
+        self.ln2 = nn.LayerNorm(in_dim + hidden_dim)
+        self.ln3 = nn.LayerNorm(in_dim + hidden_dim)
+
+        self.apply(weights_init_)
 
     def forward(self, xu):
         x = self.ln1(xu)
-        x = F.relu(self.l1(xu))
+        x = F.relu(self.l1(x))
         x = torch.cat([x, xu], dim=1)
 
         x = self.ln2(x)
@@ -50,7 +57,11 @@ class ENVEncoderBuilder(nn.Module):
 
 class ENVEncoder(nn.Module):
     def __init__(self, in_dim, out_dim, hidden_dim) -> None:
-        self.model = torch.jit.trace(ENVEncoderBuilder(in_dim, out_dim, hidden_dim))
+        super().__init__()
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(in_dim, out_dim, hidden_dim),
+            example_inputs=torch.rand(1, in_dim),
+        )
 
     def forward(self, x):
         return self.model(x)
@@ -89,7 +100,7 @@ class FIFOBuffer:
         self.traj_dim = traj_dim
         self.stack_size = stack_size
         self.device = device
-        self.buf = torch.empty(stack_size, n_env, traj_dim).to(device)
+        self.buf = torch.zeros(stack_size, n_env, traj_dim).to(device)
 
     def add(self, data):
         self.buf = torch.cat([self.buf[1:], data[None, ...]])
@@ -100,7 +111,7 @@ class FIFOBuffer:
         return buf
 
     def clear(self):
-        self.buf = torch.empty(self.stack_size, self.n_env, self.traj_dim).to(
+        self.buf = torch.zeros(self.stack_size, self.n_env, self.traj_dim).to(
             self.device
         )
 
@@ -132,15 +143,17 @@ class RMACompAgent(MultitaskAgent):
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
-        self.env_latent_dim = self.env.latent_dim
-        self.env_latent_idx = self.env.latent_idx
+        self.env_latent_dim = self.env.num_latent
+        self.observation_dim -= self.env_latent_dim
+        self.env_latent_idx = self.observation_dim + 1
 
         # rma
         # [phase1: train. phase2: train adaptation module. phase3: deploy]
         self.phase = 1
-        self.rma = self.agent_cfg.get("rma", False)
+        self.rma = self.agent_cfg["rma"]
+
         if self.rma:
-            self.episodes_phase2 = self.env_cfg["episodes_phase2"]
+            self.episodes_phase2 = self.agent_cfg["episodes_phase2"]
             self.phase2_timesteps = (
                 self.n_env * self.episode_max_step * self.episodes_phase2
             )
@@ -191,6 +204,7 @@ class RMACompAgent(MultitaskAgent):
             out_dim=self.latent_dim,
             stack_size=self.stack_size - 1,
         ).to(self.device)
+        self.adaptor_loss = nn.MSELoss()
 
         self.sf_optimizer = Adam(
             [
@@ -242,20 +256,21 @@ class RMACompAgent(MultitaskAgent):
         if self.entropy_tuning:
             self._create_entropy_tuner()
         else:
-            self.alpha = torch.tensor(self.agent_cfg["alpha"]).to(self.device)
+            self.alpha = torch.tensor(self.agent_cfg["alpha"], device=self.device)
 
         # init params
         self.learn_steps = 0
-        self.prev_a = torch.empty(self.n_env, self.action_dim)
+        self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj = FIFOBuffer(
             n_env=self.n_env,
             traj_dim=self.observation_dim + self.action_dim,
             stack_size=self.stack_size,
+            device=self.device,
         )
 
     def run(self):
-        while self.phase == 1:
-            print(f"============= start phase {self.phase} =============")
+        print(f"============= start phase {self.phase} =============")
+        while True:
             self.train_episode()
 
             if self.eval and (self.episodes % self.eval_interval == 0):
@@ -268,13 +283,14 @@ class RMACompAgent(MultitaskAgent):
 
         if self.rma:
             self.phase = 2
+
             grad_false(self.sf)
             grad_false(self.sf_target)
             grad_false(self.policy)
             grad_false(self.encoder)
 
-            while self.phase == 2:
-                print(f"============= start phase {self.phase} =============")
+            print(f"============= start phase {self.phase} =============")
+            while True:
                 self.train_episode()
 
                 if self.eval and (self.episodes % self.eval_interval == 0):
@@ -282,22 +298,21 @@ class RMACompAgent(MultitaskAgent):
                     if self.save_model:
                         self.save_torch_model()
 
-                self.steps = 0
-                if self.steps > self.phase2_timesteps:
+                if self.steps > self.total_timesteps + self.phase2_timesteps:
                     break
 
-        self.phase = 3
         print(f"============= finish =============")
 
+    def act(self, s, task, mode="explore"):
+        s = check_obs(s, self.observation_dim + self.env_latent_dim)
+
+        a = self._act(s, task, mode)
+
+        a = check_act(a, self.action_dim)
+        return a
+
     def explore(self, s, w, id):
-        s_raw, e = self.parse_state(s)
-
-        if self.phase == 1:
-            z = self.encoder(e)
-        else:
-            z = self.adaptor(self.prev_traj.get())
-
-        s = torch.concat([s_raw, z, self.prev_a], dim=1)
+        s, s_raw = self.prepare_state(s)
 
         # [N, A] <-- [N, S+Z+A], [N, F]
         a = self.comp.act(s, w, id, "explore", self.explore_method)
@@ -308,6 +323,17 @@ class RMACompAgent(MultitaskAgent):
         return a
 
     def exploit(self, s, w, id):
+        s, s_raw = self.prepare_state(s)
+
+        # [N, A] <-- [N, S+Z+A], [N, F]
+        a = self.comp.act(s, w, id, "exploit", self.exploit_method)
+
+        self.prev_a = a
+        if self.phase is not 1:
+            self.prev_traj.add(torch.concat([s_raw, a], dim=1))
+        return a
+
+    def prepare_state(self, s):
         s_raw, e = self.parse_state(s)
 
         if self.phase == 1:
@@ -316,26 +342,19 @@ class RMACompAgent(MultitaskAgent):
             z = self.adaptor(self.prev_traj.get())
 
         s = torch.concat([s_raw, z, self.prev_a], dim=1)
-
-        # [N, A] <-- [N, S+Z+A], [N, F]
-        a = self.comp.act(s, w, id, "exploit", self.exploit_method)
-
-        self.prev_a = a
-        if self.phase is not 1:
-            self.prev_traj.add(torch.concat([s_raw, a], dim=1))
-        return a  # [N, A]
+        return s, s_raw  # [N, A]
 
     def parse_state(self, s):
-        if s.shape[1] > self.env_latent_idx:
+        if s.shape[1] >= self.env_latent_idx:
             # [N, S], [N,E]
-            s, e = s[:, : self.env_latent_idx], s[:, self.env_latent_idx :]
+            s, e = s[:, : self.env_latent_idx - 1], s[:, self.env_latent_idx - 1 :]
         else:
             e = None
         return s, e
 
     def reset_env(self):
         self.comp.reset()
-        self.prev_a = torch.empty(self.n_env, self.action_dim)
+        self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj.clear()
         return super().reset_env()
 
@@ -524,8 +543,7 @@ class RMACompAgent(MultitaskAgent):
         z = self.encoder(e)
         z_head = self.adaptor(prev_traj)
 
-        adaptor_loss = torch.nn.MSELoss(z_head, z)
-
+        adaptor_loss = self.adaptor_loss(z_head, z)
         update_params(
             self.adaptor_optimizer, self.adaptor, adaptor_loss, self.grad_clip
         )

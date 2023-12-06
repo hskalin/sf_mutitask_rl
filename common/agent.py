@@ -157,8 +157,10 @@ class IsaacAgent(AbstractAgent):
         return episode_r, episode_steps
 
     def step(self, episode_steps, s):
+        assert not torch.isnan(s).any(), "detect anomaly state"
+
         a = self.act(s, self.task.Train)
-        assert not torch.isinf(a).any(), "detect action infinity"
+        assert not torch.isnan(a).any(), "detect anomaly action"
 
         self.env.step(a)
         done = self.env.reset_buf.clone()
@@ -166,7 +168,7 @@ class IsaacAgent(AbstractAgent):
         self.env.reset()
 
         r = self.calc_reward(s_next, self.task.Train.W)
-        assert not torch.isinf(r).any(), "detect reward infinity"
+        assert not torch.isnan(r).any(), "detect anomaly reward"
 
         masked_done = False if episode_steps >= self.episode_max_step else done
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
