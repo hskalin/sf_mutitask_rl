@@ -19,7 +19,7 @@ log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 
 task:
-  verbose: True
+  verbose: False
 
   rand_task:      True
   rand_vel_targets:  True

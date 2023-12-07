@@ -22,7 +22,7 @@ class PointMass2DRand(VecEnv):
 
         # randomized parameters
         self.num_latent = 1
-        self.num_obs = 4 + 1 + self.num_latent
+        self.num_obs += self.num_latent
 
         super().__init__(cfg=cfg)
 

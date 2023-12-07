@@ -25,10 +25,10 @@ def launch_rlg_hydra(cfg: DictConfig):
     else:
         wandb.init(mode="disabled")
 
-    print(wandb.config, "\n\n")
+    # print(wandb.config, "\n\n")
     wandb_dict = fix_wandb(wandb.config)
 
-    print_dict(wandb_dict)
+    # print_dict(wandb_dict)
     update_dict(cfg_dict, wandb_dict)
 
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
@@ -43,10 +43,10 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = PPOHagent(cfg=cfg)
     elif "ppo" in cfg_dict["agent"]["name"].lower():
         agent = PPO_agent(cfg=cfg)
-    elif "rmacomp" in cfg_dict["agent"]["name"].lower():
-        agent = RMACompAgent(cfg_dict)
-    else:
+    elif "composition" in cfg_dict["agent"]["name"].lower():
         agent = CompositionAgent(cfg_dict)
+    else:
+        agent = RMACompAgent(cfg_dict)
 
     agent.run()
     wandb.finish()

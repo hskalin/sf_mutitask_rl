@@ -46,7 +46,9 @@ class TaskObject:
         else:
             id = self.sample_taskID(self.taskRatio)
 
-            assert len(self.taskSet) <= len(id), f"num envs {len(id)} is less than num taskSet {len(self.taskSet)}"
+            assert len(self.taskSet) <= len(
+                id
+            ), f"num envs {len(id)} is less than num taskSet {len(self.taskSet)}"
 
             # ensure that all task are in id
             for i in range(len(self.taskSet)):
@@ -138,7 +140,7 @@ class SmartTask:
                 print("[Task] Train.taskRatio: ", self.Train.taskRatio)
                 print("[Task] Train Task Counts: ", torch.bincount(self.Train.id))
                 print("[Task] Eval.W[0]: ", self.Eval.W[0])
-                print("[Task] Train.taskRatio: ", self.Eval.taskRatio)
+                print("[Task] Eval.taskRatio: ", self.Eval.taskRatio)
                 print("[Task] Eval Task Counts: ", torch.bincount(self.Eval.id))
                 print("\n")
 
@@ -190,6 +192,7 @@ class PointerTask(SmartTask):
         w_angvel_norm = c[4] * [w[4]]
         return w_px + w_py + w_vel_norm + w_ang_norm + w_angvel_norm
 
+
 class AntTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
         super().__init__(env_cfg, device)
@@ -200,7 +203,6 @@ class AntTask(SmartTask):
         w_alive = c[2] * [w[2]]
 
         return w_px + w_py + w_alive
-        
 
 
 def task_constructor(env_cfg, device):

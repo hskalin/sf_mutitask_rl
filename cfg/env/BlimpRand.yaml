@@ -39,7 +39,7 @@
 #   4: 'rud_top' (Rotation)
 
 
-env_name: "Blimp"
+env_name: "BlimpRand"
 num_envs: 1024
 
 goal_lim: 20

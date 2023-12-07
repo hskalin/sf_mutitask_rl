@@ -1,67 +1,88 @@
-from isaacgym import gymapi
-from isaacgym import gymtorch
+import math
+import sys
+
+import torch
+from common.torch_jit_utils import *
+from env.base.vec_env import VecEnv
+from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 
 from .base.vec_env import VecEnv
 
-from common.torch_jit_utils import *
-import sys
 
-import torch
-import math
-
-
-class Blimp(VecEnv):
+class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
         self.num_obs = 21  #
-        self.num_act = 4  # 
+        self.num_act = 4  #
         self.reset_dist = 10.0  # when to reset
 
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
+        # domain randomization
+        self.num_latent = 1
+        self.num_obs += self.num_latent
+
+        super().__init__(cfg=cfg)
+
         # blimp parameters
         # smoothning factor for fan thrusts
         self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
-        self.drag_bodies = torch.tensor(cfg["blimp"]["drag_body_idxs"], device=self.device)
-        self.body_areas = torch.tensor(cfg["blimp"]["areas"], device=self.device)
-        self.drag_coefs = torch.tensor(cfg["blimp"]["drag_coef"], device=self.device)
+        self.drag_bodies = torch.tensor(
+            cfg["blimp"]["drag_body_idxs"], device=self.sim_device
+        )
+        self.body_areas = torch.tensor(cfg["blimp"]["areas"], device=self.sim_device)
+        self.drag_coefs = torch.tensor(
+            cfg["blimp"]["drag_coef"], device=self.sim_device
+        )
         self.blimp_mass = cfg["blimp"]["mass"]
-
-        super().__init__(cfg=cfg)
 
         # task specific buffers
         # the goal position and rotation are not randomized, instead
         # the spawning pos and rot of the blimp is, since the network gets relative
         # values, these are functionally the same
         self.goal_pos = torch.tile(
-            torch.tensor(cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32),
-            (self.num_envs, 1),)
+            torch.tensor(
+                cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
         self.goal_pos[..., 2] = self.spawn_height
 
         self.goal_rot = torch.tile(
-            torch.tensor(cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32),
-            (self.num_envs, 1),)
+            torch.tensor(
+                cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
         self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
 
         self.goal_lvel = torch.tile(
-            torch.tensor(cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32),
-            (self.num_envs, 1),)
+            torch.tensor(
+                cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
+            ),
+            (self.num_envs, 1),
+        )
         self.goal_lvel[..., 2] = 0.0  # set vz zero
 
         self.goal_avel = torch.tile(
-            torch.tensor(cfg["task"]["target_angvel"], device=self.sim_device, dtype=torch.float32,),
-            (self.num_envs, 1),)
+            torch.tensor(
+                cfg["task"]["target_angvel"],
+                device=self.sim_device,
+                dtype=torch.float32,
+            ),
+            (self.num_envs, 1),
+        )
         self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # wind
-        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.device)
+        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
         self.wind_mag = cfg["aero"]["wind_mag"]
         self.wind_std = cfg["aero"]["wind_std"]
-        self.wind_mean = torch.zeros((self.num_envs,3), device=self.device)
+        self.wind_mean = torch.zeros((self.num_envs, 3), device=self.sim_device)
 
         # blimp
-        self.bouyancy = torch.zeros(self.num_envs, device=self.device)
+        self.bouyancy = torch.zeros(self.num_envs, device=self.sim_device)
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -85,13 +106,22 @@ class Blimp(VecEnv):
         self.rb_avels = self.rb_states[:, 10:13].view(self.num_envs, self.num_bodies, 3)
 
         # storing tensors for visualisations
-        self.actions_tensor = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.sim_device,
-            dtype=torch.float,)
+        self.actions_tensor = torch.zeros(
+            (self.num_envs, self.num_bodies, 3),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
 
-        self.actions_tensor_prev = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.sim_device,
-            dtype=torch.float,)
-        self.torques_tensor = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.sim_device,
-            dtype=torch.float,)
+        self.actions_tensor_prev = torch.zeros(
+            (self.num_envs, self.num_bodies, 3),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
+        self.torques_tensor = torch.zeros(
+            (self.num_envs, self.num_bodies, 3),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
 
         # step simulation to initialise tensor buffers
         self.reset()
@@ -237,7 +267,9 @@ class Blimp(VecEnv):
 
         # thrust
         self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
-       
+
+        self.obs_buf[env_ids, 21] = self.ema_smooth
+
     def get_reward(self):
         # retrieve environment observations from buffer
         x = self.obs_buf[:, 7]
@@ -271,30 +303,59 @@ class Blimp(VecEnv):
             return
 
         # randomise initial positions and velocities
-        positions = (2*(torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device) - 0.5
-            )*self.goal_lim)
+        positions = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 3), device=self.sim_device)
+                - 0.5
+            )
+            * self.goal_lim
+        )
         positions[:, :, 2] += self.spawn_height
 
-        velocities = (2*(torch.rand((len(env_ids), self.num_bodies, 6), device=self.sim_device) - 0.5
-            )*self.vel_lim)
+        velocities = (
+            2
+            * (
+                torch.rand((len(env_ids), self.num_bodies, 6), device=self.sim_device)
+                - 0.5
+            )
+            * self.vel_lim
+        )
         velocities[..., 2:5] = 0
 
-        rotations = 2 * ((torch.rand((len(env_ids), 4), device=self.sim_device) - 0.5) * math.pi)
+        rotations = 2 * (
+            (torch.rand((len(env_ids), 4), device=self.sim_device) - 0.5) * math.pi
+        )
         rotations[..., 0:2] = 0
 
         self.goal_rot[env_ids, 2] = rotations[:, 3]
 
         # randomize wind
-        self.wind_mean[env_ids] = self.wind_mag*(2*torch.rand((len(env_ids),3), device=self.device)*self.wind_dirs - self.wind_dirs)
+        self.wind_mean[env_ids] = self.wind_mag * (
+            2 * torch.rand((len(env_ids), 3), device=self.sim_device) * self.wind_dirs
+            - self.wind_dirs
+        )
 
         # randomize bouyancy
-        self.bouyancy[env_ids] = torch.normal(-self.sim_params.gravity.z*self.blimp_mass, std=0.3, 
-                                        size=(len(env_ids),), device=self.device)
+        self.bouyancy[env_ids] = torch.normal(
+            -self.sim_params.gravity.z * self.blimp_mass,
+            std=0.3,
+            size=(len(env_ids),),
+            device=self.sim_device,
+        )
 
         if self.train and self.rand_vel_targets:
-            self.goal_lvel[env_ids, :] = (2*(torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)*self.goal_vel_lim)
+            self.goal_lvel[env_ids, :] = (
+                2
+                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+                * self.goal_vel_lim
+            )
 
-            self.goal_avel[env_ids, :] = (2*(torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)*self.goal_vel_lim)
+            self.goal_avel[env_ids, :] = (
+                2
+                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+                * self.goal_vel_lim
+            )
 
         # set random pos, rot, vels
         self.rb_pos[env_ids, :] = positions[:]
@@ -337,23 +398,37 @@ class Blimp(VecEnv):
         self.actions_tensor[:, 4, 2] = 5 * (actions[:, 0] + 1) / 2
         self.actions_tensor[:, 7, 1] = 2 * actions[:, 1]
 
-        self.actions_tensor[:] = simulate_boyancy(self.rb_rot, self.bouyancy, self.actions_tensor)
+        self.actions_tensor[:] = simulate_boyancy(
+            self.rb_rot, self.bouyancy, self.actions_tensor
+        )
 
-        self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(self.rb_rot, self.rb_avels, self.rb_lvels, 
-                                                                               self.wind_mean, self.wind_std, self.drag_bodies, 
-                                                                               self.body_areas, self.drag_coefs, self.torques_tensor, self.actions_tensor)
+        self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(
+            self.rb_rot,
+            self.rb_avels,
+            self.rb_lvels,
+            self.wind_mean,
+            self.wind_std,
+            self.drag_bodies,
+            self.body_areas,
+            self.drag_coefs,
+            self.torques_tensor,
+            self.actions_tensor,
+        )
 
         # EMA smoothing thrusts
-        self.actions_tensor[:,[3,4,7],:] =  self.actions_tensor[:,[3,4,7],:]*self.ema_smooth + \
-                                            self.actions_tensor_prev[:,[3,4,7],:]*(1-self.ema_smooth)
-        self.actions_tensor_prev[:,[3,4,7],:] = self.actions_tensor[:,[3,4,7],:]
-        
-        dof_targets = torch.zeros((self.num_envs, 5), device=self.device)
+        self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
+            :, [3, 4, 7], :
+        ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
+            1 - self.ema_smooth
+        )
+        self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
 
-        dof_targets[:, 0] =  2.0 * actions[:, 2]
-        dof_targets[:, 1] =  0.5 * actions[:, 1]
+        dof_targets = torch.zeros((self.num_envs, 5), device=self.sim_device)
+
+        dof_targets[:, 0] = 2.0 * actions[:, 2]
+        dof_targets[:, 1] = 0.5 * actions[:, 1]
         dof_targets[:, 4] = -0.5 * actions[:, 1]
-        dof_targets[:, 2] =  0.5 * actions[:, 3]
+        dof_targets[:, 2] = 0.5 * actions[:, 3]
         dof_targets[:, 3] = -0.5 * actions[:, 3]
 
         # unwrap tensors
@@ -363,7 +438,8 @@ class Blimp(VecEnv):
 
         # apply actions
         self.gym.apply_rigid_body_force_tensors(
-            self.sim, forces, torques, gymapi.LOCAL_SPACE)
+            self.sim, forces, torques, gymapi.LOCAL_SPACE
+        )
         self.gym.set_dof_position_target_tensor(self.sim, dof_targets)
 
         # simulate and render
@@ -521,6 +597,7 @@ class Blimp(VecEnv):
 ###=========================jit functions=========================###
 #####################################################################
 
+
 @torch.jit.script
 def simulate_boyancy(rb_rot, bouyancy, actions_tensor):
     # type: (Tensor, Tensor, Tensor) -> Tensor
@@ -539,8 +616,20 @@ def simulate_boyancy(rb_rot, bouyancy, actions_tensor):
 
     return actions_tensor
 
-@torch.jit.script 
-def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_bodies, body_areas, drag_coefs, torques_tensor, actions_tensor):
+
+@torch.jit.script
+def simulate_aerodynamics(
+    rb_rot,
+    rb_avels,
+    rb_lvels,
+    wind_mean,
+    wind_std,
+    drag_bodies,
+    body_areas,
+    drag_coefs,
+    torques_tensor,
+    actions_tensor,
+):
     # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     coef = 0.47
     p = 1.29
@@ -558,7 +647,7 @@ def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_
     torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
     torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
 
-    # sample wind 
+    # sample wind
     wind = torch.normal(mean=wind_mean, std=wind_std)
 
     r, p, y = get_euler_xyz_multi(rb_rot[:, drag_bodies, :])
@@ -566,14 +655,20 @@ def simulate_aerodynamics(rb_rot, rb_avels, rb_lvels, wind_mean, wind_std, drag_
         r,
         p,
         y,
-        rb_lvels[:, drag_bodies, 0] + wind[:,0:1],
-        rb_lvels[:, drag_bodies, 1] + wind[:,1:2],
-        rb_lvels[:, drag_bodies, 2] + wind[:,2:3],
+        rb_lvels[:, drag_bodies, 0] + wind[:, 0:1],
+        rb_lvels[:, drag_bodies, 1] + wind[:, 1:2],
+        rb_lvels[:, drag_bodies, 2] + wind[:, 2:3],
     )
     # area = body_areas[i]
-    actions_tensor[:, drag_bodies, 0] += - drag_coefs[:,0] * body_areas[:, 0] * a * torch.abs(a)
-    actions_tensor[:, drag_bodies, 1] += - drag_coefs[:,1] * body_areas[:, 1] * b * torch.abs(b)
-    actions_tensor[:, drag_bodies, 2] += - drag_coefs[:,2] * body_areas[:, 2] * c * torch.abs(c)
+    actions_tensor[:, drag_bodies, 0] += (
+        -drag_coefs[:, 0] * body_areas[:, 0] * a * torch.abs(a)
+    )
+    actions_tensor[:, drag_bodies, 1] += (
+        -drag_coefs[:, 1] * body_areas[:, 1] * b * torch.abs(b)
+    )
+    actions_tensor[:, drag_bodies, 2] += (
+        -drag_coefs[:, 2] * body_areas[:, 2] * c * torch.abs(c)
+    )
 
     return actions_tensor, torques_tensor
 
@@ -593,9 +688,9 @@ def compute_point_reward(
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor,Tensor, Tensor,float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
 
-    sqr_dist = (x_pos)**2 + (y_pos)**2 + (z_pos) ** 2
+    sqr_dist = (x_pos) ** 2 + (y_pos) ** 2 + (z_pos) ** 2
 
-    prox_x_rew_gauss = (torch.exp(-0.01 * sqr_dist) + torch.exp(-0.4 * sqr_dist))/2
+    prox_x_rew_gauss = (torch.exp(-0.01 * sqr_dist) + torch.exp(-0.4 * sqr_dist)) / 2
     # prox_x_rew = torch.where(sqr_dist > 2**2, prox_x_rew_gauss, 1)
 
     reward = prox_x_rew_gauss

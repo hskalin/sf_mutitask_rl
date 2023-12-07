@@ -145,11 +145,10 @@ class RMACompAgent(MultitaskAgent):
         self.observation_dim -= self.env_latent_dim
         self.env_latent_idx = self.observation_dim + 1
 
-        # rma
+        # rma: train a adaptor module for sim-to-real
         # [phase1: train. phase2: train adaptation module. phase3: deploy]
-        self.phase = 1
         self.rma = self.agent_cfg["rma"]
-
+        self.phase = 1
         self.episodes_phase2 = self.agent_cfg["episodes_phase2"]
         self.phase2_timesteps = (
             self.n_env * self.episode_max_step * self.episodes_phase2
@@ -431,7 +430,6 @@ class RMACompAgent(MultitaskAgent):
                 "loss/adaptor": adaptor_loss,
                 "state/lr_adaptor": self.adaptor_optimizer.param_groups[0]["lr"],
             }
-
             wandb.log(metrics)
 
     def update_sf(self, batch):

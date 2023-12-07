@@ -18,7 +18,7 @@ parameters:
   agent.explore_method:
     values: ["null"]
   agent.exploit_method:
-    values: ["sfgpi", "dacgpi"]
+    values: ["sfgpi"]
   agent.rma:
     values: [True]
   agent.lr_schedule:
@@ -53,4 +53,4 @@ command:
   - python
   - ${program}
   - agent=RMACOMP
-  - env=PointMass2DRand
+  - env=Pointer2DRand

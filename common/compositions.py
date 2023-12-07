@@ -69,6 +69,7 @@ class Compositions:
 
     def null_comp(self, s, id):
         acts, _, _ = self.forward_policy(s)  # [N, H, A]  <-- [N, S]
+
         a = torch.masked_select(acts, self.mask_nullcomp[id])
         return a.view(-1, acts.shape[2])
 
