@@ -227,7 +227,7 @@ class Compositions:
 
     def reset(self):
         self.prev_impact = torch.zeros(
-            (self.n_env, self.n_heads, self.action_dim), device=self.device
+            (self.n_env, self.feature_dim, self.action_dim), device=self.device
         )
         self.impact_x_idx = []  # record primitive impact on x-axis
         self.policy_idx = []  # record primitive summon frequency

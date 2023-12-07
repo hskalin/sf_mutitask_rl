@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import isaacgym
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,13 +9,10 @@ from common.compositions import Compositions
 from common.feature_extractor import TCN
 from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
-    AverageMeter,
     check_act,
     check_obs,
-    dump_cfg,
     grad_false,
     hard_update,
-    np2ts,
     pile_sa_pairs,
     soft_update,
     update_params,
@@ -119,6 +115,7 @@ class FIFOBuffer:
 class RMACompAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
+
         self.framestacked_replay = self.buffer_cfg["framestacked_replay"]
         self.stack_size = self.buffer_cfg["stack_size"]
         assert (
@@ -127,6 +124,7 @@ class RMACompAgent(MultitaskAgent):
 
         self.lr = self.agent_cfg["lr"]
         self.policy_lr = self.agent_cfg["policy_lr"]
+        self.adaptor_lr = self.agent_cfg["adaptor_lr"]
         self.lr_schedule = self.agent_cfg["lr_schedule"]
         self.sf_net_kwargs = self.agent_cfg["sf_net_kwargs"]
         self.policy_net_kwargs = self.agent_cfg["policy_net_kwargs"]
@@ -152,11 +150,10 @@ class RMACompAgent(MultitaskAgent):
         self.phase = 1
         self.rma = self.agent_cfg["rma"]
 
-        if self.rma:
-            self.episodes_phase2 = self.agent_cfg["episodes_phase2"]
-            self.phase2_timesteps = (
-                self.n_env * self.episode_max_step * self.episodes_phase2
-            )
+        self.episodes_phase2 = self.agent_cfg["episodes_phase2"]
+        self.phase2_timesteps = (
+            self.n_env * self.episode_max_step * self.episodes_phase2
+        )
 
         # define primitive tasks
         self.augment_heads = self.agent_cfg.get("augment_heads", False)
@@ -223,7 +220,7 @@ class RMACompAgent(MultitaskAgent):
             betas=[0.9, 0.999],
         )
         self.adaptor_optimizer = Adam(
-            self.adaptor.parameters(), lr=self.lr, betas=[0.9, 0.999]
+            self.adaptor.parameters(), lr=self.adaptor_lr, betas=[0.9, 0.999]
         )
 
         if self.lr_schedule:
@@ -238,6 +235,12 @@ class RMACompAgent(MultitaskAgent):
                 start_factor=1,
                 end_factor=0.1,
                 total_iters=self.episode_max_step * self.total_episodes,
+            )
+            self.lrScheduler_adaptor = torch.optim.lr_scheduler.LinearLR(
+                self.adaptor_optimizer,
+                start_factor=1,
+                end_factor=0.1,
+                total_iters=self.episode_max_step * self.episodes_phase2,
             )
 
         self.comp = Compositions(
@@ -264,7 +267,7 @@ class RMACompAgent(MultitaskAgent):
         self.prev_traj = FIFOBuffer(
             n_env=self.n_env,
             traj_dim=self.observation_dim + self.action_dim,
-            stack_size=self.stack_size,
+            stack_size=self.stack_size - 1,
             device=self.device,
         )
 
@@ -306,15 +309,17 @@ class RMACompAgent(MultitaskAgent):
     def act(self, s, task, mode="explore"):
         s = check_obs(s, self.observation_dim + self.env_latent_dim)
 
+        # [N, A] <-- [N, S+E]
         a = self._act(s, task, mode)
 
         a = check_act(a, self.action_dim)
         return a
 
     def explore(self, s, w, id):
+        # [N, S+Z+A], [N, S] <-- [N, S+E]
         s, s_raw = self.prepare_state(s)
 
-        # [N, A] <-- [N, S+Z+A], [N, F]
+        # [N, A] <-- [N, S+Z+A]
         a = self.comp.act(s, w, id, "explore", self.explore_method)
 
         self.prev_a = a
@@ -324,8 +329,6 @@ class RMACompAgent(MultitaskAgent):
 
     def exploit(self, s, w, id):
         s, s_raw = self.prepare_state(s)
-
-        # [N, A] <-- [N, S+Z+A], [N, F]
         a = self.comp.act(s, w, id, "exploit", self.exploit_method)
 
         self.prev_a = a
@@ -334,18 +337,19 @@ class RMACompAgent(MultitaskAgent):
         return a
 
     def prepare_state(self, s):
-        s_raw, e = self.parse_state(s)
+        s_raw, e = self.parse_state(s)  # [N, S], [N,E]
 
         if self.phase == 1:
-            z = self.encoder(e)
+            z = self.encoder(e)  # [N, Z] <-- [N, E]
         else:
-            z = self.adaptor(self.prev_traj.get())
+            z = self.adaptor(self.prev_traj.get())  # [N, Z] <-- [N, S+A, K-1]
 
         s = torch.concat([s_raw, z, self.prev_a], dim=1)
-        return s, s_raw  # [N, A]
+        return s, s_raw  # [N, S+Z+A], [N, S]
 
     def parse_state(self, s):
         if s.shape[1] >= self.env_latent_idx:
+            # parse state and env_latent if env_latent is included in the observation
             # [N, S], [N,E]
             s, e = s[:, : self.env_latent_idx - 1], s[:, self.env_latent_idx - 1 :]
         else:
@@ -357,25 +361,6 @@ class RMACompAgent(MultitaskAgent):
         self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj.clear()
         return super().reset_env()
-
-    def add_task(self, w):
-        w = w.view(-1, self.feature_dim)
-        ntask = w.shape[0]
-
-        # update submodules
-        self.task.add_task(w)
-        self.sf.add_head(ntask)
-        self.sf_target.add_head(ntask)
-        self.policy.add_head(ntask)
-        self.comp.add_head(ntask)
-
-        # update module
-        self.n_heads += ntask
-        self.w_primitive = self.task.Train.taskSet
-        self._create_sf_mask()
-
-        if self.entropy_tuning:
-            self._create_entropy_tuner()
 
     def learn(self):
         if self.phase == 1:
@@ -414,23 +399,9 @@ class RMACompAgent(MultitaskAgent):
                 "state/target_sf": target_sf,
                 "state/entropy": entropies.detach().mean().item(),
                 "state/policy_idx": wandb.Histogram(self.comp.policy_idx),
+                "state/lr_sf": self.sf_optimizer.param_groups[0]["lr"],
+                "state/lr_policy": self.policy_optimizer.param_groups[0]["lr"],
             }
-
-            if self.lr_schedule:
-                metrics.update(
-                    {
-                        "state/lr_sf": self.sf_optimizer.param_groups[0]["lr"],
-                        "state/lr_policy": self.policy_optimizer.param_groups[0]["lr"],
-                    }
-                )
-            else:
-                metrics.update(
-                    {
-                        "state/lr_sf": self.lr,
-                        "state/lr_policy": self.policy_lr,
-                    }
-                )
-
             if self.comp.record_impact:
                 metrics.update(
                     {
@@ -445,15 +416,22 @@ class RMACompAgent(MultitaskAgent):
                         "state/alpha": self.alpha.mean().detach().item(),
                     }
                 )
-
             wandb.log(metrics)
 
     def learn_phase2(self):
         self.learn_steps += 1
         batch = self.replay_buffer.sample(self.mini_batch_size)
         adaptor_loss = self.update_adaptor(batch)
+
+        if self.lr_schedule:
+            self.lrScheduler_adaptor.step()
+
         if self.learn_steps % self.log_interval == 0:
-            metrics = {"loss/adaptor": adaptor_loss}
+            metrics = {
+                "loss/adaptor": adaptor_loss,
+                "state/lr_adaptor": self.adaptor_optimizer.param_groups[0]["lr"],
+            }
+
             wandb.log(metrics)
 
     def update_sf(self, batch):
@@ -631,6 +609,25 @@ class RMACompAgent(MultitaskAgent):
         # [NH, H, F]
         self.mask = self.mask.repeat(self.mini_batch_size, 1, self.feature_dim)
         self.mask = self.mask.bool()
+
+    def add_task(self, w):
+        w = w.view(-1, self.feature_dim)
+        ntask = w.shape[0]
+
+        # update submodules
+        self.task.add_task(w)
+        self.sf.add_head(ntask)
+        self.sf_target.add_head(ntask)
+        self.policy.add_head(ntask)
+        self.comp.add_head(ntask)
+
+        # update module
+        self.n_heads += ntask
+        self.w_primitive = self.task.Train.taskSet
+        self._create_sf_mask()
+
+        if self.entropy_tuning:
+            self._create_entropy_tuner()
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"

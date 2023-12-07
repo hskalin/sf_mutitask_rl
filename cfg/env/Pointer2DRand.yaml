@@ -1,5 +1,5 @@
 env_name: "Pointer2DRand"
-num_envs: 1
+num_envs: 1024
 
 goal_lim: 10
 goal_vel_lim: 5

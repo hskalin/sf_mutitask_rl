@@ -43,7 +43,7 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = PPOHagent(cfg=cfg)
     elif "ppo" in cfg_dict["agent"]["name"].lower():
         agent = PPO_agent(cfg=cfg)
-    elif "rma" in cfg_dict["agent"]["name"].lower():
+    elif "rmacomp" in cfg_dict["agent"]["name"].lower():
         agent = RMACompAgent(cfg_dict)
     else:
         agent = CompositionAgent(cfg_dict)

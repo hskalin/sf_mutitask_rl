@@ -265,6 +265,9 @@ class IsaacAgent(AbstractAgent):
     def exploit(self):
         raise NotImplementedError
 
+    def learn(self):
+        pass
+
     def save_torch_model(self):
         raise NotImplementedError
 

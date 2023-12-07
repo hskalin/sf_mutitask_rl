@@ -146,7 +146,7 @@ class FrameStackedReplayBuffer:
     ):
         self.device = device
         self.batch_size = mini_batch_size
-        self.capacity = int(capacity / n_env)
+        self.capacity = int(capacity // n_env)
 
         self.n_env = int(n_env)
         self.stack_size = stack_size
@@ -177,11 +177,10 @@ class FrameStackedReplayBuffer:
         self.idx = 0
         self.full = False
 
-        self.ra = torch.arange(0, self.stack_size)
-        self.ra = self.ra.to(self.device)
+        self.stack_range = torch.arange(0, self.stack_size, device=self.device)
 
     def __len__(self):
-        return self.idx
+        return self.idx * self.n_env
 
     def add(self, obs, feature, action, reward, next_obs, done):
         if self.idx + 1 == self.capacity:
@@ -217,10 +216,10 @@ class FrameStackedReplayBuffer:
         )
 
         obses = self.obses[idx1, idx2]  # [B, F] <-- [N, NE, F]
-        stacked_obs = self.stackObj(self.obses, idx1, idx2)  # [B, F, S]
+        stacked_obs = self.stack_data(self.obses, idx1, idx2)  # [B, F, S]
         features = self.features[idx1, idx2]
         actions = self.actions[idx1, idx2]
-        stacked_act = self.stackObj(self.actions, idx1, idx2)  # [B, F, S]
+        stacked_act = self.stack_data(self.actions, idx1, idx2)  # [B, F, S]
         rewards = self.rewards[idx1, idx2]
         next_obses = self.next_obses[idx1, idx2]
         dones = self.dones[idx1, idx2]
@@ -236,7 +235,7 @@ class FrameStackedReplayBuffer:
             "done": dones,
         }
 
-    def stackObj(self, x, idx1, idx2):
+    def stack_data(self, x, idx1, idx2):
         # [NE, F, N] <-- [N, NE, F]
         stacked_obj = x.permute(1, 2, 0)
 
@@ -246,12 +245,14 @@ class FrameStackedReplayBuffer:
         # [N-H+1, NE, F, S] <-- [NE, F, N-H+1, S]
         stacked_obj = stacked_obj.permute(2, 0, 1, 3)
 
+        # [N-H+1, NE, F, S]
+        stacked_obj = torch.flip(stacked_obj, (3,))  # descending order
+
         # [B, F, S] <-- [N-H+1, NE, F, S]
         stacked_obj = stacked_obj[idx1 - self.stack_size + 1, idx2]
-        stacked_obj = torch.flip(stacked_obj, (2,))  # descending order
 
         # correct by dones
-        ra = self.ra.repeat((idx1.shape[0], 1))  # [B, S]
+        ra = self.stack_range.repeat((idx1.shape[0], 1))  # [B, S]
         ids1 = idx1[:, None] - ra  # [B, S] <-- [B]
         ids2 = idx2[:, None].repeat_interleave(self.stack_size, 1)  # [B, S] <-- [B]
         dones = self.dones[ids1, ids2]  # [B, S, 1] <-- [N, NE, 1]
