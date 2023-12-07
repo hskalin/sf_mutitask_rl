@@ -22,21 +22,21 @@ parameters:
   agent.rma:
     values: [True]
   agent.lr_schedule:
-    values: [False]
+    values: [True, False]
   agent.norm_task_by_sf:
     values: [True, False]
   agent.policy_net_kwargs.resnet:
-    values: [True, False]
+    values: [True]
   agent.policy_net_kwargs.fta:
-    values: [True, False]
+    values: [True]
   agent.policy_net_kwargs.layernorm:
     values: [True]
   agent.sf_net_kwargs.resnet:
-    values: [True]
+    values: [True, False]
   agent.sf_net_kwargs.fta:
-    values: [False]
+    values: [True, False]
   agent.sf_net_kwargs.layernorm:
-    values: [True]
+    values: [True, False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:

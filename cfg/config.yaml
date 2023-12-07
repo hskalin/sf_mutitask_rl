@@ -41,7 +41,7 @@ sigma: ''
 # set to True to use multi-gpu horovod training
 multi_gpu: False
 
-wandb_log: False
+wandb_log: True
 wandb_group: ''
 #wandb_name: ${train.params.config.name}
 wandb_entity: ''

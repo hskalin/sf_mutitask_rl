@@ -39,11 +39,11 @@ class ENVEncoderBuilder(nn.Module):
 
     def forward(self, xu):
         x = self.ln1(xu)
-        x = F.relu(self.l1(x))
+        x = F.selu(self.l1(x))
         x = torch.cat([x, xu], dim=1)
 
         x = self.ln2(x)
-        x = F.relu(self.l2(x))
+        x = F.selu(self.l2(x))
         x = torch.cat([x, xu], dim=1)
 
         x = self.ln3(x)

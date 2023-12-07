@@ -66,49 +66,49 @@ class QNetworkBuilder(BaseNetwork):
     def forward(self, state, action):
         xu = torch.cat([state, action], 1)
 
-        x1 = F.relu(self.l1_1(xu))
-        x2 = F.relu(self.l2_1(xu))
+        x1 = F.selu(self.l1_1(xu))
+        x2 = F.selu(self.l2_1(xu))
         x1 = torch.cat([x1, xu], dim=1)
         x2 = torch.cat([x2, xu], dim=1)
 
-        x1 = F.relu(self.l1_2(x1))
-        x2 = F.relu(self.l2_2(x2))
+        x1 = F.selu(self.l1_2(x1))
+        x2 = F.selu(self.l2_2(x2))
         if not self.num_layers == 2:
             x1 = torch.cat([x1, xu], dim=1)
             x2 = torch.cat([x2, xu], dim=1)
 
         if self.num_layers > 2:
-            x1 = F.relu(self.l1_3(x1))
-            x2 = F.relu(self.l2_3(x2))
+            x1 = F.selu(self.l1_3(x1))
+            x2 = F.selu(self.l2_3(x2))
             x1 = torch.cat([x1, xu], dim=1)
             x2 = torch.cat([x2, xu], dim=1)
 
-            x1 = F.relu(self.l1_4(x1))
-            x2 = F.relu(self.l2_4(x2))
+            x1 = F.selu(self.l1_4(x1))
+            x2 = F.selu(self.l2_4(x2))
             if not self.num_layers == 4:
                 x1 = torch.cat([x1, xu], dim=1)
                 x2 = torch.cat([x2, xu], dim=1)
 
         if self.num_layers > 4:
-            x1 = F.relu(self.l1_5(x1))
-            x2 = F.relu(self.l2_5(x2))
+            x1 = F.selu(self.l1_5(x1))
+            x2 = F.selu(self.l2_5(x2))
             x1 = torch.cat([x1, xu], dim=1)
             x2 = torch.cat([x2, xu], dim=1)
 
-            x1 = F.relu(self.l1_6(x1))
-            x2 = F.relu(self.l2_6(x2))
+            x1 = F.selu(self.l1_6(x1))
+            x2 = F.selu(self.l2_6(x2))
             if not self.num_layers == 6:
                 x1 = torch.cat([x1, xu], dim=1)
                 x2 = torch.cat([x2, xu], dim=1)
 
         if self.num_layers == 8:
-            x1 = F.relu(self.l1_7(x1))
-            x2 = F.relu(self.l2_7(x2))
+            x1 = F.selu(self.l1_7(x1))
+            x2 = F.selu(self.l2_7(x2))
             x1 = torch.cat([x1, xu], dim=1)
             x2 = torch.cat([x2, xu], dim=1)
 
-            x1 = F.relu(self.l1_8(x1))
-            x2 = F.relu(self.l2_8(x2))
+            x1 = F.selu(self.l1_8(x1))
+            x2 = F.selu(self.l2_8(x2))
 
         x1 = self.out1(x1)
         x2 = self.out2(x2)
@@ -223,8 +223,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
     def forward(self, state, action):
         xu = torch.cat([state, action], 1)
 
-        x1 = F.relu(self.l1_1(xu))
-        x2 = F.relu(self.l2_1(xu))
+        x1 = F.selu(self.l1_1(xu))
+        x2 = F.selu(self.l2_1(xu))
 
         x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
         x2 = torch.cat([x2, xu], dim=1) if self.resnet else x2
@@ -232,8 +232,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
         x1 = self.ln1_1(x1) if self.layernorm else x1
         x2 = self.ln2_1(x2) if self.layernorm else x2
 
-        x1 = F.relu(self.l1_2(x1))
-        x2 = F.relu(self.l2_2(x2))
+        x1 = F.selu(self.l1_2(x1))
+        x2 = F.selu(self.l2_2(x2))
 
         if not self.num_layers == 2:
             x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
@@ -243,8 +243,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             x2 = self.ln2_2(x2) if self.layernorm else x2
 
         if self.num_layers > 2:
-            x1 = F.relu(self.l1_3(x1))
-            x2 = F.relu(self.l2_3(x2))
+            x1 = F.selu(self.l1_3(x1))
+            x2 = F.selu(self.l2_3(x2))
 
             x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
             x2 = torch.cat([x2, xu], dim=1) if self.resnet else x2
@@ -252,8 +252,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             x1 = self.ln1_3(x1) if self.layernorm else x1
             x2 = self.ln2_3(x2) if self.layernorm else x2
 
-            x1 = F.relu(self.l1_4(x1))
-            x2 = F.relu(self.l2_4(x2))
+            x1 = F.selu(self.l1_4(x1))
+            x2 = F.selu(self.l2_4(x2))
             if not self.num_layers == 4:
                 x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
                 x2 = torch.cat([x2, xu], dim=1) if self.resnet else x2
@@ -262,8 +262,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
                 x2 = self.ln2_4(x2) if self.layernorm else x2
 
         if self.num_layers > 4:
-            x1 = F.relu(self.l1_5(x1))
-            x2 = F.relu(self.l2_5(x2))
+            x1 = F.selu(self.l1_5(x1))
+            x2 = F.selu(self.l2_5(x2))
 
             x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
             x2 = torch.cat([x2, xu], dim=1) if self.resnet else x2
@@ -271,8 +271,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             x1 = self.ln1_5(x1) if self.layernorm else x1
             x2 = self.ln2_5(x2) if self.layernorm else x2
 
-            x1 = F.relu(self.l1_6(x1))
-            x2 = F.relu(self.l2_6(x2))
+            x1 = F.selu(self.l1_6(x1))
+            x2 = F.selu(self.l2_6(x2))
 
             if not self.num_layers == 6:
                 x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
@@ -282,8 +282,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
                 x2 = self.ln2_6(x2) if self.layernorm else x2
 
         if self.num_layers == 8:
-            x1 = F.relu(self.l1_7(x1))
-            x2 = F.relu(self.l2_7(x2))
+            x1 = F.selu(self.l1_7(x1))
+            x2 = F.selu(self.l2_7(x2))
 
             x1 = torch.cat([x1, xu], dim=1) if self.resnet else x1
             x2 = torch.cat([x2, xu], dim=1) if self.resnet else x2
@@ -291,8 +291,8 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             x1 = self.ln1_7(x1) if self.layernorm else x1
             x2 = self.ln2_7(x2) if self.layernorm else x2
 
-            x1 = F.relu(self.l1_8(x1))
-            x2 = F.relu(self.l2_8(x2))
+            x1 = F.selu(self.l1_8(x1))
+            x2 = F.selu(self.l2_8(x2))
 
         if self.fta:
             x1 = self.ln_l1(x1)
