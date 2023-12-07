@@ -114,7 +114,7 @@ class IsaacAgent(AbstractAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.steps > self.total_timesteps:
+            if self.episodes >= self.total_episodes:
                 break
 
     def train_episode(self, gui_app=None, gui_rew=None):

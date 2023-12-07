@@ -137,6 +137,7 @@ class RMACompAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
+        self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -145,12 +146,12 @@ class RMACompAgent(MultitaskAgent):
         self.observation_dim -= self.env_latent_dim
         self.env_latent_idx = self.observation_dim + 1
 
-        # rma: train a adaptor module for sim-to-real
+        # rma: train an adaptor module for sim-to-real
         # [phase1: train. phase2: train adaptation module. phase3: deploy]
         self.rma = self.agent_cfg["rma"]
         self.phase = 1
-        self.episodes_phase2 = self.agent_cfg["episodes_phase2"]
-        self.phase2_timesteps = (
+        self.episodes_phase2 = int(self.total_episodes // 3)
+        self.timesteps_phase2 = (
             self.n_env * self.episode_max_step * self.episodes_phase2
         )
 
@@ -226,19 +227,19 @@ class RMACompAgent(MultitaskAgent):
             self.lrScheduler_sf = torch.optim.lr_scheduler.LinearLR(
                 self.sf_optimizer,
                 start_factor=1,
-                end_factor=0.1,
+                end_factor=0.2,
                 total_iters=self.episode_max_step * self.total_episodes,
             )
             self.lrScheduler_policy = torch.optim.lr_scheduler.LinearLR(
                 self.policy_optimizer,
                 start_factor=1,
-                end_factor=0.1,
+                end_factor=0.2,
                 total_iters=self.episode_max_step * self.total_episodes,
             )
             self.lrScheduler_adaptor = torch.optim.lr_scheduler.LinearLR(
                 self.adaptor_optimizer,
                 start_factor=1,
-                end_factor=0.1,
+                end_factor=0.2,
                 total_iters=self.episode_max_step * self.episodes_phase2,
             )
 
@@ -280,7 +281,7 @@ class RMACompAgent(MultitaskAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.steps > self.total_timesteps:
+            if self.episodes >= self.total_episodes:
                 break
 
         if self.rma:
@@ -300,7 +301,7 @@ class RMACompAgent(MultitaskAgent):
                     if self.save_model:
                         self.save_torch_model()
 
-                if self.steps > self.total_timesteps + self.phase2_timesteps:
+                if self.episodes > self.total_episodes + self.episodes_phase2:
                     break
 
         print(f"============= finish =============")
@@ -466,7 +467,9 @@ class RMACompAgent(MultitaskAgent):
         self.sf_optimizer.step()
 
         # update sf scale
-        self.comp.update_sf_norm(curr_sf1.mean([0, 1]).abs())
+        if self.norm_task_by_sf:
+            sf_norm = (curr_sf1 + curr_sf2) / 2
+            self.comp.update_sf_norm(sf_norm.mean([0, 1]).abs())
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()

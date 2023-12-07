@@ -20,7 +20,7 @@ parameters:
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [True]
+    values: [False]
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:
