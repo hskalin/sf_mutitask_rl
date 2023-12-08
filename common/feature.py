@@ -258,6 +258,7 @@ class BlimpFeature(PointerFeature):
             self.use_ang_norm,
             self.use_angvel_norm,
         ) = self.use_feature
+        
         self.feature_dim = [
             self.use_posX,
             self.use_posY,
@@ -326,6 +327,7 @@ class BlimpFeature(PointerFeature):
     def compute_gaussDist(self, mu, sigma, scale):
         return torch.exp(scale * mu / sigma**2)
 
+
 class AntFeature(FeatureAbstract):
     """
     features : tbd
@@ -343,37 +345,28 @@ class AntFeature(FeatureAbstract):
 
         self.envdim = int(self.env_cfg["feature"]["dim"])
 
-        (
-            self.use_pos_x,
-            self.use_pos_y,
-            self.use_alive
-        ) = self.use_feature
+        (self.use_pos_x, self.use_pos_y, self.use_alive) = self.use_feature
 
-        self.feature_dim = [
-            self.use_pos_x,
-            self.use_pos_y,
-            self.use_alive
-        ]
+        self.feature_dim = [self.use_pos_x, self.use_pos_y, self.use_alive]
 
         self.dim = int(sum(self.feature_dim))
 
-        self.stateParse_pos_x = slice(0,1)
-        self.stateParse_pos_y = slice(1,2)
+        self.stateParse_pos_x = slice(0, 1)
+        self.stateParse_pos_y = slice(1, 2)
 
     def extract(self, s):
         features = []
 
         if self.use_pos_x:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         if self.use_pos_y:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         if self.use_alive:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         return torch.cat(features, 1)
-
 
 
 def feature_constructor(env_cfg, device):
@@ -383,6 +376,8 @@ def feature_constructor(env_cfg, device):
         return PointMassFeature(env_cfg, device)
     elif "ant" in env_cfg["env_name"].lower():
         return AntFeature(env_cfg, device)
+    elif "blimp" in env_cfg["env_name"].lower():
+        return BlimpFeature(env_cfg, device)
     else:
         print(f'feature not implemented: {env_cfg["env_name"]}')
         return None

@@ -19,11 +19,11 @@ class PointerRand(VecEnv):
 
         self.num_latent = 5
         self.num_obs += self.num_latent
-        self.range_max_push_effort = [2.5, 7.5]  # the range of force applied
-        self.range_viscosity = [1.5, 4.5]  # viscosity multiplier
-        self.range_friction_coeff_x = [0.00945, 0.02835]  # 0.0189
-        self.range_friction_coeff_y = [0.0236, 0.0708]  # 0.0472
-        self.range_torch_friction_coeff_z = [0.001677, 0.005031]  # 0.003354
+        self.range_max_push_effort = [4, 6]  # the range of force applied, 5
+        self.range_viscosity = [2.4, 3.6]  # viscosity multiplier, 3
+        self.range_friction_coeff_x = [0.0152, 0.0227]  # 0.0189
+        self.range_friction_coeff_y = [0.0377, 0.0566]  # 0.0472
+        self.range_torch_friction_coeff_z = [0.00268, 0.0040]  # 0.003354
 
         super().__init__(cfg=cfg)
 
@@ -237,35 +237,22 @@ class PointerRand(VecEnv):
         self.obs_buf[env_ids, 12] = self.rb_avels[env_ids, 0, 2]
 
         # include env_latent to the observation
-        def add_noise(k, range=[0, 1]):
-            scale = range[1] - range[0]
-            return k + 0.1 * scale * torch.randn(1, device=self.sim_device)
-
         # add some noise to increase diversity
-        self.k_max_push_effort_noised = add_noise(
-            self.k_max_push_effort, self.range_max_push_effort
-        )
-        self.k_viscosity_noised = add_noise(self.k_viscosity, self.range_viscosity)
-        self.k_friction_x_noised = add_noise(
-            self.k_friction_x, self.range_friction_coeff_x
-        )
-        self.k_friction_y_noised = add_noise(
-            self.k_friction_y, self.range_friction_coeff_x
-        )
-        self.k_torque_friction_z_noised = add_noise(
-            self.k_torque_friction_z, self.range_torch_friction_coeff_z
-        )
+        self.obs_buf[env_ids, 13] = self.k_max_push_effort[env_ids]
+        self.obs_buf[env_ids, 14] = self.k_viscosity[env_ids]
+        self.obs_buf[env_ids, 15] = self.k_friction_x[env_ids]
+        self.obs_buf[env_ids, 16] = self.k_friction_y[env_ids]
+        self.obs_buf[env_ids, 17] = self.k_torque_friction_z[env_ids]
 
-        self.obs_buf[env_ids, 13] = self.k_max_push_effort_noised
-        self.obs_buf[env_ids, 14] = self.k_viscosity_noised
-        self.obs_buf[env_ids, 15] = self.k_friction_x_noised
-        self.obs_buf[env_ids, 16] = self.k_friction_y_noised
-        self.obs_buf[env_ids, 17] = self.k_torque_friction_z_noised
+    def randomize_latent(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
 
-    def randomize_latent(self):
         def sample_from_range(some_range):
             a, b = some_range
-            return torch.rand(1, device=self.sim_device) * (b - a) + a
+            return (
+                torch.rand(size=(len(env_ids),), device=self.sim_device) * (b - a) + a
+            )
 
         self.k_max_push_effort = sample_from_range(self.range_max_push_effort)
         self.k_viscosity = sample_from_range(self.range_viscosity)
@@ -384,37 +371,35 @@ class PointerRand(VecEnv):
         self.get_obs()
 
     def step(self, actions):
-        actions = (
-            actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
-            * self.k_max_push_effort_noised
-        )
+        actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
+        actions = actions * self.k_max_push_effort[:, None]
 
         # friction = kv^2
         # Ks for forces :
         FK_X = (
-            -self.k_viscosity_noised
-            * self.k_friction_x_noised
+            -self.k_viscosity
+            * self.k_friction_x
             * torch.sign(self.obs_buf[:, 5])
             * self.obs_buf[:, 5] ** 2
         )
         FK_Y = (
-            -self.k_viscosity_noised
-            * self.k_friction_y_noised
+            -self.k_viscosity
+            * self.k_friction_y
             * torch.sign(self.obs_buf[:, 6])
             * self.obs_buf[:, 6] ** 2
         )
-        # FK_Z = -self.k_viscosity_noised * 0.0943 * torch.sign(self.obs_buf[:, 14]) * self.obs_buf[:, 14] ** 2
+        # FK_Z = -self.k_viscosity * 0.0943 * torch.sign(self.obs_buf[:, 14]) * self.obs_buf[:, 14] ** 2
 
         # Ks for torques
         # TK_X = (
-        #     -self.k_viscosity_noised * 0.0004025 * torch.sign(self.obs_buf[:, 15]) * self.obs_buf[:, 15] ** 2
+        #     -self.k_viscosity * 0.0004025 * torch.sign(self.obs_buf[:, 15]) * self.obs_buf[:, 15] ** 2
         # )
         # TK_Y = (
-        #     -self.k_viscosity_noised * 0.003354 * torch.sign(self.obs_buf[:, 16]) * self.obs_buf[:, 16] ** 2
+        #     -self.k_viscosity * 0.003354 * torch.sign(self.obs_buf[:, 16]) * self.obs_buf[:, 16] ** 2
         # )
         TK_Z = (
-            -self.k_viscosity_noised
-            * self.k_torque_friction_z_noised
+            -self.k_viscosity
+            * self.k_torque_friction_z
             * torch.sign(self.obs_buf[:, 7])
             * self.obs_buf[:, 7] ** 2
         )
