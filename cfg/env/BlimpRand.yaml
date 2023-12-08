@@ -52,7 +52,7 @@ total_episodes: 100
 mode: "train" # train or test
 
 eval: True
-eval_interval: 10
+eval_interval: 5
 eval_episodes: 1
 
 save_model: False  # save model after evaluation
@@ -94,47 +94,87 @@ aero:
 task:
   verbose: True
 
+  rand_task: True # fix train task or not
+  
   init_vel:           True
-  rand_vel_targets:   False
+  rand_vel_targets:   True
 
   # proximity reward
-  proximity_threshold: 2 # [m]
+  proximity_threshold: 5 # [m]
 
   # targets for play
-  target_pos:     [0, 0, 2] # x, y
+  target_pos:     [0, 0, 15] # x, y
   target_vel:     [0, 0, 0] # vx, vy, vz
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
   # specify initial task weight
-  # |px|, |py|, |v|, |ang|, |angvel|
-  task_wTrain: [1, 0, 0.2, 0.5, 0.0]  
-  task_wEval: [0, 0, 0, 1, 0]
+  # [planar, posZ, proximity, vx, vz, yaw, angNorm, angVelNorm]
+  task_wTrain: [1, 1, 1, 1, 1, 0, 0, 0]  
+  task_wEval: [0, 0, 1, 0, 0, 0, 0, 0]  
 
   # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
-  taskSet_train: "redundant"
+  taskSet_train: "achievable"
   taskSet_eval: "achievable"
   adaptive_task: True
 
   # set of task weights
-  taskSet:
-    achievable:   [[1,0,0,0,0],
-                [0,1,0,0,0],
-                [0,0,1,0,0],
-                [0,0,0,1,0],
-                [0,0,0,0,1],
-                [1,1,0,0,0],
-                [1,1,0,1,0],
-                [1,1,0,0,1],
-                [0,0,1,1,0],
-                [0,0,1,0,1]]
+  # [planar, posZ, proximity, vx, vz, yaw, angRPNorm, angVelNorm]
+  taskSet: 
+    navigation: [
+      [1,1,0,0,0,0,0,0],
+      [1,1,1,0,0,0,0,0],
+      [1,1,0,1,0,0,0,0],
+      [1,1,0,0,1,0,0,0],
+      [1,1,0,0,0,0,1,0],
+      [1,1,0,0,0,0,0,1],
+      [1,1,0,0,0,0,1,1],
+    ]
 
-    single: [[1,1,0,0,0]]
+    hover: [
+      [0,1,1,0,0,0,0,0],
+      [0,1,1,1,0,0,0,0],
+      [0,0,1,0,1,0,0,0],
+      [0,0,1,0,1,1,0,0],
+      [0,1,1,0,0,1,1,1],
+      [0,1,1,0,0,0,1,1],
+      [1,1,1,0,0,0,0,0],
+    ]
 
-feature: # |px|, |py|, |v|, |ang|, |angvel|
-  dim: 3 # pointer N dim
+    path_follow: [
+      [0,0,0,1,1,0,0,0],
+      [0,0,0,1,1,0,1,0],
+      [0,0,0,1,1,0,0,1],
+    ]
+
+    achievable:   [
+      # navigation
+      [1,1,0,0,0,0,0,0],
+      [1,1,1,0,0,0,0,0],
+      [1,1,0,1,0,0,0,0],
+      [1,1,0,0,1,0,0,0],
+      [1,1,0,0,0,0,1,0],
+      [1,1,0,0,0,0,0,1],
+      [1,1,0,0,0,0,1,1],
+      # hover
+      [0,1,1,0,0,0,0,0],
+      [0,1,1,1,0,0,0,0],
+      [0,0,1,0,1,0,0,0],
+      [0,0,1,0,1,1,0,0],
+      [0,1,1,0,0,1,1,1],
+      [0,1,1,0,0,0,1,1],
+      [1,1,1,0,0,0,0,0],
+      # path follow
+      [0,0,0,1,1,0,0,0],
+      [0,0,0,1,1,0,1,0],
+      [0,0,0,1,1,0,0,1],
+      ]
+
+    single: [[1, 1, 1, 1, 1, 0, 1, 1]]
+
+feature: # [planar, posZ, proximity, vx, vz, yaw, angNorm, angVelNorm]
   verbose: True
-  use_feature: [True, True, True, True, True]
+  use_feature: [True, True, True, True, True, True, True, True]
 
   
 sim:

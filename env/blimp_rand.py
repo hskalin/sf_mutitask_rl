@@ -203,23 +203,23 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 2] = yaw - self.goal_rot[env_ids, 2]
 
         # rotations
-        # sine_x = torch.sin(roll)
-        # cosine_x = torch.cos(roll)
+        # sin_x = torch.sin(roll)
+        # cos_x = torch.cos(roll)
 
-        sine_y = torch.sin(pitch)
-        cosine_y = torch.cos(pitch)
+        sin_y = torch.sin(pitch)
+        cos_y = torch.cos(pitch)
 
-        sine_z = torch.sin(yaw)
-        cosine_z = torch.cos(yaw)
+        sin_z = torch.sin(yaw)
+        cos_z = torch.cos(yaw)
 
-        # self.obs_buf[env_ids, 3] = sine_x[env_ids]
-        # self.obs_buf[env_ids, 4] = cosine_x[env_ids]
+        # self.obs_buf[env_ids, 3] = sin_x[env_ids]
+        # self.obs_buf[env_ids, 4] = cos_x[env_ids]
 
-        self.obs_buf[env_ids, 3] = sine_y[env_ids]
-        self.obs_buf[env_ids, 4] = cosine_y[env_ids]
+        self.obs_buf[env_ids, 3] = sin_y[env_ids]
+        self.obs_buf[env_ids, 4] = cos_y[env_ids]
 
-        self.obs_buf[env_ids, 5] = sine_z[env_ids]
-        self.obs_buf[env_ids, 6] = cosine_z[env_ids]
+        self.obs_buf[env_ids, 5] = sin_z[env_ids]
+        self.obs_buf[env_ids, 6] = cos_z[env_ids]
 
         # relative xyz pos
         pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]

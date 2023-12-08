@@ -26,21 +26,21 @@ parameters:
   agent.norm_task_by_sf:
     values: [True, False]
   agent.policy_net_kwargs.resnet:
-    values: [True]
+    values: [True, False]
   agent.policy_net_kwargs.fta:
-    values: [True]
+    values: [True, False]
   agent.policy_net_kwargs.layernorm:
-    values: [True]
+    values: [True, False]
   agent.sf_net_kwargs.resnet:
-    values: [True]
+    values: [True, False]
   agent.sf_net_kwargs.fta:
     values: [True, False]
   agent.sf_net_kwargs.layernorm:
-    values: [True]
+    values: [True, False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [10]
+    values: [5]
   env.num_envs:
     values: [1024]
   env.task.taskSet_train:

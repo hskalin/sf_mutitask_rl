@@ -38,7 +38,7 @@ task:
   task_wEval: [0, 0, 0, 1, 0]
 
   # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
-  taskSet_train: "redundant"
+  taskSet_train: "achievable"
   taskSet_eval: "achievable"
   adaptive_task: True
 
