@@ -21,6 +21,11 @@ parameters:
     values: ["sfgpi"]
   agent.rma:
     values: [False]
+  agent.use_continuity_loss:
+    values: [True]
+  agent.continuity_coeff:
+    min: 0.05
+    max: 1.0
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:

@@ -136,7 +136,8 @@ class RMACompAgent(MultitaskAgent):
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
         self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
-        self.use_continuity_loss = self.agent_cfg["encrourage_continuous_action"]
+        self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
+        self.continuity_coeff = self.agent_cfg["continuity_coeff"]
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -508,7 +509,9 @@ class RMACompAgent(MultitaskAgent):
         policy_loss_record = policy_loss.mean().detach().item()
 
         if self.use_continuity_loss:
-            policy_loss = policy_loss + (1 - self.alpha) * continuity_loss
+            policy_loss = (
+                policy_loss + (1 - self.alpha) * self.continuity_coeff * continuity_loss
+            )
 
         policy_loss = torch.mean(policy_loss)
 
