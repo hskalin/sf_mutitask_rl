@@ -180,16 +180,16 @@ class MultiheadGaussianPolicyBuilder(nn.Module):
         out_dim = action_dim * self.max_nheads
 
         if self.layernorm:
-            self.ln1 = nn.LayerNorm(in_dim, elementwise_affine=True)
-            self.ln2 = nn.LayerNorm(in_dim, elementwise_affine=True)
+            self.ln1 = nn.LayerNorm(in_dim)
+            self.ln2 = nn.LayerNorm(in_dim)
             if num_layers > 2:
-                self.ln3 = nn.LayerNorm(in_dim, elementwise_affine=True)
-                self.ln4 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln3 = nn.LayerNorm(in_dim)
+                self.ln4 = nn.LayerNorm(in_dim)
             if num_layers > 4:
-                self.ln5 = nn.LayerNorm(in_dim, elementwise_affine=True)
-                self.ln6 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln5 = nn.LayerNorm(in_dim)
+                self.ln6 = nn.LayerNorm(in_dim)
             if num_layers == 8:
-                self.ln7 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln7 = nn.LayerNorm(in_dim)
 
         self.linear1 = nn.Linear(observation_dim, hidden_dim)
         self.linear2 = nn.Linear(in_dim, hidden_dim)

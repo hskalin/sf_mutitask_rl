@@ -5,13 +5,13 @@ goal_lim: 10
 goal_vel_lim: 5
 vel_lim: 5
 
-episode_max_step: 500
-total_episodes: 30
+episode_max_step: 200
+total_episodes: 100
 
 mode: "train" # train or test
 
 eval: True
-eval_interval: 3
+eval_interval: 4
 eval_episodes: 1
 
 save_model: False  # save model after evaluation
@@ -21,7 +21,7 @@ log_interval: 5 # wandb log
 task:
   verbose: False
 
-  rand_task: True # randomize train and eval tasks
+  rand_task: True # fix train task or not
   rand_vel_targets: True
 
   # proximity reward

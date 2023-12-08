@@ -17,6 +17,7 @@ reward_scale: 1.0
 grad_clip: null
 augment_heads: True
 norm_task_by_sf: True
+encrourage_continuous_action: True
 sf_net_kwargs: 
     hidden_dim: 64
     num_layers: 4

@@ -31,22 +31,20 @@ class ENVEncoderBuilder(nn.Module):
         self.l2 = nn.Linear(in_dim + hidden_dim, hidden_dim)
         self.l3 = nn.Linear(in_dim + hidden_dim, out_dim)
 
-        self.ln1 = nn.LayerNorm(in_dim)
+        self.ln1 = nn.LayerNorm(in_dim + hidden_dim)
         self.ln2 = nn.LayerNorm(in_dim + hidden_dim)
-        self.ln3 = nn.LayerNorm(in_dim + hidden_dim)
 
         self.apply(weights_init_)
 
     def forward(self, xu):
-        x = self.ln1(xu)
-        x = F.selu(self.l1(x))
+        x = F.selu(self.l1(xu))
         x = torch.cat([x, xu], dim=1)
+        x = self.ln1(x)
 
-        x = self.ln2(x)
         x = F.selu(self.l2(x))
         x = torch.cat([x, xu], dim=1)
+        x = self.ln2(x)
 
-        x = self.ln3(x)
         x = self.l3(x)
         return x
 
@@ -138,6 +136,7 @@ class RMACompAgent(MultitaskAgent):
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
         self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
+        self.use_continuity_loss = self.agent_cfg["encrourage_continuous_action"]
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -360,6 +359,8 @@ class RMACompAgent(MultitaskAgent):
         self.comp.reset()
         self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj.clear()
+
+        self.env.randomize_latent()
         return super().reset_env()
 
     def learn(self):
@@ -377,7 +378,7 @@ class RMACompAgent(MultitaskAgent):
         batch = self.replay_buffer.sample(self.mini_batch_size)
 
         sf_loss, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
-        policy_loss, entropies, action_norm = self.update_policy(batch)
+        policy_loss, entropies, action_norm, continuity_loss = self.update_policy(batch)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
@@ -394,6 +395,7 @@ class RMACompAgent(MultitaskAgent):
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
                 "loss/action_norm": action_norm,
+                "loss/action_continuity": -continuity_loss,
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
                 "state/target_sf": target_sf,
@@ -491,21 +493,32 @@ class RMACompAgent(MultitaskAgent):
         # [N,H,A], [N, H, 1] <-- [N,S+Z+A]
         a_heads, entropies, _ = self.policy.sample(s)
 
+        # monitor action_norm
         action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
+
+        # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
+        continuity_loss = torch.norm(
+            prev_a[:, None, :] - a_heads, p=2, dim=2, keepdim=True
+        )
 
         qs = self._calc_qs_from_sf(s, a_heads)  # [N,H]<--[N, S+Z+A], [N, H, A]
         qs = qs.unsqueeze(2)  # [N,H,1]
 
-        loss = -qs - self.alpha * entropies  # + (1 - self.alpha) * action_norm
+        policy_loss = -qs - self.alpha * entropies
+        policy_loss_record = policy_loss.mean().detach().item()
 
-        # [N, H, 1] <--  [N, H, 1], [N,1,1], [N, H, 1]
-        policy_loss = torch.mean(loss)
+        if self.use_continuity_loss:
+            policy_loss = policy_loss + (1 - self.alpha) * continuity_loss
+
+        policy_loss = torch.mean(policy_loss)
+
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
         return (
-            policy_loss.detach().item(),
+            policy_loss_record,
             entropies,
             action_norm.mean().detach().item(),
+            continuity_loss.mean().detach().item(),
         )
 
     def update_adaptor(self, batch):

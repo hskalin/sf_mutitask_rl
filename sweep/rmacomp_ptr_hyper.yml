@@ -6,11 +6,11 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.0001
-    max: 0.01
+    min: 0.001
+    max: 0.005
   agent.policy_lr:
-    min: 0.0001
-    max: 0.01
+    min: 0.0005
+    max: 0.002
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
@@ -32,15 +32,15 @@ parameters:
   agent.policy_net_kwargs.layernorm:
     values: [True]
   agent.sf_net_kwargs.resnet:
-    values: [True, False]
+    values: [True]
   agent.sf_net_kwargs.fta:
     values: [True, False]
   agent.sf_net_kwargs.layernorm:
-    values: [True, False]
+    values: [True]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [5, 10]
+    values: [10]
   env.num_envs:
     values: [1024]
   env.task.taskSet_train:
