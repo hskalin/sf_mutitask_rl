@@ -237,7 +237,6 @@ class PointerRand(VecEnv):
         self.obs_buf[env_ids, 12] = self.rb_avels[env_ids, 0, 2]
 
         # include env_latent to the observation
-        # add some noise to increase diversity
         self.obs_buf[env_ids, 13] = self.k_max_push_effort[env_ids]
         self.obs_buf[env_ids, 14] = self.k_viscosity[env_ids]
         self.obs_buf[env_ids, 15] = self.k_friction_x[env_ids]

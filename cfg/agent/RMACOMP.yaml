@@ -15,7 +15,6 @@ td_target_update_interval: 1
 updates_per_step: 1
 reward_scale: 1.0
 grad_clip: null
-augment_heads: True
 norm_task_by_sf: True
 use_continuity_loss: True
 continuity_coeff: 1

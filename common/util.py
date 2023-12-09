@@ -265,8 +265,10 @@ def to_batch_rnn(
     )
 
 
-def update_params(optim, network, loss, grad_clip=None, retain_graph=False):
-    optim.zero_grad()
+def update_params(
+    optim, network, loss, grad_clip=None, retain_graph=False, set_to_none=True
+):
+    optim.zero_grad(set_to_none)
     loss.backward(retain_graph=retain_graph)
     if grad_clip is not None:
         for p in network.modules():

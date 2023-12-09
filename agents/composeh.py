@@ -156,13 +156,11 @@ class RMACompAgent(MultitaskAgent):
         )
 
         # define primitive tasks
-        self.augment_heads = self.agent_cfg.get("augment_heads", False)
-        if self.augment_heads:
-            self.w_primitive = self.task.Train.taskSet
-        else:
-            self.w_primitive = torch.eye(self.feature_dim).to(self.device)
-
+        self.w_primitive = self.task.Train.taskSet
         self.n_heads = self.w_primitive.shape[0]
+        assert (
+            self.n_heads <= self.sf_net_kwargs["max_nheads"]
+        ), f"number of task {self.n_heads} exceed the maximum"
 
         # define models
         self.latent_dim = self.observation_dim
@@ -212,13 +210,11 @@ class RMACompAgent(MultitaskAgent):
             betas=[0.9, 0.999],
         )
         self.policy_optimizer = Adam(
-            [
-                {"params": self.policy.parameters()},
-                {"params": self.encoder.parameters()},
-            ],
+            self.policy.parameters(),
             lr=self.policy_lr,
             betas=[0.9, 0.999],
         )
+
         self.adaptor_optimizer = Adam(
             self.adaptor.parameters(), lr=self.adaptor_lr, betas=[0.9, 0.999]
         )
@@ -465,14 +461,15 @@ class RMACompAgent(MultitaskAgent):
 
         sf_loss = loss1 + loss2
 
-        self.sf_optimizer.zero_grad(set_to_none=True)
-        sf_loss.backward()
-        self.sf_optimizer.step()
+        # self.sf_optimizer.zero_grad(set_to_none=True)
+        # sf_loss.backward()
+        # self.sf_optimizer.step()
+        update_params(self.sf_optimizer, self.sf, sf_loss, self.grad_clip)
 
         # update sf scale
         if self.norm_task_by_sf:
-            sf_norm = (curr_sf1 + curr_sf2) / 2
-            self.comp.update_sf_norm(sf_norm.mean([0, 1]).abs())
+            # sf_norm = (curr_sf1 + curr_sf2) / 2
+            self.comp.update_sf_norm(target_sf.mean([0, 1]).abs())
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()

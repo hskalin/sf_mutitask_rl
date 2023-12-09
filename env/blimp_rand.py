@@ -20,7 +20,7 @@ class BlimpRand(VecEnv):
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         # domain randomization
-        self.num_latent = 1
+        self.num_latent = 21
         self.num_obs += self.num_latent
 
         super().__init__(cfg=cfg)
@@ -30,12 +30,49 @@ class BlimpRand(VecEnv):
         self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
         self.drag_bodies = torch.tensor(
             cfg["blimp"]["drag_body_idxs"], device=self.sim_device
-        )
+        ).to(torch.long)
         self.body_areas = torch.tensor(cfg["blimp"]["areas"], device=self.sim_device)
         self.drag_coefs = torch.tensor(
             cfg["blimp"]["drag_coef"], device=self.sim_device
         )
         self.blimp_mass = cfg["blimp"]["mass"]
+        self.body_torque_coeff = torch.tensor(
+            [0.47, 1.29, 270.0], device=self.sim_device
+        )  # [coef, p, BL4]
+
+        # wind
+        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
+        self.wind_mag = cfg["aero"]["wind_mag"]
+        self.wind_std = cfg["aero"]["wind_std"]
+
+        # randomized env latents
+        self.range_ema_smooth = [self.ema_smooth * 0.5, self.ema_smooth * 1.5]
+        self.range_body_areas0 = [self.body_areas[0] * 0.8, self.body_areas[0] * 1.2]
+        self.range_body_areas1 = [self.body_areas[1] * 0.8, self.body_areas[1] * 1.2]
+        self.range_body_areas2 = [self.body_areas[2] * 0.8, self.body_areas[2] * 1.2]
+        self.range_drag_coefs0 = [self.drag_coefs[0] * 0.8, self.drag_coefs[0] * 1.2]
+        self.range_drag_coefs1 = [self.drag_coefs[1] * 0.8, self.drag_coefs[1] * 1.2]
+        self.range_wind_mag = [self.wind_mag * 0.8, self.wind_mag * 1.2]
+        self.range_wind_std = [self.wind_std * 0.8, self.wind_std * 1.2]
+        self.range_blimp_mass = [self.blimp_mass * 0.8, self.blimp_mass * 1.2]
+        self.range_body_torque_coeff = [
+            self.body_torque_coeff * 0.8,
+            self.body_torque_coeff * 1.2,
+        ]
+
+        self.k_ema_smooth = torch.zeros(self.num_envs, device=self.sim_device)
+        self.k_body_areas = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
+        self.k_drag_coefs = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
+        self.k_wind_mean = torch.zeros((self.num_envs, 3), device=self.sim_device)
+        self.k_wind_std = torch.zeros((self.num_envs, 3), device=self.sim_device)
+        self.k_wind = torch.zeros((self.num_envs, 3), device=self.sim_device)
+        self.k_blimp_mass = torch.zeros(self.num_envs, device=self.sim_device)
+        self.k_bouyancy = torch.zeros(self.num_envs, device=self.sim_device)
+        self.k_body_torque_coeff = torch.zeros(
+            (self.num_envs, 3), device=self.sim_device
+        )
+
+        # self.randomize_latent()
 
         # task specific buffers
         # the goal position and rotation are not randomized, instead
@@ -74,15 +111,6 @@ class BlimpRand(VecEnv):
             (self.num_envs, 1),
         )
         self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
-
-        # wind
-        self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
-        self.wind_mag = cfg["aero"]["wind_mag"]
-        self.wind_std = cfg["aero"]["wind_std"]
-        self.wind_mean = torch.zeros((self.num_envs, 3), device=self.sim_device)
-
-        # blimp
-        self.bouyancy = torch.zeros(self.num_envs, device=self.sim_device)
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -268,7 +296,86 @@ class BlimpRand(VecEnv):
         # thrust
         self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
 
-        self.obs_buf[env_ids, 21] = self.ema_smooth
+        # include env_latent to the observation
+        self.obs_buf[env_ids, 21] = self.k_ema_smooth[env_ids]
+
+        self.obs_buf[env_ids, 22] = self.k_body_areas[env_ids, 0, 0]
+        self.obs_buf[env_ids, 23] = self.k_body_areas[env_ids, 0, 1]
+        self.obs_buf[env_ids, 24] = self.k_body_areas[env_ids, 0, 2]
+        self.obs_buf[env_ids, 25] = self.k_body_areas[env_ids, 1, 1]
+        self.obs_buf[env_ids, 26] = self.k_body_areas[env_ids, 2, 1]
+
+        self.obs_buf[env_ids, 27] = self.k_drag_coefs[env_ids, 0, 0]
+        self.obs_buf[env_ids, 28] = self.k_drag_coefs[env_ids, 0, 1]
+        self.obs_buf[env_ids, 29] = self.k_drag_coefs[env_ids, 0, 2]
+        self.obs_buf[env_ids, 30] = self.k_drag_coefs[env_ids, 1, 1]
+
+        self.obs_buf[env_ids, 31] = self.k_body_torque_coeff[env_ids, 0]
+        self.obs_buf[env_ids, 32] = self.k_body_torque_coeff[env_ids, 1]
+        self.obs_buf[env_ids, 33] = self.k_body_torque_coeff[env_ids, 2]
+
+        self.obs_buf[env_ids, 34] = self.k_wind[env_ids, 0]
+        self.obs_buf[env_ids, 35] = self.k_wind[env_ids, 1]
+        self.obs_buf[env_ids, 36] = self.k_wind[env_ids, 2]
+
+        self.obs_buf[env_ids, 37] = self.k_wind_mean[env_ids, 0]
+        self.obs_buf[env_ids, 38] = self.k_wind_mean[env_ids, 1]
+        self.obs_buf[env_ids, 39] = self.k_wind_mean[env_ids, 2]
+
+        self.obs_buf[env_ids, 40] = self.k_blimp_mass[env_ids]
+        self.obs_buf[env_ids, 41] = self.k_bouyancy[env_ids]
+
+    def randomize_latent(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+
+        def sample_from_range(some_range, dim=1):
+            a, b = some_range
+            return (
+                torch.rand(size=(len(env_ids), dim), device=self.sim_device) * (b - a)
+                + a
+            )
+
+        self.k_ema_smooth[env_ids] = sample_from_range(self.range_ema_smooth)[0]
+
+        # randomize dragbody
+        a = sample_from_range(self.range_body_areas0, 3)
+        b = sample_from_range(self.range_body_areas1, 3)
+        c = sample_from_range(self.range_body_areas2, 3)
+        self.k_body_areas[env_ids, 0] = a
+        self.k_body_areas[env_ids, 1] = b
+        self.k_body_areas[env_ids, 3] = b
+        self.k_body_areas[env_ids, 5] = b
+        self.k_body_areas[env_ids, 7] = b
+        self.k_body_areas[env_ids, 2] = c
+        self.k_body_areas[env_ids, 4] = c
+        self.k_body_areas[env_ids, 6] = c
+        self.k_body_areas[env_ids, 8] = c
+
+        self.k_drag_coefs[env_ids, 0] = sample_from_range(self.range_drag_coefs0, 3)
+        self.k_drag_coefs[env_ids, 1:] = sample_from_range(self.range_drag_coefs1, 3)[
+            :, None
+        ]
+
+        self.k_body_torque_coeff[env_ids] = sample_from_range(
+            self.range_body_torque_coeff, 3
+        )
+
+        # randomize wind
+        k_wind_mag = sample_from_range(self.range_wind_mag, 3)
+        k_wind_dir = (
+            2 * torch.rand((len(env_ids), 3), device=self.sim_device) * self.wind_dirs
+            - self.wind_dirs
+        )
+        self.k_wind_mean[env_ids] = k_wind_mag * k_wind_dir
+        self.k_wind_std[env_ids] = sample_from_range(self.range_wind_std, 3)
+
+        # randomize bouyancy
+        self.k_blimp_mass[env_ids] = sample_from_range(self.range_blimp_mass)[0]
+        self.k_bouyancy[env_ids] = torch.normal(
+            mean=-self.sim_params.gravity.z * (self.k_blimp_mass[env_ids] - 0.5),
+            std=0.3,
+        )
 
     def get_reward(self):
         # retrieve environment observations from buffer
@@ -330,19 +437,8 @@ class BlimpRand(VecEnv):
 
         self.goal_rot[env_ids, 2] = rotations[:, 3]
 
-        # randomize wind
-        self.wind_mean[env_ids] = self.wind_mag * (
-            2 * torch.rand((len(env_ids), 3), device=self.sim_device) * self.wind_dirs
-            - self.wind_dirs
-        )
-
-        # randomize bouyancy
-        self.bouyancy[env_ids] = torch.normal(
-            -self.sim_params.gravity.z * self.blimp_mass,
-            std=0.3,
-            size=(len(env_ids),),
-            device=self.sim_device,
-        )
+        # domain randomization
+        self.randomize_latent(env_ids)
 
         if self.train and self.rand_vel_targets:
             self.goal_lvel[env_ids, :] = (
@@ -399,20 +495,23 @@ class BlimpRand(VecEnv):
         self.actions_tensor[:, 7, 1] = 2 * actions[:, 1]
 
         self.actions_tensor[:] = simulate_boyancy(
-            self.rb_rot, self.bouyancy, self.actions_tensor
+            self.rb_rot, self.k_bouyancy, self.actions_tensor
         )
 
+        # randomize wind
+        self.k_wind = torch.normal(mean=self.k_wind_mean, std=self.k_wind_std)
+
         self.actions_tensor[:], self.torques_tensor[:] = simulate_aerodynamics(
-            self.rb_rot,
-            self.rb_avels,
-            self.rb_lvels,
-            self.wind_mean,
-            self.wind_std,
-            self.drag_bodies,
-            self.body_areas,
-            self.drag_coefs,
-            self.torques_tensor,
-            self.actions_tensor,
+            rb_rot=self.rb_rot,
+            rb_avels=self.rb_avels,
+            rb_lvels=self.rb_lvels,
+            wind=self.k_wind,
+            drag_bodies=self.drag_bodies,
+            body_areas=self.k_body_areas,
+            drag_coefs=self.k_drag_coefs,
+            torques_tensor=self.torques_tensor,
+            actions_tensor=self.actions_tensor,
+            body_torque_coeff=self.k_body_torque_coeff,
         )
 
         # EMA smoothing thrusts
@@ -622,18 +721,21 @@ def simulate_aerodynamics(
     rb_rot,
     rb_avels,
     rb_lvels,
-    wind_mean,
-    wind_std,
+    wind,
     drag_bodies,
     body_areas,
     drag_coefs,
     torques_tensor,
     actions_tensor,
+    body_torque_coeff,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
-    coef = 0.47
-    p = 1.29
-    BL4 = 270
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    # coef = 0.47
+    # p = 1.29
+    # BL4 = 270
+    coef = body_torque_coeff[:, 0]
+    p = body_torque_coeff[:, 1]
+    BL4 = body_torque_coeff[:, 2]
     D = (1 / 64) * p * coef * BL4
     r, p, y = get_euler_xyz(rb_rot[:, 0, :])
     a, b, c = globalToLocalRot(
@@ -647,9 +749,6 @@ def simulate_aerodynamics(
     torques_tensor[:, 0, 1] = -D * b * torch.abs(b)
     torques_tensor[:, 0, 2] = -D * c * torch.abs(c)
 
-    # sample wind
-    wind = torch.normal(mean=wind_mean, std=wind_std)
-
     r, p, y = get_euler_xyz_multi(rb_rot[:, drag_bodies, :])
     a, b, c = globalToLocalRot(
         r,
@@ -661,13 +760,13 @@ def simulate_aerodynamics(
     )
     # area = body_areas[i]
     actions_tensor[:, drag_bodies, 0] += (
-        -drag_coefs[:, 0] * body_areas[:, 0] * a * torch.abs(a)
+        -drag_coefs[..., 0] * body_areas[..., 0] * a * torch.abs(a)
     )
     actions_tensor[:, drag_bodies, 1] += (
-        -drag_coefs[:, 1] * body_areas[:, 1] * b * torch.abs(b)
+        -drag_coefs[..., 1] * body_areas[..., 1] * b * torch.abs(b)
     )
     actions_tensor[:, drag_bodies, 2] += (
-        -drag_coefs[:, 2] * body_areas[:, 2] * c * torch.abs(c)
+        -drag_coefs[..., 2] * body_areas[..., 2] * c * torch.abs(c)
     )
 
     return actions_tensor, torques_tensor
