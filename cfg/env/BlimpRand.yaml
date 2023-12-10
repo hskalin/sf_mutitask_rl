@@ -47,7 +47,7 @@ goal_vel_lim: 5
 vel_lim: 5
 
 episode_max_step: 1000
-total_episodes: 100
+total_episodes: 50
 
 mode: "train" # train or test
 
