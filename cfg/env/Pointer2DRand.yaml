@@ -13,8 +13,8 @@ mode: "train" # train or test
 eval: True
 eval_interval: 4
 eval_episodes: 1
+save_model: True  # save model after evaluation
 
-save_model: False  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 

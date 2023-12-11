@@ -14,7 +14,7 @@ eval: True
 eval_interval: 2
 eval_episodes: 1
 
-save_model: False  # save model after evaluation
+save_model: True  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 

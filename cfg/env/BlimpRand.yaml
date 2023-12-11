@@ -55,7 +55,7 @@ eval: True
 eval_interval: 5
 eval_episodes: 1
 
-save_model: False  # save model after evaluation
+save_model: True  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 
@@ -148,6 +148,7 @@ task:
     ]
 
     achievable:   [
+      # random
       # navigation
       [1,1,0,0,0,0,0,0],
       [1,1,1,0,0,0,0,0],
@@ -182,6 +183,6 @@ sim:
   substeps: 2
   gravity: [0.0, 0.0, -9.8]
   sim_device: "cuda:0"
-  headless: True
+  headless: False # set False to visualize 
   compute_device_id: 0
   graphics_device_id: 0

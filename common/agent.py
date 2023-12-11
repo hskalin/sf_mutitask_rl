@@ -3,6 +3,7 @@ import datetime
 import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
+from omegaconf import DictConfig, OmegaConf
 
 import torch
 from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
@@ -80,7 +81,9 @@ class IsaacAgent(AbstractAgent):
             )
             self.log_path = self.env_cfg["log_path"] + log_dir
             Path(self.log_path).mkdir(parents=True, exist_ok=True)
-            dump_cfg(self.log_path + "cfg", cfg)
+            dcfg = DictConfig(cfg)
+            dcfg = OmegaConf.to_object(dcfg)
+            dump_cfg(self.log_path + "cfg", dcfg)
 
         self.steps = 0
         self.episodes = 0
