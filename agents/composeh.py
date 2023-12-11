@@ -654,10 +654,10 @@ class RMACompAgent(MultitaskAgent):
         self.adaptor.save(path + "adaptor")
 
     def load_torch_model(self, path):
-        self.policy.load(path + "policy")
-        self.sf.load(path + "sf")
-        self.encoder.load(path + "encoder")
-        self.adaptor.load(path + "adaptor")
+        self.policy.load(path + "/policy")
+        self.sf.load(path + "/sf")
+        self.encoder.load(path + "/encoder")
+        self.adaptor.load(path + "/adaptor")
 
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)

@@ -16,15 +16,20 @@ class PointMass2DRand(VecEnv):
         self.num_obs = 4 + 1
         self.num_act = 2
         self.reset_dist = 10.0  # when to reset
-        self.max_push_effort = 5.0  # the range of force applied to the pointer
 
         self.ball_height = 2
 
         # randomized parameters
+        self.max_push_effort = 5.0  # the range of force applied to the pointer
+        self.range_max_push_effort = [2.5, 10]  # the range of force applied, 5
+
         self.num_latent = 1
         self.num_obs += self.num_latent
 
         super().__init__(cfg=cfg)
+
+        # randomized parameters
+        self.randomize_latent()
 
         # task specific buffers
         self.goal_pos = torch.tile(
@@ -139,7 +144,21 @@ class PointMass2DRand(VecEnv):
         self.obs_buf[env_ids, 4] = vel_norm
 
         # env latent
-        self.obs_buf[env_ids, 5] = self.max_push_effort
+        self.obs_buf[env_ids, 5] = self.k_max_push_effort[env_ids]
+
+
+    def randomize_latent(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+
+        def sample_from_range(some_range):
+            a, b = some_range
+            return (
+                torch.rand(size=(len(env_ids),), device=self.sim_device) * (b - a) + a
+            )
+
+        self.k_max_push_effort = sample_from_range(self.range_max_push_effort)
+
 
     def get_reward(self):
         # retrieve environment observations from buffer
@@ -226,10 +245,8 @@ class PointMass2DRand(VecEnv):
         self.get_obs()
 
     def step(self, actions):
-        actions = (
-            actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
-            * self.max_push_effort
-        )
+        actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
+        actions = actions * self.k_max_push_effort[:, None]
 
         self.actions_tensor[:, 0, 0] = actions[:, 0]
         self.actions_tensor[:, 0, 1] = actions[:, 1]

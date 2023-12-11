@@ -15,11 +15,12 @@ class TaskObject:
 
         self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
 
+        if self.taskSetType != "uniform":
+            self.taskSet = self.define_taskSet(self.taskSetType)
+            assert self.taskSet.shape[1] == self.dim
+            self.reset_taskRatio()
+
         if self.randTasks:
-            if self.taskSetType != "uniform":
-                self.taskSet = self.define_taskSet(self.taskSetType)
-                assert self.taskSet.shape[1] == self.dim
-                self.reset_taskRatio()
             self.W = self.sample_tasks()
 
     def define_taskSet(self, taskSetType):
@@ -170,7 +171,7 @@ class SmartTask:
 
 class PointMassTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
-        self.env_dim = self.env_cfg["feature"]["dim"]
+        self.env_dim = env_cfg["feature"]["dim"]
 
         super().__init__(env_cfg, device)
 
