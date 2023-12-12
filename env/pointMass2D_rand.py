@@ -13,18 +13,17 @@ import os
 class PointMass2DRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 4 + 1
+        self.num_obs = 4 + 1 # S
         self.num_act = 2
         self.reset_dist = 10.0  # when to reset
 
         self.ball_height = 2
 
         # randomized parameters
-        self.max_push_effort = 5.0  # the range of force applied to the pointer
         self.range_max_push_effort = [2.5, 10]  # the range of force applied, 5
 
         self.num_latent = 1
-        self.num_obs += self.num_latent
+        self.num_obs += self.num_latent # O = S + E
 
         super().__init__(cfg=cfg)
 
@@ -225,6 +224,9 @@ class PointMass2DRand(VecEnv):
         )
 
         self.rb_lvels[env_ids, :] = velocities[:]
+
+        # domain randomize
+        self.randomize_latent(env_ids)
 
         # selectively reset the environments
         env_ids_int32 = env_ids.to(dtype=torch.int32)

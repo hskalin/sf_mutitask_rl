@@ -56,7 +56,7 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent.phase=1
 
     agent.load_torch_model(
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacomp/Pointer2DRand/2023-12-11-13-14-17/model64"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacomp/PointMass2DRand/2023-12-12-05-08-22/model40"
     )
 
     root = Tk()

@@ -142,8 +142,8 @@ class RMACompAgent(MultitaskAgent):
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
-        self.env_latent_dim = self.env.num_latent
-        self.observation_dim -= self.env_latent_dim
+        self.env_latent_dim = self.env.num_latent # E
+        self.observation_dim -= self.env_latent_dim # S = O-E
         self.env_latent_idx = self.observation_dim + 1
 
         # rma: train an adaptor module for sim-to-real
@@ -163,9 +163,9 @@ class RMACompAgent(MultitaskAgent):
         ), f"number of task {self.n_heads} exceed the maximum"
 
         # define models
-        self.latent_dim = self.observation_dim
+        self.latent_dim = self.observation_dim # Z = S
         self.sf = MultiheadSFNetwork(
-            observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            observation_dim=self.observation_dim + self.latent_dim + self.action_dim, # S + Z + A
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
@@ -357,7 +357,7 @@ class RMACompAgent(MultitaskAgent):
         self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj.clear()
 
-        self.env.randomize_latent()
+        # self.env.randomize_latent()
         return super().reset_env()
 
     def learn(self):
