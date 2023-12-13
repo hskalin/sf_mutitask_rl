@@ -13,14 +13,14 @@ from .base.vec_env import VecEnv
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 21  #
+        self.num_obs = 31  #
         self.num_act = 4  #
         self.reset_dist = 10.0  # when to reset
 
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         # domain randomization
-        self.num_latent = 21
+        self.num_latent = 25
         self.num_obs += self.num_latent
 
         super().__init__(cfg=cfg)
@@ -37,8 +37,8 @@ class BlimpRand(VecEnv):
         )
         self.blimp_mass = cfg["blimp"]["mass"]
         self.body_torque_coeff = torch.tensor(
-            [0.47, 1.29, 270.0], device=self.sim_device
-        )  # [coef, p, BL4]
+            [0.47, 1.29, 270.0, 5.0, 5.0], device=self.sim_device
+        )  # [coef, p, BL4, balance torque, fin torque effort]
 
         # wind
         self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
@@ -46,6 +46,9 @@ class BlimpRand(VecEnv):
         self.wind_std = cfg["aero"]["wind_std"]
 
         # randomized env latents
+        self.range_effort_thrust = [4.0, 6.0]
+        self.range_effort_botthrust = [1.5, 4.5]
+
         self.range_ema_smooth = [self.ema_smooth * 0.5, self.ema_smooth * 1.5]
         self.range_body_areas0 = [self.body_areas[0] * 0.8, self.body_areas[0] * 1.2]
         self.range_body_areas1 = [self.body_areas[1] * 0.8, self.body_areas[1] * 1.2]
@@ -59,6 +62,8 @@ class BlimpRand(VecEnv):
             self.body_torque_coeff * 0.8,
             self.body_torque_coeff * 1.2,
         ]
+        self.k_effort_thrust = torch.zeros(self.num_envs, device=self.sim_device)
+        self.k_effort_botthrust = torch.zeros(self.num_envs, device=self.sim_device)
 
         self.k_ema_smooth = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_body_areas = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
@@ -69,10 +74,10 @@ class BlimpRand(VecEnv):
         self.k_blimp_mass = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_bouyancy = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_body_torque_coeff = torch.zeros(
-            (self.num_envs, 3), device=self.sim_device
+            (self.num_envs, 5), device=self.sim_device
         )
 
-        # self.randomize_latent()
+        self.randomize_latent()
 
         # task specific buffers
         # the goal position and rotation are not randomized, instead
@@ -225,105 +230,164 @@ class BlimpRand(VecEnv):
         yaw = torch.where(yaw > torch.pi, yaw - 2 * torch.pi, yaw)
         roll = torch.where(roll > torch.pi, roll - 2 * torch.pi, roll)
 
-        # angles
-        self.obs_buf[env_ids, 0] = roll - self.goal_rot[env_ids, 0]
-        self.obs_buf[env_ids, 1] = pitch - self.goal_rot[env_ids, 1]
-        self.obs_buf[env_ids, 2] = yaw - self.goal_rot[env_ids, 2]
+        # robot angle
+        self.obs_buf[env_ids, 0] = roll
+        self.obs_buf[env_ids, 1] = pitch
+        self.obs_buf[env_ids, 2] = yaw
 
-        # rotations
-        # sin_x = torch.sin(roll)
-        # cos_x = torch.cos(roll)
+        # relative angles
+        self.obs_buf[env_ids, 3] = roll - self.goal_rot[env_ids, 0]
+        self.obs_buf[env_ids, 4] = pitch - self.goal_rot[env_ids, 1]
+        self.obs_buf[env_ids, 5] = yaw - self.goal_rot[env_ids, 2]
 
+        # robot sin cos angle
         sin_y = torch.sin(pitch)
         cos_y = torch.cos(pitch)
 
         sin_z = torch.sin(yaw)
         cos_z = torch.cos(yaw)
 
-        # self.obs_buf[env_ids, 3] = sin_x[env_ids]
-        # self.obs_buf[env_ids, 4] = cos_x[env_ids]
+        self.obs_buf[env_ids, 6] = sin_y
+        self.obs_buf[env_ids, 7] = cos_y
 
-        self.obs_buf[env_ids, 3] = sin_y[env_ids]
-        self.obs_buf[env_ids, 4] = cos_y[env_ids]
+        self.obs_buf[env_ids, 8] = sin_z
+        self.obs_buf[env_ids, 9] = cos_z
 
-        self.obs_buf[env_ids, 5] = sin_z[env_ids]
-        self.obs_buf[env_ids, 6] = cos_z[env_ids]
+        # robot z
+        self.obs_buf[env_ids, 10] = self.rb_pos[env_ids, 0, 2]
 
-        # relative xyz pos
-        pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
+        # relative pos
+        rel_pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
+        self.obs_buf[env_ids, 11] = rel_pos[:, 0]
+        self.obs_buf[env_ids, 12] = rel_pos[:, 1]
+        self.obs_buf[env_ids, 13] = rel_pos[:, 2]
 
-        self.obs_buf[env_ids, 7] = pos[env_ids, 0]
-        self.obs_buf[env_ids, 8] = pos[env_ids, 1]
-        self.obs_buf[env_ids, 9] = pos[env_ids, 2]
+        # relative yaw to goal position
+        desired_yaw = torch.arctan2(rel_pos[:, 1], rel_pos[:, 0]) - torch.pi
+        ang_to_goal = desired_yaw - yaw
+        ang_to_goal = torch.where(
+            ang_to_goal > torch.pi, ang_to_goal - 2 * torch.pi, ang_to_goal
+        )
+        ang_to_goal = torch.where(
+            ang_to_goal < -torch.pi, ang_to_goal + 2 * torch.pi, ang_to_goal
+        )
+        self.obs_buf[env_ids, 14] = ang_to_goal
 
-        # relative xyz vel
+        # robot vel
+        vel = self.rb_lvels[env_ids, 0]
+
+        xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
+        self.obs_buf[env_ids, 15] = xv
+        self.obs_buf[env_ids, 16] = yv
+        self.obs_buf[env_ids, 17] = zv
+
+        # relative vel
         vel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
 
-        xv, yv, zv = globalToLocalRot(
-            roll, pitch, yaw, vel[env_ids, 0], vel[env_ids, 1], vel[env_ids, 2]
-        )
-        self.obs_buf[env_ids, 10] = xv
-        self.obs_buf[env_ids, 11] = yv
-        self.obs_buf[env_ids, 12] = zv
+        xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
+        self.obs_buf[env_ids, 18] = xv
+        self.obs_buf[env_ids, 19] = yv
+        self.obs_buf[env_ids, 20] = zv
 
-        # angular velocities
+        # robot angular velocities
+        ang_vel = self.rb_avels[env_ids, 0]
+
+        xw, yw, zw = globalToLocalRot(
+            roll,
+            pitch,
+            yaw,
+            ang_vel[:, 0],
+            ang_vel[:, 1],
+            ang_vel[:, 2],
+        )
+        self.obs_buf[env_ids, 21] = xw
+        self.obs_buf[env_ids, 22] = yw
+        self.obs_buf[env_ids, 23] = zw
+
+        # rel angular velocities
         ang_vel = self.rb_avels[env_ids, 0] - self.goal_avel[env_ids]
 
         xw, yw, zw = globalToLocalRot(
             roll,
             pitch,
             yaw,
-            ang_vel[env_ids, 0],
-            ang_vel[env_ids, 1],
-            ang_vel[env_ids, 2],
+            ang_vel[:, 0],
+            ang_vel[:, 1],
+            ang_vel[:, 2],
         )
-        self.obs_buf[env_ids, 13] = xw
-        self.obs_buf[env_ids, 14] = yw
-        self.obs_buf[env_ids, 15] = zw
-
-        # absolute Z
-        self.obs_buf[env_ids, 16] = self.rb_pos[env_ids, 0, 2]
+        self.obs_buf[env_ids, 24] = xw
+        self.obs_buf[env_ids, 25] = yw
+        self.obs_buf[env_ids, 26] = zw
 
         # rudder
-        self.obs_buf[env_ids, 17] = self.dof_pos[env_ids, 1]
+        self.obs_buf[env_ids, 27] = self.dof_pos[env_ids, 1]
 
         # elevator
-        self.obs_buf[env_ids, 18] = self.dof_pos[env_ids, 2]
+        self.obs_buf[env_ids, 28] = self.dof_pos[env_ids, 2]
 
         # thrust vectoring angle
-        self.obs_buf[env_ids, 19] = self.dof_pos[env_ids, 0]
+        self.obs_buf[env_ids, 29] = self.dof_pos[env_ids, 0]
 
         # thrust
-        self.obs_buf[env_ids, 20] = self.actions_tensor[env_ids, 3, 2]
+        self.obs_buf[env_ids, 30] = self.actions_tensor[env_ids, 3, 2]
 
         # include env_latent to the observation
-        self.obs_buf[env_ids, 21] = self.k_ema_smooth[env_ids]
+        d = 31
+        self.obs_buf[env_ids, d] = self.k_effort_thrust[env_ids]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_effort_botthrust[env_ids]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_ema_smooth[env_ids]
 
-        self.obs_buf[env_ids, 22] = self.k_body_areas[env_ids, 0, 0]
-        self.obs_buf[env_ids, 23] = self.k_body_areas[env_ids, 0, 1]
-        self.obs_buf[env_ids, 24] = self.k_body_areas[env_ids, 0, 2]
-        self.obs_buf[env_ids, 25] = self.k_body_areas[env_ids, 1, 1]
-        self.obs_buf[env_ids, 26] = self.k_body_areas[env_ids, 2, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 0, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 0, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 0, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 1, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 2, 1]
 
-        self.obs_buf[env_ids, 27] = self.k_drag_coefs[env_ids, 0, 0]
-        self.obs_buf[env_ids, 28] = self.k_drag_coefs[env_ids, 0, 1]
-        self.obs_buf[env_ids, 29] = self.k_drag_coefs[env_ids, 0, 2]
-        self.obs_buf[env_ids, 30] = self.k_drag_coefs[env_ids, 1, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_drag_coefs[env_ids, 0, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_drag_coefs[env_ids, 0, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_drag_coefs[env_ids, 0, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_drag_coefs[env_ids, 1, 1]
 
-        self.obs_buf[env_ids, 31] = self.k_body_torque_coeff[env_ids, 0]
-        self.obs_buf[env_ids, 32] = self.k_body_torque_coeff[env_ids, 1]
-        self.obs_buf[env_ids, 33] = self.k_body_torque_coeff[env_ids, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_torque_coeff[env_ids, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_torque_coeff[env_ids, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_torque_coeff[env_ids, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_torque_coeff[env_ids, 3]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_body_torque_coeff[env_ids, 4]
 
-        self.obs_buf[env_ids, 34] = self.k_wind[env_ids, 0]
-        self.obs_buf[env_ids, 35] = self.k_wind[env_ids, 1]
-        self.obs_buf[env_ids, 36] = self.k_wind[env_ids, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind[env_ids, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind[env_ids, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind[env_ids, 2]
 
-        self.obs_buf[env_ids, 37] = self.k_wind_mean[env_ids, 0]
-        self.obs_buf[env_ids, 38] = self.k_wind_mean[env_ids, 1]
-        self.obs_buf[env_ids, 39] = self.k_wind_mean[env_ids, 2]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind_mean[env_ids, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind_mean[env_ids, 1]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_wind_mean[env_ids, 2]
 
-        self.obs_buf[env_ids, 40] = self.k_blimp_mass[env_ids]
-        self.obs_buf[env_ids, 41] = self.k_bouyancy[env_ids]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_blimp_mass[env_ids]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_bouyancy[env_ids]
 
     def randomize_latent(self, env_ids=None):
         if env_ids is None:
@@ -336,6 +400,11 @@ class BlimpRand(VecEnv):
                 + a
             )
 
+        # randomize effort
+        self.k_effort_thrust[env_ids] = sample_from_range(self.range_effort_thrust)[0]
+        self.k_effort_botthrust[env_ids] = sample_from_range(
+            self.range_effort_botthrust
+        )[0]
         self.k_ema_smooth[env_ids] = sample_from_range(self.range_ema_smooth)[0]
 
         # randomize dragbody
@@ -352,13 +421,13 @@ class BlimpRand(VecEnv):
         self.k_body_areas[env_ids, 6] = c
         self.k_body_areas[env_ids, 8] = c
 
-        self.k_drag_coefs[env_ids, 0] = sample_from_range(self.range_drag_coefs0, 3)
-        self.k_drag_coefs[env_ids, 1:] = sample_from_range(self.range_drag_coefs1, 3)[
-            :, None
-        ]
+        self.k_drag_coefs[env_ids, 0] = sample_from_range(self.range_drag_coefs0, 3) * 2
+        self.k_drag_coefs[env_ids, 1:] = (
+            sample_from_range(self.range_drag_coefs1, 3)[:, None] * 2
+        )
 
         self.k_body_torque_coeff[env_ids] = sample_from_range(
-            self.range_body_torque_coeff, 3
+            self.range_body_torque_coeff, 5
         )
 
         # randomize wind
@@ -379,11 +448,11 @@ class BlimpRand(VecEnv):
 
     def get_reward(self):
         # retrieve environment observations from buffer
-        x = self.obs_buf[:, 7]
-        y = self.obs_buf[:, 8]
-        z = self.obs_buf[:, 9]
+        x = self.obs_buf[:, 11]
+        y = self.obs_buf[:, 12]
+        z = self.obs_buf[:, 13]
 
-        z_abs = self.obs_buf[:, 16]
+        z_abs = self.obs_buf[:, 10]
 
         (
             self.reward_buf[:],
@@ -484,15 +553,21 @@ class BlimpRand(VecEnv):
 
     def step(self, actions):
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
-        actions = torch.clamp(actions, -1.0, 1.0)
+        actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
 
         # zeroing out any prev action
         self.actions_tensor[:] = 0.0
         self.torques_tensor[:] = 0.0
 
-        self.actions_tensor[:, 3, 2] = 5 * (actions[:, 0] + 1) / 2
-        self.actions_tensor[:, 4, 2] = 5 * (actions[:, 0] + 1) / 2
-        self.actions_tensor[:, 7, 1] = 2 * actions[:, 1]
+        self.actions_tensor[:, 3, 2] = (
+            self.k_effort_thrust * (actions[:, 0] + 1) / 2
+        )  # propeller
+        self.actions_tensor[:, 4, 2] = (
+            self.k_effort_thrust * (actions[:, 0] + 1) / 2
+        )  # propeller
+        self.actions_tensor[:, 7, 1] = (
+            self.k_effort_botthrust * actions[:, 1]
+        )  # bot propeller
 
         self.actions_tensor[:] = simulate_boyancy(
             self.rb_rot, self.k_bouyancy, self.actions_tensor
@@ -523,12 +598,11 @@ class BlimpRand(VecEnv):
         self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
 
         dof_targets = torch.zeros((self.num_envs, 5), device=self.sim_device)
-
-        dof_targets[:, 0] = 2.0 * actions[:, 2]
-        dof_targets[:, 1] = 0.5 * actions[:, 1]
-        dof_targets[:, 4] = -0.5 * actions[:, 1]
-        dof_targets[:, 2] = 0.5 * actions[:, 3]
-        dof_targets[:, 3] = -0.5 * actions[:, 3]
+        dof_targets[:, 0] = torch.pi / 2 * actions[:, 2]  # stick
+        dof_targets[:, 1] = 0.5 * actions[:, 1]  # bot fin
+        dof_targets[:, 4] = -0.5 * actions[:, 1]  # top fin
+        dof_targets[:, 2] = 0.5 * actions[:, 3]  # left fin
+        dof_targets[:, 3] = -0.5 * actions[:, 3]  # right fin
 
         # unwrap tensors
         dof_targets = gymtorch.unwrap_tensor(dof_targets)
@@ -643,10 +717,10 @@ class BlimpRand(VecEnv):
 
     def _add_drag_lines(self, num_lines, line_colors, line_vertices, envs):
         num_lines += 1
-        line_colors += [[0, 0, 0]]
+        line_colors += [[200, 0, 0]]
 
         s = 50
-        idx = 11
+        idx = 12
         roll, pitch, yaw = get_euler_xyz(self.rb_rot[:, idx, :])
         f1, f2, f3 = localToGlobalRot(
             roll,
@@ -656,6 +730,7 @@ class BlimpRand(VecEnv):
             self.actions_tensor[:, idx, 1],
             self.actions_tensor[:, idx, 2],
         )
+
         for i in range(envs):
             vertices = [
                 [
@@ -687,7 +762,9 @@ class BlimpRand(VecEnv):
         num_lines, line_colors, line_vertices = self._add_thrust_lines(
             num_lines, line_colors, line_vertices, self.num_envs
         )
-        # num_lines,line_colors,line_vertices = self._add_drag_lines(num_lines,line_colors,line_vertices, self.num_envs)
+        # num_lines, line_colors, line_vertices = self._add_drag_lines(
+        #     num_lines, line_colors, line_vertices, self.num_envs
+        # )
 
         return line_vertices, line_colors, num_lines
 
@@ -730,12 +807,17 @@ def simulate_aerodynamics(
     body_torque_coeff,
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    coef = body_torque_coeff[:, 0]  # coef = 0.47
+    p = body_torque_coeff[:, 1]  # p = 1.29
+    BL4 = body_torque_coeff[:, 2]  # BL4 = 270
+    balance_torque = body_torque_coeff[:, 3]  # balance_torque = 5
+    fin_torque_coeff = body_torque_coeff[:, 4]  # fin_torque_coeff = 5
     # coef = 0.47
     # p = 1.29
     # BL4 = 270
-    coef = body_torque_coeff[:, 0]
-    p = body_torque_coeff[:, 1]
-    BL4 = body_torque_coeff[:, 2]
+    # balance_torque = 5
+    # fin_torque_coeff = 5
+
     D = (1 / 64) * p * coef * BL4
     r, p, y = get_euler_xyz(rb_rot[:, 0, :])
     a, b, c = globalToLocalRot(
@@ -759,16 +841,25 @@ def simulate_aerodynamics(
         rb_lvels[:, drag_bodies, 2] + wind[:, 2:3],
     )
     # area = body_areas[i]
-    actions_tensor[:, drag_bodies, 0] += (
-        -drag_coefs[..., 0] * body_areas[..., 0] * a * torch.abs(a)
-    )
-    actions_tensor[:, drag_bodies, 1] += (
-        -drag_coefs[..., 1] * body_areas[..., 1] * b * torch.abs(b)
-    )
-    actions_tensor[:, drag_bodies, 2] += (
-        -drag_coefs[..., 2] * body_areas[..., 2] * c * torch.abs(c)
-    )
+    aerodynamic_force0 = -drag_coefs[..., 0] * body_areas[..., 0] * a * torch.abs(a)
+    aerodynamic_force1 = -drag_coefs[..., 1] * body_areas[..., 1] * b * torch.abs(b)
+    aerodynamic_force2 = -drag_coefs[..., 2] * body_areas[..., 2] * c * torch.abs(c)
 
+    actions_tensor[:, drag_bodies, 0] += aerodynamic_force0
+    actions_tensor[:, drag_bodies, 1] += aerodynamic_force1
+    actions_tensor[:, drag_bodies, 2] += aerodynamic_force2
+
+    # balance pitch torque
+    torques_tensor[:, drag_bodies[0], 1] += balance_torque
+
+    # pitch torque
+    torques_tensor[:, drag_bodies[0], 1] += fin_torque_coeff * (
+        aerodynamic_force1[:, 4] - aerodynamic_force1[:, 6]
+    )
+    # yaw torque
+    torques_tensor[:, drag_bodies[0], 2] += fin_torque_coeff * (
+        -aerodynamic_force1[:, 2] + aerodynamic_force1[:, 8]
+    )
     return actions_tensor, torques_tensor
 
 
@@ -812,9 +903,9 @@ def compute_point_reward(
     # reset = torch.where(torch.abs(wz) > 70, torch.ones_like(reset_buf), reset)
     # reset = torch.where(torch.abs(wy) > 70, torch.ones_like(reset_buf), reset)
     # reset = torch.where(torch.abs(wx) > 70, torch.ones_like(reset_buf), reset)
-    reset = torch.where(
-        progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset
-    )
+    # reset = torch.where(
+    #     progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset
+    # )
 
     truncated_buf = torch.where(
         progress_buf >= max_episode_length - 1,

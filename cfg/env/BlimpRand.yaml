@@ -55,7 +55,7 @@ eval: True
 eval_interval: 5
 eval_episodes: 1
 
-save_model: True  # save model after evaluation
+save_model: False  # save model after evaluation
 log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 
@@ -66,15 +66,15 @@ blimp:
   # indices of blimp bodies for which aerodynamics is calculated
   drag_body_idxs: [0, 7, 8, 9, 10, 11, 12, 13, 14]
   # approx (x,y,z) components of area for the above bodies (in m^2)
-  areas:   [[2.544, 6.3, 6.3],
-            [0, 0.30, 0],
-            [0, 0.15, 0],
-            [0, 0.30, 0],
-            [0, 0.15, 0],
-            [0, 0.30, 0],
-            [0, 0.15, 0],
-            [0, 0.30, 0],
-            [0, 0.15, 0],]
+  areas:   [[2.544, 6.3, 6.3], # base
+            [0, 0.30, 0], # blimp_rud_bot
+            [ 0, 0.15, 0], # rud_bot
+            [0, 0.30, 0], # blimp_rud_left
+            [ 0, 0.15, 0], # rud_left
+            [0, 0.30, 0], # blimp_rud_right
+            [ 0, 0.15, 0], # rud_right
+            [0, 0.30, 0], # blimp_rud_top
+            [ 0, 0.15, 0],] # rud_top
   
   drag_coef: [[0.3, 0.47, 0.47],
               [0,   1.17,    0],
@@ -88,7 +88,7 @@ blimp:
 
 aero:
   wind_dirs: [1.0, 1.0, 0.25]
-  wind_mag: 1
+  wind_mag: 0
   wind_std: 0.3
 
 task:
@@ -96,8 +96,8 @@ task:
 
   rand_task: True # fix train task or not
   
-  init_vel:           True
-  rand_vel_targets:   True
+  init_vel:           False
+  rand_vel_targets:   False
 
   # proximity reward
   proximity_threshold: 5 # [m]
@@ -109,9 +109,9 @@ task:
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
   # specify initial task weight
-  # [planar, posZ, proximity, vx, vz, yaw, angNorm, angVelNorm]
-  task_wTrain: [1, 1, 1, 1, 1, 0, 0, 0]  
-  task_wEval: [0, 0, 1, 0, 0, 0, 0, 0]  
+  # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]
+  task_wTrain: [0,0,0,1,0,0,0,0,0,0,0,0]
+  task_wEval: [0,0,1,0,0,0,0,0,0,0,0,0]
 
   # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
   taskSet_train: "achievable"
@@ -119,63 +119,71 @@ task:
   adaptive_task: True
 
   # set of task weights
-  # [planar, posZ, proximity, vx, vz, yaw, angRPNorm, angVelNorm]
+  # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]
   taskSet: 
     navigation: [
-      [1,1,0,0,0,0,0,0],
-      [1,1,1,0,0,0,0,0],
-      [1,1,0,1,0,0,0,0],
-      [1,1,0,0,1,0,0,0],
-      [1,1,0,0,0,0,1,0],
-      [1,1,0,0,0,0,0,1],
-      [1,1,0,0,0,0,1,1],
+      [1,1,0,0,0,0,0,0,0,0,0,0],
+      [1,1,0,0,0,0,0,0,0,0,.2,.2],
+      [1,1,0,1,0,0,0,0,0,0,0,0],
+      [1,1,0,1,1,0,0,0,0,0,0,0],
+      [1,1,0,0,0,0,0,1,0,0,0,0],
+      [1,1,0,1,0,0,0,1,0,0,0,0],
+      [1,1,0,0,0,0,0,0,.1,.1,.1,.1],
+      [1,1,0,.5,0,0,0,.5,.1,.1,.1,.1],
     ]
 
     hover: [
-      [0,1,1,0,0,0,0,0],
-      [0,1,1,1,0,0,0,0],
-      [0,0,1,0,1,0,0,0],
-      [0,0,1,0,1,1,0,0],
-      [0,1,1,0,0,1,1,1],
-      [0,1,1,0,0,0,1,1],
-      [1,1,1,0,0,0,0,0],
+      [0,1,1,0,0,0,0,0,0,0,0,0],
+      [0,1,1,1,0,0,0,0,0,0,0,0],
+      [0,1,1,0,0,0,0,0,.1,.1,.5,.5],
+      [0,1,1,0,0,0,0,0,.5,.5,.5,.5],
+      [0,1,1,0,0,0,1,0,0,0,0,0],
+      [0,1,1,0,0,0,1,0,.1,0,.5,.5],
+      [0,1,1,0,0,0,0,0,.5,.5,.5,.5],
     ]
 
     path_follow: [
-      [0,0,0,1,1,0,0,0],
-      [0,0,0,1,1,0,1,0],
-      [0,0,0,1,1,0,0,1],
+      [0,0,0,1,1,1,0,0,0,0,0,0],
+      [0,0,0,1,1,1,0,0,.2,0,0,0],
+      [0,0,0,1,1,1,0,0,0,.2,0,0],
+      [0,0,0,1,1,1,0,0,0,0,0,.2],
+      [0,0,0,1,1,1,0,0,.1,.1,0,.2],
     ]
 
     achievable:   [
       # random
       # navigation
-      [1,1,0,0,0,0,0,0],
-      [1,1,1,0,0,0,0,0],
-      [1,1,0,1,0,0,0,0],
-      [1,1,0,0,1,0,0,0],
-      [1,1,0,0,0,0,1,0],
-      [1,1,0,0,0,0,0,1],
-      [1,1,0,0,0,0,1,1],
+      [1,1,0,0,0,0,0,0,0,0,0,0],
+      [1,1,0,0,0,0,0,0,0,0,.2,.2],
+      [1,1,0,1,0,0,0,0,0,0,0,0],
+      [1,1,0,1,1,0,0,0,0,0,0,0],
+      [1,1,0,0,0,0,0,1,0,0,0,0],
+      [1,1,0,1,0,0,0,1,0,0,0,0],
+      [1,1,0,0,0,0,0,0,.1,.1,.1,.1],
+      [1,1,0,.5,0,0,0,.5,.1,.1,.1,.1],
       # hover
-      [0,1,1,0,0,0,0,0],
-      [0,1,1,1,0,0,0,0],
-      [0,0,1,0,1,0,0,0],
-      [0,0,1,0,1,1,0,0],
-      [0,1,1,0,0,1,1,1],
-      [0,1,1,0,0,0,1,1],
-      [1,1,1,0,0,0,0,0],
+      [0,1,1,0,0,0,0,0,0,0,0,0],
+      [0,1,1,1,0,0,0,0,0,0,0,0],
+      [0,1,1,0,0,0,0,0,.1,.1,.5,.5],
+      [0,1,1,0,0,0,0,0,.5,.5,.5,.5],
+      [0,1,1,0,0,0,1,0,0,0,0,0],
+      [0,1,1,0,0,0,1,0,.1,0,.5,.5],
+      [0,1,1,0,0,0,0,0,.5,.5,.5,.5],
       # path follow
-      [0,0,0,1,1,0,0,0],
-      [0,0,0,1,1,0,1,0],
-      [0,0,0,1,1,0,0,1],
+      [0,0,0,1,1,1,0,0,0,0,0,0],
+      [0,0,0,1,1,1,0,0,.2,0,0,0],
+      [0,0,0,1,1,1,0,0,0,.2,0,0],
+      [0,0,0,1,1,1,0,0,0,0,0,.2],
+      [0,0,0,1,1,1,0,0,.1,.1,0,.2],
       ]
 
-    single: [[1, 1, 1, 1, 1, 0, 1, 1]]
+    single: [[1,1,1,0,0,0,0,0,0,0,0],]
 
-feature: # [planar, posZ, proximity, vx, vz, yaw, angNorm, angVelNorm]
+feature: 
+  #  [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]
   verbose: True
-  use_feature: [True, True, True, True, True, True, True, True]
+  # deprecated, don't change
+  use_feature: [True, True, True, True, True, True, True, True, True, True, True, True]
 
   
 sim:

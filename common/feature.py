@@ -236,7 +236,6 @@ class BlimpFeature(FeatureAbstract):
         self.feature_cfg = self.env_cfg["feature"]
         self.device = device
 
-        self.use_feature = self.feature_cfg["use_feature"]
         self.verbose = self.feature_cfg.get("verbose", False)
 
         self.Kp = torch.tensor(
@@ -252,93 +251,132 @@ class BlimpFeature(FeatureAbstract):
         )
         self.Ka = torch.pi
 
-        (
-            self.use_planar,
-            self.use_posZ,
-            self.use_proxDist,
-            self.use_vx,
-            self.use_vz,
-            self.use_yaw,
-            self.use_angNorm,
-            self.use_angvelNorm,
-        ) = self.use_feature
-
-        self.dim = sum(self.use_feature)
-
+        self.dim = 12
         if self.verbose:
             print("[Feature] dim", self.dim)
-            print(
-                f"[Feature] use feautre: [planar, posZ, proximity, vx, vz, yaw, angRPNorm, angVelNorm]"
-            )
-            print(self.use_feature)
 
         self.proxScale = 1 / self.compute_gaussDist(
             mu=self.ProxThresh[None, None], sigma=self.Kp, scale=25
         )
 
-        self.slice_err_roll = slice(0, 1)
-        self.slice_err_pitch = slice(1, 2)
-        self.slice_err_yaw = slice(2, 3)
-        self.slice_err_angRP = slice(0, 2)
+        # robot angle
+        self.slice_rbangle = slice(0, 3)
+        self.slice_rbRP = slice(0, 2)
 
-        self.slice_err_planar = slice(7, 9)
-        self.slice_err_z = slice(9, 10)
-        self.slice_err_dist = slice(7, 10)
+        # robot ang vel
+        self.slice_rbangvel = slice(21, 24)
 
-        self.slice_err_vx = slice(10, 11)
-        self.slice_err_vy = slice(11, 12)
-        self.slice_err_vz = slice(12, 13)
+        # robot vel
+        self.slice_rbv = slice(15, 18)
 
-        self.slice_err_angvel = slice(13, 16)
+        # robot thrust
+        self.slice_thrust = slice(30, 31)
+
+        # relative angle
+        self.slice_err_roll = slice(3, 4)
+        self.slice_err_pitch = slice(4, 5)
+        self.slice_err_yaw = slice(5, 6)
+
+        # relative position
+        self.slice_err_planar = slice(11, 13)
+        self.slice_err_z = slice(13, 14)
+        self.slice_err_dist = slice(11, 14)
+
+        # relative yaw to goal position
+        self.slice_err_yaw_to_goal = slice(14, 15)
+
+        # relative velocity
+        self.slice_err_vx = slice(18, 19)
+        self.slice_err_vy = slice(19, 20)
+        self.slice_err_vz = slice(20, 21)
+        self.slice_err_vplanar = slice(18, 20)
+
+        # relative angular velocity
+        self.slice_err_p = slice(24, 25)
+        self.slice_err_q = slice(25, 26)
+        self.slice_err_r = slice(26, 27)
+        self.slice_err_angvel = slice(24, 27)
 
     def extract(self, s):
         features = []
 
+        robot_RP = s[:, self.slice_rbRP]
+        robot_angVel = s[:, self.slice_rbangvel]
+        robot_v = s[:, self.slice_rbv]
+        robot_thrust = s[:, self.slice_thrust]
+
         error_yaw = s[:, self.slice_err_yaw]
-        error_angRP = s[:, self.slice_err_angRP]
+        error_yaw_to_goal = s[:, self.slice_err_yaw_to_goal]
 
         error_planar = s[:, self.slice_err_planar]
         error_posZ = s[:, self.slice_err_z]
         error_dist = s[:, self.slice_err_dist]
 
         error_vx = s[:, self.slice_err_vx]
+        error_vy = s[:, self.slice_err_vy]
         error_vz = s[:, self.slice_err_vz]
+        # error_vplanar = s[:, self.slice_err_vplanar]
 
-        error_angVel = s[:, self.slice_err_angvel]
+        # error_angVel_p = s[:, self.slice_err_p]
+        # error_angVel_q = s[:, self.slice_err_q]
+        # error_angVel_r = s[:, self.slice_err_r]
+        # error_angVel = s[:, self.slice_err_angvel]
 
-        if self.use_planar:
-            x = self.compute_featurePosNorm(error_planar)
-            features.append(x)
+        # planar:
+        x = self.compute_featurePosNorm(error_planar)
+        features.append(x)
 
-        if self.use_posZ:
-            x = self.compute_featurePosNorm(error_posZ)
-            features.append(x)
+        # posZ:
+        x = self.compute_featurePosNorm(error_posZ)
+        features.append(x)
 
-        if self.use_proxDist:
-            x = self.compute_featureProx(error_dist)
-            features.append(x)
+        # proxDist:
+        x = self.compute_featureProx(error_dist)
+        features.append(x)
 
-        if self.use_vx:
-            x = self.compute_featureVelNorm(error_vx)
-            features.append(x)
+        # vx:
+        x = self.compute_featureVelNorm(error_vx)
+        features.append(x)
 
-        if self.use_vz:
-            x = self.compute_featureVelNorm(error_vz)
-            features.append(x)
+        # vy:
+        x = self.compute_featureVelNorm(error_vy)
+        features.append(x)
 
-        if self.use_yaw:
-            x = self.compute_featureAngNorm(error_yaw)
-            features.append(x)
+        # vz:
+        x = self.compute_featureVelNorm(error_vz)
+        features.append(x)
 
-        if self.use_angNorm:
-            x = self.compute_featureAngNorm(error_angRP)
-            features.append(x)
+        # yaw:
+        x = self.compute_featureAngNorm(error_yaw)
+        features.append(x)
 
-        if self.use_angvelNorm:
-            x = self.compute_featureAngVelNorm(error_angVel)
-            features.append(x)
+        # yaw_to_goal:
+        x = self.compute_featureAngNorm(error_yaw_to_goal)
+        features.append(x)
 
-        return torch.concatenate(features, 1)
+        # regulate_rowandpitch:
+        x = self.compute_featureAngNorm(robot_RP)
+        features.append(x)
+
+        # regulate_angvel:
+        x = self.compute_featureAngVelNorm(robot_angVel)
+        features.append(x)
+
+        # regulate robot velocity
+        x = self.compute_featureVelNorm(robot_v)
+        features.append(x)
+
+        # regulate robot thrust: rescale to [0, 1] by div 5, similar to angle
+        x = self.compute_featureAngNorm(robot_thrust / 5)
+        features.append(x)
+
+        f = torch.concatenate(features, 1)
+        if self.verbose:
+            print(
+                "[Feature] features [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]"
+            )
+            print(f)
+        return f
 
     def compute_featurePosNorm(self, x, scale=25):
         return self.compute_gaussDist(x, self.Kp, scale)

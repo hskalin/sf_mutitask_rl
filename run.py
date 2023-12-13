@@ -9,6 +9,7 @@ from agents.compose import CompositionAgent
 from agents.sac import SACAgent
 from agents.ppo import PPO_agent
 from agents.ppoh import PPOHagent
+from agents.pid import BlimpPIDControl
 
 import torch
 import numpy as np
@@ -45,6 +46,8 @@ def launch_rlg_hydra(cfg: DictConfig):
         agent = PPO_agent(cfg=cfg)
     elif "composition" in cfg_dict["agent"]["name"].lower():
         agent = CompositionAgent(cfg_dict)
+    elif "pid" in cfg_dict["agent"]["name"].lower():
+        agent = BlimpPIDControl(cfg_dict)
     else:
         agent = RMACompAgent(cfg_dict)
 
