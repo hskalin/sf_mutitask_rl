@@ -192,6 +192,9 @@ class BlimpTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
         super().__init__(env_cfg, device)
 
+    def define_task(self, c, w):
+        return w
+
 
 class AntTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:

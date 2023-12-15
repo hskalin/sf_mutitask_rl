@@ -6,8 +6,8 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.001
-    max: 0.05
+    min: 0.0004
+    max: 0.02
   agent.policy_lr:
     min: 0.0001
     max: 0.005
@@ -33,13 +33,13 @@ parameters:
   agent.policy_net_kwargs.resnet:
     values: [True]
   agent.policy_net_kwargs.fta:
-    values: [True, False]
+    values: [True]
   agent.policy_net_kwargs.layernorm:
     values: [True]
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
-    values: [True, False]
+    values: [False]
   agent.sf_net_kwargs.layernorm:
     values: [True]
   buffer.framestacked_replay:

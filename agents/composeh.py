@@ -1,26 +1,29 @@
+import copy
 from pathlib import Path
 
 import isaacgym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
 from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
+    AverageMeter,
     check_act,
     check_obs,
+    dump_cfg,
     grad_false,
     hard_update,
+    np2ts,
     pile_sa_pairs,
     soft_update,
     update_params,
 )
 from common.value import MultiheadSFNetwork
 from torch.optim import Adam
-
-import wandb
 
 
 class ENVEncoderBuilder(nn.Module):
@@ -142,8 +145,8 @@ class RMACompAgent(MultitaskAgent):
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
-        self.env_latent_dim = self.env.num_latent # E
-        self.observation_dim -= self.env_latent_dim # S = O-E
+        self.env_latent_dim = self.env.num_latent  # E
+        self.observation_dim -= self.env_latent_dim  # S = O-E
         self.env_latent_idx = self.observation_dim + 1
 
         # rma: train an adaptor module for sim-to-real
@@ -163,9 +166,10 @@ class RMACompAgent(MultitaskAgent):
         ), f"number of task {self.n_heads} exceed the maximum"
 
         # define models
-        self.latent_dim = self.observation_dim # Z = S
+        self.latent_dim = self.observation_dim  # Z = S
         self.sf = MultiheadSFNetwork(
-            observation_dim=self.observation_dim + self.latent_dim + self.action_dim, # S + Z + A
+            # observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
@@ -173,7 +177,8 @@ class RMACompAgent(MultitaskAgent):
         ).to(self.device)
 
         self.sf_target = MultiheadSFNetwork(
-            observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            # observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
@@ -184,7 +189,8 @@ class RMACompAgent(MultitaskAgent):
         grad_false(self.sf_target)
 
         self.policy = MultiheadGaussianPolicy(
-            observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            # observation_dim=self.observation_dim + self.latent_dim + self.action_dim,
+            observation_dim=self.observation_dim + self.latent_dim,
             action_dim=self.action_dim,
             n_heads=self.n_heads,
             **self.policy_net_kwargs,
@@ -195,7 +201,8 @@ class RMACompAgent(MultitaskAgent):
         ).to(self.device)
 
         self.adaptor = AdaptationModule(
-            in_dim=self.observation_dim + self.action_dim,
+            # in_dim=self.observation_dim + self.action_dim,
+            in_dim=self.observation_dim,
             out_dim=self.latent_dim,
             stack_size=self.stack_size - 1,
         ).to(self.device)
@@ -259,10 +266,11 @@ class RMACompAgent(MultitaskAgent):
 
         # init params
         self.learn_steps = 0
-        self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
+        # self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj = FIFOBuffer(
             n_env=self.n_env,
-            traj_dim=self.observation_dim + self.action_dim,
+            # traj_dim=self.observation_dim + self.action_dim,
+            traj_dim=self.observation_dim,
             stack_size=self.stack_size - 1,
             device=self.device,
         )
@@ -302,45 +310,65 @@ class RMACompAgent(MultitaskAgent):
 
         print(f"============= finish =============")
 
-    def act(self, s, task, mode="explore"):
-        s = check_obs(s, self.observation_dim + self.env_latent_dim)
+    def act(self, o, task, mode="explore"):
+        o = check_obs(o, self.observation_dim + self.env_latent_dim)
 
         # [N, A] <-- [N, S+E]
-        a = self._act(s, task, mode)
+        a = self._act(o, task, mode)
 
         a = check_act(a, self.action_dim)
         return a
 
-    def explore(self, s, w, id):
+    def _act(self, o, task, mode):
+        with torch.no_grad():
+            if (self.steps <= self.min_n_experience) and mode == "explore":
+                a = (
+                    2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
+                    - 1
+                )
+
+            w = copy.copy(np2ts(task.W))
+            id = copy.copy(np2ts(task.id))
+
+            if mode == "explore":
+                a = self.explore(o, w, id)
+            elif mode == "exploit":
+                a = self.exploit(o, w, id)
+        return a
+
+    def explore(self, o, w, id):
         # [N, S+Z+A], [N, S] <-- [N, S+E]
-        s, s_raw = self.prepare_state(s)
+        s, s_raw = self.encode_state(o)
 
         # [N, A] <-- [N, S+Z+A]
         a = self.comp.act(s, w, id, "explore", self.explore_method)
 
-        self.prev_a = a
+        # self.prev_a = a
         if self.phase is not 1:
-            self.prev_traj.add(torch.concat([s_raw, a], dim=1))
+            # self.prev_traj.add(torch.concat([s_raw, a], dim=1))
+            self.prev_traj.add(s_raw)
         return a
 
-    def exploit(self, s, w, id):
-        s, s_raw = self.prepare_state(s)
+    def exploit(self, o, w, id):
+        s, s_raw = self.encode_state(o)
         a = self.comp.act(s, w, id, "exploit", self.exploit_method)
 
-        self.prev_a = a
+        # self.prev_a = a
         if self.phase is not 1:
-            self.prev_traj.add(torch.concat([s_raw, a], dim=1))
+            # self.prev_traj.add(torch.concat([s_raw, a], dim=1))
+            self.prev_traj.add(s_raw)
         return a
 
-    def prepare_state(self, s):
-        s_raw, e = self.parse_state(s)  # [N, S], [N,E]
+    def encode_state(self, o):
+        s_raw, e = self.parse_state(o)  # [N, S], [N,E]
 
         if self.phase == 1:
             z = self.encoder(e)  # [N, Z] <-- [N, E]
         else:
             z = self.adaptor(self.prev_traj.get())  # [N, Z] <-- [N, S+A, K-1]
 
-        s = torch.concat([s_raw, z, self.prev_a], dim=1)
+        # s = torch.concat([s_raw, z, self.prev_a], dim=1)
+        s = torch.concat([s_raw, z], dim=1)  # [N, S+Z]
         return s, s_raw  # [N, S+Z+A], [N, S]
 
     def parse_state(self, s):
@@ -354,7 +382,7 @@ class RMACompAgent(MultitaskAgent):
 
     def reset_env(self):
         self.comp.reset()
-        self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
+        # self.prev_a = torch.zeros(self.n_env, self.action_dim, device=self.device)
         self.prev_traj.clear()
 
         # self.env.randomize_latent()
@@ -443,15 +471,17 @@ class RMACompAgent(MultitaskAgent):
             batch["next_obs"],
             batch["done"],
         )
-        prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
+        # prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
 
         s, e = self.parse_state(s)
         z = self.encoder(e)
-        s = torch.concat([s, z, prev_a], dim=1)
+        # s = torch.concat([s, z, prev_a], dim=1)
+        s = torch.concat([s, z], dim=1)
 
         s_next, e_next = self.parse_state(s_next)
         z_next = self.encoder(e_next)
-        s_next = torch.concat([s_next, z_next, a], dim=1)  # [N, S+Z+A]
+        # s_next = torch.concat([s_next, z_next, a], dim=1)  # [N, S+Z+A]
+        s_next = torch.concat([s_next, z_next], dim=1)  # [N, S+Z]
 
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <--[N, S+Z+A], [N,A]
         target_sf = self._calc_target_sf(f, s_next, dones)  # [N, H, F]
@@ -486,7 +516,8 @@ class RMACompAgent(MultitaskAgent):
         prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
 
         z = self.encoder(e)
-        s = torch.concat([s_raw, z, prev_a], dim=1)
+        # s = torch.concat([s_raw, z, prev_a], dim=1)
+        s = torch.concat([s_raw, z], dim=1)
 
         # [N,H,A], [N, H, 1] <-- [N,S+Z+A]
         a_heads, entropies, _ = self.policy.sample(s)
@@ -527,10 +558,11 @@ class RMACompAgent(MultitaskAgent):
         s = s_stack[:, :, 0]  # [N, S+E] <-- [N, S+E, K]
         _, e = self.parse_state(s)  # [N, S], [N, E]
 
-        prev_acts = a_stack[:, :, 1:]  # [N, A, K-1]
+        # prev_acts = a_stack[:, :, 1:]  # [N, A, K-1]
         prev_obses = s_stack[:, :, 1:]  # [N, S+E, K-1]
-        prev_obses, _ = self.parse_state(prev_obses)  # [N, S, K-1]
-        prev_traj = torch.concat([prev_acts, prev_obses], dim=1)  # [N, S+A, K-1]
+        # prev_obses, _ = self.parse_state(prev_obses)  # [N, S, K-1]
+        prev_traj, _ = self.parse_state(prev_obses)  # [N, S, K-1]
+        # prev_traj = torch.concat([prev_acts, prev_obses], dim=1)  # [N, S+A, K-1]
 
         z = self.encoder(e)
         z_head = self.adaptor(prev_traj)

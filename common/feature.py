@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from scipy.spatial.transform import Rotation as R
 import numpy as np
+from common.pid import PIDController
 
 
 class FeatureAbstract(ABC):
@@ -224,6 +225,66 @@ class PointerFeature(FeatureAbstract):
         return torch.exp(scale * -mu / sigma**2)
 
 
+class BlimpPositionControl:
+    ctrl_cfg = {
+        "yaw": {
+            "pid_param": torch.tensor([1.0, 0.01, 0.025]),
+            "gain": 1,
+        },
+        "alt": {
+            "pid_param": torch.tensor([1.0, 0.01, 0.5]),
+            "gain": 0.2,
+        },
+        "vel": {
+            "pid_param": torch.tensor([0.7, 0.01, 0.5]),
+            "gain": 1.0,
+        },
+    }
+
+    def __init__(self, device):
+        delta_t = 0.1
+
+        self.yaw_ctrl = PIDController(
+            device=device,
+            delta_t=delta_t,
+            **self.ctrl_cfg["yaw"],
+        )
+        self.alt_ctrl = PIDController(
+            device=device,
+            delta_t=delta_t,
+            **self.ctrl_cfg["alt"],
+        )
+        self.vel_ctrl = PIDController(
+            device=device,
+            delta_t=delta_t,
+            **self.ctrl_cfg["vel"],
+        )
+
+    def act(self, s):
+        err_yaw, err_planar, err_z = self.parse_state(s)
+
+        yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
+        alt_ctrl = self.alt_ctrl.action(err_z)
+        vel_ctrl = self.vel_ctrl.action(err_planar)
+        thrust_vec = -1 * torch.ones_like(vel_ctrl)
+        a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
+
+        return a
+
+    def parse_state(self, s):
+        err_planar = s[:, 11:13]
+        err_z = s[:, 13]
+        err_yaw = s[:, 14]
+
+        err_planar = torch.norm(err_planar, p=2, dim=1, keepdim=True)
+        return err_yaw, err_planar, err_z
+
+    def clear(self):
+        self.yaw_ctrl.clear()
+        self.alt_ctrl.clear()
+        self.vel_ctrl.clear()
+
+
 class BlimpFeature(FeatureAbstract):
     def __init__(
         self,
@@ -251,13 +312,15 @@ class BlimpFeature(FeatureAbstract):
         )
         self.Ka = torch.pi
 
-        self.dim = 12
+        self.dim = 13
         if self.verbose:
             print("[Feature] dim", self.dim)
 
         self.proxScale = 1 / self.compute_gaussDist(
             mu=self.ProxThresh[None, None], sigma=self.Kp, scale=25
         )
+
+        self.pid = BlimpPositionControl(device=device)
 
         # robot angle
         self.slice_rbangle = slice(0, 3)
@@ -270,7 +333,10 @@ class BlimpFeature(FeatureAbstract):
         self.slice_rbv = slice(15, 18)
 
         # robot thrust
-        self.slice_thrust = slice(30, 31)
+        self.slice_thrust = slice(27, 28)
+
+        # robot actions
+        self.slice_prev_act = slice(27, 31)
 
         # relative angle
         self.slice_err_roll = slice(3, 4)
@@ -304,6 +370,7 @@ class BlimpFeature(FeatureAbstract):
         robot_angVel = s[:, self.slice_rbangvel]
         robot_v = s[:, self.slice_rbv]
         robot_thrust = s[:, self.slice_thrust]
+        robot_act = s[:, self.slice_prev_act]
 
         error_yaw = s[:, self.slice_err_yaw]
         error_yaw_to_goal = s[:, self.slice_err_yaw_to_goal]
@@ -366,8 +433,13 @@ class BlimpFeature(FeatureAbstract):
         x = self.compute_featureVelNorm(robot_v)
         features.append(x)
 
-        # regulate robot thrust: rescale to [0, 1] by div 5, similar to angle
-        x = self.compute_featureAngNorm(robot_thrust / 5)
+        # regulate robot thrust: rescale to [0, 2], similar to angle scale
+        x = self.compute_featureAngNorm(robot_thrust + 1)
+        features.append(x)
+
+        # similarity to PID position control, similar to angle scale
+        pid_act = self.pid.act(s)
+        x = self.compute_featureAngNorm(robot_act - pid_act)
         features.append(x)
 
         f = torch.concatenate(features, 1)

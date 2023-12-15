@@ -37,8 +37,8 @@ class BlimpRand(VecEnv):
         )
         self.blimp_mass = cfg["blimp"]["mass"]
         self.body_torque_coeff = torch.tensor(
-            [0.47, 1.29, 270.0, 5.0, 5.0], device=self.sim_device
-        )  # [coef, p, BL4, balance torque, fin torque effort]
+            [0.47, 1.29, 270.0, 5.0, 2.5], device=self.sim_device
+        )  # [coef, p, BL4, balance torque, fin torque coef]
 
         # wind
         self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
@@ -55,7 +55,7 @@ class BlimpRand(VecEnv):
         self.range_body_areas2 = [self.body_areas[2] * 0.8, self.body_areas[2] * 1.2]
         self.range_drag_coefs0 = [self.drag_coefs[0] * 0.8, self.drag_coefs[0] * 1.2]
         self.range_drag_coefs1 = [self.drag_coefs[1] * 0.8, self.drag_coefs[1] * 1.2]
-        self.range_wind_mag = [self.wind_mag * 0.8, self.wind_mag * 1.2]
+        self.range_wind_mag = [self.wind_mag * 0.5, self.wind_mag * 2.0]
         self.range_wind_std = [self.wind_std * 0.8, self.wind_std * 1.2]
         self.range_blimp_mass = [self.blimp_mass * 0.8, self.blimp_mass * 1.2]
         self.range_body_torque_coeff = [
@@ -138,13 +138,18 @@ class BlimpRand(VecEnv):
         self.rb_lvels = self.rb_states[:, 7:10].view(self.num_envs, self.num_bodies, 3)
         self.rb_avels = self.rb_states[:, 10:13].view(self.num_envs, self.num_bodies, 3)
 
+        self.prev_actions = torch.zeros(
+            (self.num_envs, self.num_act),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
+
         # storing tensors for visualisations
         self.actions_tensor = torch.zeros(
             (self.num_envs, self.num_bodies, 3),
             device=self.sim_device,
             dtype=torch.float,
         )
-
         self.actions_tensor_prev = torch.zeros(
             (self.num_envs, self.num_bodies, 3),
             device=self.sim_device,
@@ -320,16 +325,22 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 26] = zw
 
         # rudder
-        self.obs_buf[env_ids, 27] = self.dof_pos[env_ids, 1]
+        # self.obs_buf[env_ids, 27] = self.dof_pos[env_ids, 1]
 
         # elevator
-        self.obs_buf[env_ids, 28] = self.dof_pos[env_ids, 2]
+        # self.obs_buf[env_ids, 28] = self.dof_pos[env_ids, 2]
 
         # thrust vectoring angle
-        self.obs_buf[env_ids, 29] = self.dof_pos[env_ids, 0]
+        # self.obs_buf[env_ids, 29] = self.dof_pos[env_ids, 0]
 
         # thrust
-        self.obs_buf[env_ids, 30] = self.actions_tensor[env_ids, 3, 2]
+        # self.obs_buf[env_ids, 30] = self.actions_tensor_prev[env_ids, 3, 2]
+
+        # previous actions
+        self.obs_buf[env_ids, 27] = self.prev_actions[env_ids, 0]
+        self.obs_buf[env_ids, 28] = self.prev_actions[env_ids, 1]
+        self.obs_buf[env_ids, 29] = self.prev_actions[env_ids, 2]
+        self.obs_buf[env_ids, 30] = self.prev_actions[env_ids, 3]
 
         # include env_latent to the observation
         d = 31
@@ -548,12 +559,19 @@ class BlimpRand(VecEnv):
         self.return_buf[env_ids] = 0
         self.truncated_buf[env_ids] = 0
 
+        self.prev_actions[env_ids] = torch.zeros(
+            (len(env_ids), self.num_act),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
+
         # refresh new observation after reset
         self.get_obs()
 
     def step(self, actions):
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
         actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
+        self.prev_actions = actions
 
         # zeroing out any prev action
         self.actions_tensor[:] = 0.0
@@ -569,7 +587,16 @@ class BlimpRand(VecEnv):
             self.k_effort_botthrust * actions[:, 1]
         )  # bot propeller
 
-        self.actions_tensor[:] = simulate_boyancy(
+        # EMA smoothing thrusts
+        self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
+            :, [3, 4, 7], :
+        ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
+            1 - self.ema_smooth
+        )
+        self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
+
+        # buoyancy
+        self.actions_tensor[:] = simulate_buoyancy(
             self.rb_rot, self.k_bouyancy, self.actions_tensor
         )
 
@@ -588,14 +615,6 @@ class BlimpRand(VecEnv):
             actions_tensor=self.actions_tensor,
             body_torque_coeff=self.k_body_torque_coeff,
         )
-
-        # EMA smoothing thrusts
-        self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
-            :, [3, 4, 7], :
-        ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
-            1 - self.ema_smooth
-        )
-        self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
 
         dof_targets = torch.zeros((self.num_envs, 5), device=self.sim_device)
         dof_targets[:, 0] = torch.pi / 2 * actions[:, 2]  # stick
@@ -775,7 +794,7 @@ class BlimpRand(VecEnv):
 
 
 @torch.jit.script
-def simulate_boyancy(rb_rot, bouyancy, actions_tensor):
+def simulate_buoyancy(rb_rot, bouyancy, actions_tensor):
     # type: (Tensor, Tensor, Tensor) -> Tensor
     roll, pitch, yaw = get_euler_xyz(rb_rot[:, 0, :])
     xa, ya, za = globalToLocalRot(
@@ -811,12 +830,7 @@ def simulate_aerodynamics(
     p = body_torque_coeff[:, 1]  # p = 1.29
     BL4 = body_torque_coeff[:, 2]  # BL4 = 270
     balance_torque = body_torque_coeff[:, 3]  # balance_torque = 5
-    fin_torque_coeff = body_torque_coeff[:, 4]  # fin_torque_coeff = 5
-    # coef = 0.47
-    # p = 1.29
-    # BL4 = 270
-    # balance_torque = 5
-    # fin_torque_coeff = 5
+    fin_torque_coeff = body_torque_coeff[:, 4]  # fin_torque_coeff = 2.5
 
     D = (1 / 64) * p * coef * BL4
     r, p, y = get_euler_xyz(rb_rot[:, 0, :])
@@ -850,7 +864,7 @@ def simulate_aerodynamics(
     actions_tensor[:, drag_bodies, 2] += aerodynamic_force2
 
     # balance pitch torque
-    torques_tensor[:, drag_bodies[0], 1] += balance_torque
+    # torques_tensor[:, drag_bodies[0], 1] += balance_torque
 
     # pitch torque
     torques_tensor[:, drag_bodies[0], 1] += fin_torque_coeff * (
