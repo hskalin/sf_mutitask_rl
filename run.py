@@ -52,6 +52,11 @@ def launch_rlg_hydra(cfg: DictConfig):
         from agents.pidcontrol import BlimpPositionController
 
         agent = BlimpPositionController(cfg_dict)
+    elif "rmacompblimp" in cfg_dict["agent"]["name"].lower():
+        from agents.compose_pid import RMACompPIDAgent
+
+        agent = RMACompPIDAgent(cfg_dict)
+
     else:
         from agents.composeh import RMACompAgent
 

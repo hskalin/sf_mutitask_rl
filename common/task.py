@@ -90,7 +90,7 @@ class SmartTask:
         self.verbose = self.task_cfg.get("verbose", False)
 
         self.n_env = self.env_cfg["num_envs"]
-        self.use_feature = self.feature_cfg["use_feature"]
+        self.use_feature = self.feature_cfg.get("use_feature", None)
         self.randTasks = self.task_cfg.get("rand_task", False)
         self.taskSet_train = self.task_cfg.get("taskSet_train", None)
         self.taskSet_eval = self.task_cfg.get("taskSet_eval", None)

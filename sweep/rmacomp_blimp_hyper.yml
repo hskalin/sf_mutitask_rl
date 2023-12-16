@@ -26,6 +26,11 @@ parameters:
   agent.continuity_coeff:
     min: 0.0001
     max: 0.01
+  agent.use_imitation_loss:
+    values: [True]
+  agent.imitation_coeff:
+    min: 0.0001
+    max: 0.01
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:
@@ -57,5 +62,5 @@ command:
   - ${env}
   - python
   - ${program}
-  - agent=RMACOMP
+  - agent=RMACOMPBLIMP
   - env=BlimpRand

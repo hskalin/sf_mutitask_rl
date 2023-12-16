@@ -13,14 +13,14 @@ from .base.vec_env import VecEnv
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 31  #
-        self.num_act = 4  #
+        self.num_obs = 31
+        self.num_act = 4
         self.reset_dist = 10.0  # when to reset
 
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         # domain randomization
-        self.num_latent = 25
+        self.num_latent = 29
         self.num_obs += self.num_latent
 
         super().__init__(cfg=cfg)
@@ -37,7 +37,7 @@ class BlimpRand(VecEnv):
         )
         self.blimp_mass = cfg["blimp"]["mass"]
         self.body_torque_coeff = torch.tensor(
-            [0.47, 1.29, 270.0, 5.0, 2.5], device=self.sim_device
+            [0.47, 1.29, 270.0, 3.0, 2.5], device=self.sim_device
         )  # [coef, p, BL4, balance torque, fin torque coef]
 
         # wind
@@ -97,7 +97,7 @@ class BlimpRand(VecEnv):
             ),
             (self.num_envs, 1),
         )
-        self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
+        # self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
 
         self.goal_lvel = torch.tile(
             torch.tensor(
@@ -105,7 +105,7 @@ class BlimpRand(VecEnv):
             ),
             (self.num_envs, 1),
         )
-        self.goal_lvel[..., 2] = 0.0  # set vz zero
+        # self.goal_lvel[..., 2] = 0.0  # set vz zero
 
         self.goal_avel = torch.tile(
             torch.tensor(
@@ -115,7 +115,7 @@ class BlimpRand(VecEnv):
             ),
             (self.num_envs, 1),
         )
-        self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
+        # self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -324,18 +324,6 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 25] = yw
         self.obs_buf[env_ids, 26] = zw
 
-        # rudder
-        # self.obs_buf[env_ids, 27] = self.dof_pos[env_ids, 1]
-
-        # elevator
-        # self.obs_buf[env_ids, 28] = self.dof_pos[env_ids, 2]
-
-        # thrust vectoring angle
-        # self.obs_buf[env_ids, 29] = self.dof_pos[env_ids, 0]
-
-        # thrust
-        # self.obs_buf[env_ids, 30] = self.actions_tensor_prev[env_ids, 3, 2]
-
         # previous actions
         self.obs_buf[env_ids, 27] = self.prev_actions[env_ids, 0]
         self.obs_buf[env_ids, 28] = self.prev_actions[env_ids, 1]
@@ -344,6 +332,25 @@ class BlimpRand(VecEnv):
 
         # include env_latent to the observation
         d = 31
+
+        # robot actuator states
+        # thrust vectoring angle
+        self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 0]
+
+        # rudder
+        d += 1
+        self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 1]
+
+        # elevator
+        d += 1
+        self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 2]
+
+        # thrust
+        d += 1
+        self.obs_buf[env_ids, d] = self.actions_tensor_prev[env_ids, 3, 2]
+
+        # effort
+        d += 1
         self.obs_buf[env_ids, d] = self.k_effort_thrust[env_ids]
         d += 1
         self.obs_buf[env_ids, d] = self.k_effort_botthrust[env_ids]
@@ -465,6 +472,13 @@ class BlimpRand(VecEnv):
 
         z_abs = self.obs_buf[:, 10]
 
+        wx = self.obs_buf[:, 21]
+        wy = self.obs_buf[:, 22]
+        wz = self.obs_buf[:, 23]
+        print("angvelx", wx)
+        print("angvely", wy)
+        print("angvelz", wz)
+
         (
             self.reward_buf[:],
             self.reset_buf[:],
@@ -475,6 +489,9 @@ class BlimpRand(VecEnv):
             y,
             z,
             z_abs,
+            wx,
+            wy,
+            wz,
             self.reset_dist,
             self.reset_buf,
             self.progress_buf,
@@ -864,7 +881,7 @@ def simulate_aerodynamics(
     actions_tensor[:, drag_bodies, 2] += aerodynamic_force2
 
     # balance pitch torque
-    # torques_tensor[:, drag_bodies[0], 1] += balance_torque
+    torques_tensor[:, drag_bodies[0], 1] += balance_torque
 
     # pitch torque
     torques_tensor[:, drag_bodies[0], 1] += fin_torque_coeff * (
@@ -883,6 +900,9 @@ def compute_point_reward(
     y_pos,
     z_pos,
     z_abs,
+    ang_velx,
+    ang_vely,
+    ang_velz,
     reset_dist,
     reset_buf,
     progress_buf,
@@ -890,7 +910,7 @@ def compute_point_reward(
     truncated_buf,
     max_episode_length,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor,Tensor, Tensor,float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor,Tensor, Tensor,float) -> Tuple[Tensor, Tensor, Tensor, Tensor]
 
     sqr_dist = (x_pos) ** 2 + (y_pos) ** 2 + (z_pos) ** 2
 
@@ -910,9 +930,13 @@ def compute_point_reward(
     return_buf += reward
 
     reset = torch.where(
-        torch.abs(sqr_dist) > 9000, torch.ones_like(reset_buf), reset_buf
+        torch.abs(sqr_dist) > 4000, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
+
+    reset = torch.where(torch.abs(ang_velx) > 1.5, torch.ones_like(reset_buf), reset)
+    reset = torch.where(torch.abs(ang_vely) > 1.5, torch.ones_like(reset_buf), reset)
+    reset = torch.where(torch.abs(ang_velz) > 1.5, torch.ones_like(reset_buf), reset)
 
     # reset = torch.where(torch.abs(wz) > 70, torch.ones_like(reset_buf), reset)
     # reset = torch.where(torch.abs(wy) > 70, torch.ones_like(reset_buf), reset)

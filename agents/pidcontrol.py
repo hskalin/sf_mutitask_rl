@@ -51,7 +51,7 @@ class BlimpPositionController(IsaacAgent):
         alt_ctrl = self.alt_ctrl.action(err_z)
         vel_ctrl = self.vel_ctrl.action(err_planar)
         thrust_vec = -1 * torch.ones_like(vel_ctrl)
-        a = torch.tensor([1, yaw_ctrl, thrust_vec, alt_ctrl])
+        a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         # a = torch.tensor([-1, 0, thrust_vec, 0])
 
         return a

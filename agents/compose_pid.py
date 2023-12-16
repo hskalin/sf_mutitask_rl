@@ -9,7 +9,8 @@ import wandb
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
-from common.policy import MultiheadGaussianPolicy, weights_init_
+from common.pid import BlimpPositionControl
+from common.policy import BaseNetwork, MultiheadGaussianPolicy, weights_init_
 from common.util import (
     AverageMeter,
     check_act,
@@ -113,7 +114,7 @@ class FIFOBuffer:
         )
 
 
-class RMACompAgent(MultitaskAgent):
+class RMACompPIDAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 
@@ -141,6 +142,9 @@ class RMACompAgent(MultitaskAgent):
         self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
+        self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
+        self.imitation_coeff = self.agent_cfg["imitation_coeff"]
+        self.imi_idx = 0  # the first policy head should imitate pid control
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -192,6 +196,8 @@ class RMACompAgent(MultitaskAgent):
             n_heads=self.n_heads,
             **self.policy_net_kwargs,
         ).to(self.device)
+
+        self.controller = BlimpPositionControl(device=self.device)
 
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
@@ -387,7 +393,8 @@ class RMACompAgent(MultitaskAgent):
         batch = self.replay_buffer.sample(self.mini_batch_size)
 
         sf_loss, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
-        policy_loss, entropies, action_norm, continuity_loss = self.update_policy(batch)
+        policy_loss, entropies, info = self.update_policy(batch)
+        # policy_loss, entropies, action_norm, continuity_loss = self.update_policy(batch)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
@@ -403,8 +410,9 @@ class RMACompAgent(MultitaskAgent):
             metrics = {
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
-                "loss/action_norm": action_norm,
-                "loss/action_continuity": -continuity_loss,
+                "loss/action_norm": info.get("action_norm", 0),
+                "loss/action_continuity": -info.get("continuity_loss", 0), 
+                "loss/imitation_loss": info.get("imitation_loss", 0), 
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
                 "state/target_sf": target_sf,
@@ -487,8 +495,9 @@ class RMACompAgent(MultitaskAgent):
         return sf_loss, curr_sf1, curr_sf2, target_sf
 
     def update_policy(self, batch):
-        s, a_stack = batch["obs"], batch["stacked_act"]
+        s_stack, a_stack = batch["stacked_obs"], batch["stacked_act"]
 
+        s = s_stack[:, :, 0]
         s_raw, e = self.parse_state(s)  # [N, S], [N, E]
         prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
 
@@ -498,35 +507,42 @@ class RMACompAgent(MultitaskAgent):
         # [N,H,A], [N, H, 1] <-- [N,S+Z]
         a_heads, entropies, _ = self.policy.sample(s)
 
-        # monitor action_norm
-        action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
-
-        # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
-        continuity_loss = torch.norm(
-            prev_a[:, None, :] - a_heads, p=2, dim=2, keepdim=True
-        )
-
         qs = self._calc_qs_from_sf(s, a_heads)  # [N,H]<--[N, S+Z], [N, H, A]
         qs = qs.unsqueeze(2)  # [N,H,1]
 
         policy_loss = -qs - self.alpha * entropies
         policy_loss_record = policy_loss.mean().detach().item()
 
+        # monitor
+        info = {}
+        action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
+        info["action_norm"] = action_norm.mean().detach().item()
+
         if self.use_continuity_loss:
+            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
+            continuity_loss = torch.norm(
+                prev_a[:, None, :] - a_heads, dim=2, keepdim=True
+            )
             policy_loss = (
                 policy_loss + (1 - self.alpha) * self.continuity_coeff * continuity_loss
             )
+            info["continuity_loss"] = continuity_loss.mean().detach().item()
+
+        if self.use_imitation_loss:
+            a_pid = self.controller.act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
+
+            imi_loss = torch.zeros_like(policy_loss)  # [N, H, A]
+            imi_loss[:, self.imi_idx] = torch.norm(
+                a_pid - a_heads[:, self.imi_idx], dim=1, keepdim=True
+            )
+
+            policy_loss = policy_loss + self.alpha * self.imitation_coeff * imi_loss
+            info["imitation_loss"] = imi_loss.mean().detach().item()
 
         policy_loss = torch.mean(policy_loss)
-
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
 
-        return (
-            policy_loss_record,
-            entropies,
-            action_norm.mean().detach().item(),
-            continuity_loss.mean().detach().item(),
-        )
+        return policy_loss_record, entropies, info
 
     def update_adaptor(self, batch):
         s_stack = batch["stacked_obs"]
@@ -534,12 +550,6 @@ class RMACompAgent(MultitaskAgent):
         s, e = self.parse_state(s_stack)  # [N,S,K], [N,E,K] <-- [N, S+E, K]
         e = e[:, :, 0]  # [N, E]
         prev_traj = s[:, :, 1:]  # [N, S, K-1]
-
-        # s = s_stack[:, :, 0]  # [N, S+E] <-- [N, S+E, K]
-        # _, e = self.parse_state(s)  # [N, S], [N, E]
-
-        # prev_obses = s_stack[:, :, 1:]  # [N, S+E, K-1]
-        # prev_traj, _ = self.parse_state(prev_obses)  # [N, S, K-1]
 
         z = self.encoder(e)
         z_head = self.adaptor(prev_traj)
