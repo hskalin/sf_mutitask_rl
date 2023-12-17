@@ -126,8 +126,8 @@ class TCN(nn.Module):
         self.linear = nn.Linear(num_channels[-1], out_dim)
         self.apply(weights_init_)
 
-        # example = torch.rand(1, in_dim, stack_size)
-        # self.tcn = torch.jit.trace(self.tcn, example_inputs=example)
+        example = torch.rand(1, in_dim, stack_size)
+        self.tcn = torch.jit.trace(self.tcn, example_inputs=example)
 
         example2 = self.tcn(example)
         self.linear = torch.jit.trace(self.linear, example_inputs=example2[:, :, -1])
