@@ -67,8 +67,8 @@ class TCNAgent(Agent):
     def __init__(self, env):
         super().__init__(env)
 
-        channels = [env.num_obs, env.num_obs, env.num_obs]
-        kernel_size = 5
+        channels = [env.num_obs, env.num_obs]
+        kernel_size = 2
         self.tcn1 = TCN(
             in_dim = env.num_obs,
             out_dim = env.num_obs,
@@ -130,24 +130,12 @@ class PPO_agent:
 
         self.writer = SummaryWriter(f"runs/{self.run_name}")
 
-        self.agent = Agent(self.env).to(self.device)
-        self.history = 10
-        #self.agent = TCNAgent(self.env).to(self.device)
-        self.percep = TCN(
-            self.env.num_obs,
-            self.env.num_obs,
-            [100,100],
-            5
-        )
-        self.percep.load_state_dict(torch.load("/home/nilaksh/rl/sf_mutitask_rl/runs/ant/percep.pth"))
-        self.percep.to(self.device)
-        self.percep.eval()
-
+        #self.agent = Agent(self.env).to(self.device)
+        self.history = 5
+        self.agent = TCNAgent(self.env).to(self.device)
         self.optimizer = optim.Adam(
             self.agent.parameters(), lr=self.agent_cfg["learning_rate"], eps=1e-5
         )
-        self.optimizerPercep = optim.Adam(self.percep.parameters(), lr=0.005, eps=1e-5)
-        self.loss_fn = nn.MSELoss()
         
         self.game_rewards = AverageMeter(1, max_size=100).to(self.device)
         self.game_lengths = AverageMeter(1, max_size=100).to(self.device)
@@ -215,20 +203,12 @@ class PPO_agent:
                 with torch.no_grad():
                     action, logprob, _, value = self.agent.get_action_and_value(
                         #next_obs.unsqueeze(-1)
-                        self.percep(self.obs.permute(1,2,0)[...,prev_idx:step+1])
+                        self.obs.permute(1,2,0)[...,prev_idx:step+1]
                     )
                     self.values[step] = value.flatten()
                 self.actions[step] = action
                 self.logprobs[step] = logprob
 
-                if step>1:
-                    self.percep.train()
-                    self.optimizer.zero_grad()
-                    pred_obs = self.percep(self.obs.permute(1,2,0)[..., prev_idx:step])
-                    J = self.loss_fn(pred_obs, next_obs)
-                    J.backward()
-                    self.optimizer.step()
-                    self.percep.eval()
                 # TRY NOT TO MODIFY: execute the game and log data.
 
                 # next_obs, rewards[step], next_done, info = envs.step(action)
@@ -275,7 +255,7 @@ class PPO_agent:
             with torch.no_grad():
                 next_value = self.agent.get_value(
                     #next_obs.unsqueeze(-1)
-                    self.percep(self.obs.permute(1,2,0)[...,-self.history:])
+                    self.obs.permute(1,2,0)[...,-self.history:]
                     ).reshape(1, -1)
                 advantages = torch.zeros_like(self.rewards).to(self.device)
                 lastgaelam = 0
@@ -302,14 +282,16 @@ class PPO_agent:
 
             # flatten the batch
             #b_obs = self.obs.reshape((-1, self.env.num_obs))
-            unfold_obs = self.obs.permute(1,2,0).unfold(2,self.history,1) # [Nenv, O, S-H+1, H] <-- [Nenv, O, S]
+            unfold_obs = self.obs.permute(1,2,0).unfold(2,self.history,1)
+
+            n_batch = self.num_envs*(self.num_steps - self.history+1)
             b_obs = unfold_obs.permute(0,2,1,3).reshape(
-                self.num_envs*(self.num_steps - self.history+1), self.env.num_obs, self.history) # [Nenv*(S-H+1), O, H]
-            b_logprobs = self.logprobs.reshape(-1)
-            b_actions = self.actions.reshape((-1, self.env.num_act))
-            b_advantages = advantages.reshape(-1)
-            b_returns = returns.reshape(-1)
-            b_values = self.values.reshape(-1)
+                n_batch, self.env.num_obs, self.history) # [Nenv*(S-H+1), O, H]
+            b_logprobs = self.logprobs.reshape(-1)[-n_batch:]
+            b_actions = self.actions.reshape((-1, self.env.num_act))[-n_batch:]
+            b_advantages = advantages.reshape(-1)[-n_batch:]
+            b_returns = returns.reshape(-1)[-n_batch:]
+            b_values = self.values.reshape(-1)[-n_batch:]
 
             # Optimizing the policy and value network
             clipfracs = []
@@ -327,7 +309,7 @@ class PPO_agent:
                     mb_inds = b_inds[start:end]
 
                     _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                        self.percep(b_obs[mb_inds]), b_actions[mb_inds]
+                        b_obs[mb_inds], b_actions[mb_inds]
                     )
                     logratio = newlogprob - b_logprobs[mb_inds]
                     ratio = logratio.exp()

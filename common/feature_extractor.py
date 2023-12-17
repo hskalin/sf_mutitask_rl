@@ -112,16 +112,16 @@ class TemporalConvNet(nn.Module):
 
 
 class TCN(nn.Module):
-    def __init__(self, in_dim, out_dim, num_channels, stack_size, kernel_size=2, dropout=0):
+    def __init__(self, in_dim, out_dim, num_channels, kernel_size=2, dropout=0):
         super().__init__()
         self.tcn = TemporalConvNet(in_dim, num_channels, kernel_size, dropout)
         self.linear = nn.Linear(num_channels[-1], out_dim)
 
-        example = torch.rand(1, in_dim, stack_size)
-        self.tcn = torch.jit.trace(self.tcn, example_inputs=example)
+        # example = torch.rand(1, in_dim, stack_size)
+        # self.tcn = torch.jit.trace(self.tcn, example_inputs=example)
 
-        example2 = self.tcn(example)
-        self.linear = torch.jit.trace(self.linear, example_inputs=example2[:,:,-1])
+        # example2 = self.tcn(example)
+        # self.linear = torch.jit.trace(self.linear, example_inputs=example2[:,:,-1])
 
     def forward(self, x):
         x = self.tcn(x)
