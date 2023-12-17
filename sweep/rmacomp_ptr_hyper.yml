@@ -1,0 +1,61 @@
+program: run.py
+method: bayes
+metric:
+  goal: maximize
+  name: reward/eval
+
+parameters:
+  agent.lr:
+    min: 0.001
+    max: 0.005
+  agent.policy_lr:
+    min: 0.0005
+    max: 0.002
+  agent.updates_per_step:
+    values: [1]
+  agent.td_target_update_interval:
+    values: [1]
+  agent.explore_method:
+    values: ["null"]
+  agent.exploit_method:
+    values: ["sfgpi"]
+  agent.rma:
+    values: [False]
+  agent.use_continuity_loss:
+    values: [True]
+  agent.continuity_coeff:
+    min: 0.05
+    max: 1.0
+  agent.lr_schedule:
+    values: [True, False]
+  agent.norm_task_by_sf:
+    values: [True, False]
+  agent.policy_net_kwargs.resnet:
+    values: [True]
+  agent.policy_net_kwargs.fta:
+    values: [True]
+  agent.policy_net_kwargs.layernorm:
+    values: [True]
+  agent.sf_net_kwargs.resnet:
+    values: [True]
+  agent.sf_net_kwargs.fta:
+    values: [True, False]
+  agent.sf_net_kwargs.layernorm:
+    values: [True]
+  buffer.framestacked_replay:
+    values: [True]
+  buffer.stack_size:
+    values: [5]
+  env.num_envs:
+    values: [1024]
+  env.task.taskSet_train:
+    values: ["achievable"] # "redundant"
+  env.task.taskSet_eval:
+    values: ["achievable"]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - agent=RMACOMP
+  - env=Pointer2DRand

@@ -9,6 +9,7 @@ import collections.abc
 from omegaconf import DictConfig, OmegaConf
 from typing import Dict
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class AverageMeter(nn.Module):
     def __init__(self, in_shape, max_size):
@@ -88,7 +89,6 @@ def update_dict(d, u):
     return d
 
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def get_sa_pairs(s: torch.tensor, a: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
@@ -183,6 +183,7 @@ def assert_shape(tensor, expected_shape):
     ), f"expect shape a {tensor_shape}, b {expected_shape}"
 
 
+
 def np2ts(obj: np.ndarray) -> torch.Tensor:
     if isinstance(obj, np.ndarray) or isinstance(obj, float):
         obj = torch.tensor(obj, dtype=torch.float32).to(device)
@@ -265,8 +266,10 @@ def to_batch_rnn(
     )
 
 
-def update_params(optim, network, loss, grad_clip=None, retain_graph=False):
-    optim.zero_grad()
+def update_params(
+    optim, network, loss, grad_clip=None, retain_graph=False, set_to_none=True
+):
+    optim.zero_grad(set_to_none)
     loss.backward(retain_graph=retain_graph)
     if grad_clip is not None:
         for p in network.modules():

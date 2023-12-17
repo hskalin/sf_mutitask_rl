@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 
 import torch
-from scipy.spatial.transform import Rotation as R
-import numpy as np
 
 
 class FeatureAbstract(ABC):
@@ -65,16 +63,16 @@ class PointMassFeature(FeatureAbstract):
         ]
         self.dim = int(sum(self.feature_dim))
 
-        self.stateParse_pos = slice(0, self.envdim)
-        self.stateParse_vel = slice(self.envdim, 2 * self.envdim)
-        self.stateParse_velAbsNorm = slice(2 * self.envdim, 2 * self.envdim + 1)
+        self.slice_pos = slice(0, self.envdim)
+        self.slice_vel = slice(self.envdim, 2 * self.envdim)
+        self.slice_velAbsNorm = slice(2 * self.envdim, 2 * self.envdim + 1)
 
     def extract(self, s):
         features = []
 
-        pos = s[:, self.stateParse_pos]
-        vel = s[:, self.stateParse_vel]
-        velAbsNorm = s[:, self.stateParse_velAbsNorm]
+        pos = s[:, self.slice_pos]
+        vel = s[:, self.slice_vel]
+        velAbsNorm = s[:, self.slice_velAbsNorm]
 
         if self.use_pos_norm:
             posSquaredNorm = self.compute_posSquareNorm(pos)
@@ -97,7 +95,7 @@ class PointMassFeature(FeatureAbstract):
         return torch.cat(features, 1)
 
     def compute_posSquareNorm(self, pos):
-        return torch.linalg.norm(pos, axis=1, keepdims=True) ** 2
+        return torch.norm(pos, dim=1, keepdim=True) ** 2
 
     def compute_featurePosNorm(self, posSquaredNorm, scale=[-7.2, -360]):
         featurePosNorm = 0.5 * (
@@ -152,35 +150,36 @@ class PointerFeature(FeatureAbstract):
             self.use_posY,
             self.use_vel_norm,
             self.use_ang_norm,
-            self.use_angvel_norm,
+            self.use_angvelNorm,
         ) = self.use_feature
+
         self.feature_dim = [
             self.use_posX,
             self.use_posY,
             self.use_vel_norm,
             self.use_ang_norm,
-            self.use_angvel_norm,
+            self.use_angvelNorm,
         ]
         self.dim = sum(self.feature_dim)
 
         self.proxScale = 1 / self.compute_gaussDist(
-            mu=self.ProxThresh**2, sigma=self.Kp, scale=-25
+            mu=self.ProxThresh[None, None], sigma=self.Kp, scale=25
         )
 
-        self.stateParse_yaw = slice(0, 1)
-        self.stateParse_posX = slice(3, 4)
-        self.stateParse_posY = slice(4, 5)
-        self.stateParse_vel = slice(5, 7)
-        self.stateParse_angvel = slice(7, 8)
+        self.slice_yaw = slice(0, 1)
+        self.slice_posX = slice(3, 4)
+        self.slice_posY = slice(4, 5)
+        self.slice_vel = slice(5, 7)
+        self.slice_angvel = slice(7, 8)
 
     def extract(self, s):
         features = []
 
-        errorYaw = s[:, self.stateParse_yaw]
-        errorPosX = s[:, self.stateParse_posX]
-        errorPosY = s[:, self.stateParse_posY]
-        errorVel = s[:, self.stateParse_vel]
-        errorAngVel = s[:, self.stateParse_angvel]
+        errorYaw = s[:, self.slice_yaw]
+        errorPosX = s[:, self.slice_posX]
+        errorPosY = s[:, self.slice_posY]
+        errorVel = s[:, self.slice_vel]
+        errorAngVel = s[:, self.slice_angvel]
 
         if self.use_posX:
             featureProxX = self.compute_featureProx(errorPosX)
@@ -198,44 +197,43 @@ class PointerFeature(FeatureAbstract):
             featureAngNorm = self.compute_featureAngNorm(errorYaw)
             features.append(featureAngNorm)
 
-        if self.use_angvel_norm:
+        if self.use_angvelNorm:
             featureAngVelNorm = self.compute_featureAngVelNorm(errorAngVel)
             features.append(featureAngVelNorm)
 
         return torch.concatenate(features, 1)
 
-    def compute_featureProx(self, errorPos, scale=-25):
-        squaredNorm_pos = errorPos**2
-        prox = self.proxScale * self.compute_gaussDist(squaredNorm_pos, self.Kp, scale)
-        return torch.where(squaredNorm_pos > self.ProxThresh**2, prox, 1)
+    def compute_featureProx(self, errorPos, scale=25):
+        d = torch.norm(errorPos, dim=1, keepdim=True) ** 2
+        prox = self.proxScale * torch.exp(scale * -d / self.Kp**2)
+        return torch.where(d > self.ProxThresh**2, prox, 1)
 
-    def compute_featureVelNorm(self, errorVel, scale=-30):
-        SquaredNorm_vel = torch.linalg.norm(errorVel, axis=1, keepdims=True) ** 2
-        return self.compute_gaussDist(SquaredNorm_vel, self.Kv, scale)
+    def compute_featureVelNorm(self, errorVel, scale=30):
+        return self.compute_gaussDist(errorVel, self.Kv, scale)
 
-    def compute_featureAngNorm(self, errorYaw, scale=-50):
-        return self.compute_gaussDist(errorYaw**2, self.Ka, scale)
+    def compute_featureAngNorm(self, errorYaw, scale=50):
+        return self.compute_gaussDist(errorYaw, self.Ka, scale)
 
-    def compute_featureAngVelNorm(self, errorAngVel, scale=-50):
-        return self.compute_gaussDist(errorAngVel**2, self.Kv, scale)
+    def compute_featureAngVelNorm(self, errorAngVel, scale=50):
+        return self.compute_gaussDist(errorAngVel, self.Kv, scale)
 
     def compute_gaussDist(self, mu, sigma, scale):
-        return torch.exp(scale * mu / sigma**2)
+        mu = torch.norm(mu, dim=1, keepdim=True) ** 2
+        return torch.exp(scale * -mu / sigma**2)
 
 
-class BlimpFeature(PointerFeature):
+class BlimpFeature(FeatureAbstract):
     def __init__(
         self,
         env_cfg,
         device,
     ) -> None:
-        super().__init__(env_cfg, device)
+        super().__init__()
 
         self.env_cfg = env_cfg
         self.feature_cfg = self.env_cfg["feature"]
         self.device = device
 
-        self.use_feature = self.feature_cfg["use_feature"]
         self.verbose = self.feature_cfg.get("verbose", False)
 
         self.Kp = torch.tensor(
@@ -251,80 +249,158 @@ class BlimpFeature(PointerFeature):
         )
         self.Ka = torch.pi
 
-        (
-            self.use_posX,
-            self.use_posY,
-            self.use_vel_norm,
-            self.use_ang_norm,
-            self.use_angvel_norm,
-        ) = self.use_feature
-        self.feature_dim = [
-            self.use_posX,
-            self.use_posY,
-            self.use_vel_norm,
-            self.use_ang_norm,
-            self.use_angvel_norm,
-        ]
-        self.dim = sum(self.feature_dim)
+        self.dim = 12
+        if self.verbose:
+            print("[Feature] dim", self.dim)
 
         self.proxScale = 1 / self.compute_gaussDist(
-            mu=self.ProxThresh**2, sigma=self.Kp, scale=-25
+            mu=self.ProxThresh[None, None], sigma=self.Kp, scale=25
         )
 
-        self.stateParse_yaw = slice(0, 1)
-        self.stateParse_posX = slice(3, 4)
-        self.stateParse_posY = slice(4, 5)
-        self.stateParse_vel = slice(5, 7)
-        self.stateParse_angvel = slice(7, 8)
+        # robot angle
+        self.slice_rbangle = slice(0, 3)
+        self.slice_rbRP = slice(0, 2)
+
+        # robot ang vel
+        self.slice_rbangvel = slice(21, 24)
+
+        # robot vel
+        self.slice_rbv = slice(15, 18)
+
+        # robot thrust
+        self.slice_thrust = slice(27, 28)
+
+        # robot actions
+        self.slice_prev_act = slice(27, 31)
+
+        # relative angle
+        self.slice_err_roll = slice(3, 4)
+        self.slice_err_pitch = slice(4, 5)
+        self.slice_err_yaw = slice(5, 6)
+
+        # relative position
+        self.slice_err_planar = slice(11, 13)
+        self.slice_err_z = slice(13, 14)
+        self.slice_err_dist = slice(11, 14)
+
+        # relative yaw to goal position
+        self.slice_err_yaw_to_goal = slice(14, 15)
+
+        # relative velocity
+        self.slice_err_vx = slice(18, 19)
+        self.slice_err_vy = slice(19, 20)
+        self.slice_err_vz = slice(20, 21)
+        self.slice_err_vplanar = slice(18, 20)
+
+        # relative angular velocity
+        self.slice_err_p = slice(24, 25)
+        self.slice_err_q = slice(25, 26)
+        self.slice_err_r = slice(26, 27)
+        self.slice_err_angvel = slice(24, 27)
 
     def extract(self, s):
         features = []
 
-        errorYaw = s[:, self.stateParse_yaw]
-        errorPosX = s[:, self.stateParse_posX]
-        errorPosY = s[:, self.stateParse_posY]
-        errorVel = s[:, self.stateParse_vel]
-        errorAngVel = s[:, self.stateParse_angvel]
+        robot_RP = s[:, self.slice_rbRP]
+        robot_angVel = s[:, self.slice_rbangvel]
+        robot_v = s[:, self.slice_rbv]
+        robot_thrust = s[:, self.slice_thrust]
+        robot_act = s[:, self.slice_prev_act]
 
-        if self.use_posX:
-            featureProxX = self.compute_featureProx(errorPosX)
-            features.append(featureProxX)
+        error_yaw = s[:, self.slice_err_yaw]
+        error_yaw_to_goal = s[:, self.slice_err_yaw_to_goal]
 
-        if self.use_posY:
-            featureProxY = self.compute_featureProx(errorPosY)
-            features.append(featureProxY)
+        error_planar = s[:, self.slice_err_planar]
+        error_posZ = s[:, self.slice_err_z]
+        error_dist = s[:, self.slice_err_dist]
 
-        if self.use_vel_norm:
-            featureVelNorm = self.compute_featureVelNorm(errorVel)
-            features.append(featureVelNorm)
+        error_vx = s[:, self.slice_err_vx]
+        error_vy = s[:, self.slice_err_vy]
+        error_vz = s[:, self.slice_err_vz]
+        # error_vplanar = s[:, self.slice_err_vplanar]
 
-        if self.use_ang_norm:
-            featureAngNorm = self.compute_featureAngNorm(errorYaw)
-            features.append(featureAngNorm)
+        # error_angVel_p = s[:, self.slice_err_p]
+        # error_angVel_q = s[:, self.slice_err_q]
+        # error_angVel_r = s[:, self.slice_err_r]
+        # error_angVel = s[:, self.slice_err_angvel]
 
-        if self.use_angvel_norm:
-            featureAngVelNorm = self.compute_featureAngVelNorm(errorAngVel)
-            features.append(featureAngVelNorm)
+        # planar:
+        x = self.compute_featurePosNorm(error_planar)
+        features.append(x)
 
-        return torch.concatenate(features, 1)
+        # posZ:
+        x = self.compute_featurePosNorm(error_posZ)
+        features.append(x)
 
-    def compute_featureProx(self, errorPos, scale=-25):
-        squaredNorm_pos = errorPos**2
-        prox = self.proxScale * self.compute_gaussDist(squaredNorm_pos, self.Kp, scale)
-        return torch.where(squaredNorm_pos > self.ProxThresh**2, prox, 1)
+        # proxDist:
+        x = self.compute_featureProx(error_dist)
+        features.append(x)
 
-    def compute_featureVelNorm(self, errorVel, scale=-30):
-        SquaredNorm_vel = torch.linalg.norm(errorVel, axis=1, keepdims=True) ** 2
-        return self.compute_gaussDist(SquaredNorm_vel, self.Kv, scale)
+        # vx:
+        x = self.compute_featureVelNorm(error_vx)
+        features.append(x)
 
-    def compute_featureAngNorm(self, errorYaw, scale=-50):
-        return self.compute_gaussDist(errorYaw**2, self.Ka, scale)
+        # vy:
+        x = self.compute_featureVelNorm(error_vy)
+        features.append(x)
 
-    def compute_featureAngVelNorm(self, errorAngVel, scale=-50):
-        return self.compute_gaussDist(errorAngVel**2, self.Kv, scale)
+        # vz:
+        x = self.compute_featureVelNorm(error_vz)
+        features.append(x)
+
+        # yaw:
+        x = self.compute_featureAngNorm(error_yaw)
+        features.append(x)
+
+        # yaw_to_goal:
+        x = self.compute_featureAngNorm(error_yaw_to_goal)
+        features.append(x)
+
+        # regulate_rowandpitch:
+        x = self.compute_featureAngNorm(robot_RP)
+        features.append(x)
+
+        # regulate_angvel:
+        x = self.compute_featureAngVelNorm(robot_angVel)
+        features.append(x)
+
+        # regulate robot velocity
+        x = self.compute_featureVelNorm(robot_v)
+        features.append(x)
+
+        # regulate robot thrust: rescale to [0, 2], similar to angle scale
+        x = self.compute_featureAngNorm(robot_thrust + 1)
+        features.append(x)
+
+        f = torch.concatenate(features, 1)
+        if self.verbose:
+            print(
+                "[Feature] features [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]"
+            )
+            print(f)
+        return f
+
+    def compute_featurePosNorm(self, x, scale=25):
+        return self.compute_gaussDist(x, self.Kp, scale)
+
+    def compute_featureProx(self, x, scale=25):
+        d = torch.norm(x, dim=1, keepdim=True) ** 2
+        prox = self.proxScale * torch.exp(scale * -d / self.Kp**2)
+        return torch.where(d > self.ProxThresh, prox, 1)
+
+    def compute_featureVelNorm(self, x, scale=30):
+        return self.compute_gaussDist(x, self.Kv, scale)
+
+    def compute_featureAngNorm(self, x, scale=50):
+        return self.compute_gaussDist(x, self.Ka, scale)
+
+    def compute_featureAngVelNorm(self, x, scale=50):
+        return self.compute_gaussDist(x, self.Kv, scale)
 
     def compute_gaussDist(self, mu, sigma, scale):
-        return torch.exp(scale * mu / sigma**2)
+        mu = torch.norm(mu, dim=1, keepdim=True) ** 2
+        return torch.exp(scale * -mu / sigma**2)
+
 
 class AntFeature(FeatureAbstract):
     """
@@ -343,37 +419,28 @@ class AntFeature(FeatureAbstract):
 
         self.envdim = int(self.env_cfg["feature"]["dim"])
 
-        (
-            self.use_pos_x,
-            self.use_pos_y,
-            self.use_alive
-        ) = self.use_feature
+        (self.use_pos_x, self.use_pos_y, self.use_alive) = self.use_feature
 
-        self.feature_dim = [
-            self.use_pos_x,
-            self.use_pos_y,
-            self.use_alive
-        ]
+        self.feature_dim = [self.use_pos_x, self.use_pos_y, self.use_alive]
 
         self.dim = int(sum(self.feature_dim))
 
-        self.stateParse_pos_x = slice(0,1)
-        self.stateParse_pos_y = slice(1,2)
+        self.slice_pos_x = slice(0, 1)
+        self.slice_pos_y = slice(1, 2)
 
     def extract(self, s):
         features = []
 
         if self.use_pos_x:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         if self.use_pos_y:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         if self.use_alive:
-            features.append(s[:,0])
+            features.append(s[:, 0])
 
         return torch.cat(features, 1)
-
 
 
 def feature_constructor(env_cfg, device):
@@ -383,6 +450,8 @@ def feature_constructor(env_cfg, device):
         return PointMassFeature(env_cfg, device)
     elif "ant" in env_cfg["env_name"].lower():
         return AntFeature(env_cfg, device)
+    elif "blimp" in env_cfg["env_name"].lower():
+        return BlimpFeature(env_cfg, device)
     else:
         print(f'feature not implemented: {env_cfg["env_name"]}')
         return None

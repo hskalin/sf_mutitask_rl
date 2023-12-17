@@ -15,14 +15,17 @@ class TaskObject:
 
         self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
 
+        if self.taskSetType != "uniform":
+            self.taskSet = self.define_taskSet(self.taskSetType)
+            assert self.taskSet.shape[1] == self.dim
+            self.reset_taskRatio()
+
         if self.randTasks:
-            if self.taskSetType != "uniform":
-                self.taskSet = self.define_taskSet(self.taskSetType)
-                self.reset_taskRatio()
             self.W = self.sample_tasks()
 
     def define_taskSet(self, taskSetType):
-        taskset = self.task_cfg["taskSet"]
+        tasksets = self.task_cfg["taskSet"]
+
         if taskSetType == "permute":
             taskSet = list(itertools.product([0, 1], repeat=self.dim))
             taskSet.pop(0)  # remove all zero vector
@@ -30,14 +33,9 @@ class TaskObject:
             taskSet = [
                 [1 if i == j else 0 for j in range(self.dim)] for i in range(self.dim)
             ]
-        elif taskSetType == "achievable":
-            taskSet = taskset["achievable"]
-        elif taskSetType == "redundant":
-            taskSet = taskset["redundant"]
-        elif taskSetType == "single":
-            taskSet = taskset["single"]
         else:
-            raise ValueError(f"Warning: {taskSetType} is not implemented")
+            taskSet = tasksets[taskSetType]
+
         return torch.tensor(taskSet, dtype=torch.float32, device=self.device)
 
     def sample_tasks(self):
@@ -46,7 +44,9 @@ class TaskObject:
         else:
             id = self.sample_taskID(self.taskRatio)
 
-            assert len(self.taskSet) <= len(id), f"num envs {len(id)} is less than num taskSet {len(self.taskSet)}"
+            assert len(self.taskSet) <= len(
+                id
+            ), f"num envs {len(id)} is less than num taskSet {len(self.taskSet)}"
 
             # ensure that all task are in id
             for i in range(len(self.taskSet)):
@@ -85,19 +85,19 @@ class SmartTask:
     def __init__(self, env_cfg, device) -> None:
         self.env_cfg = env_cfg
         self.task_cfg = self.env_cfg["task"]
+        self.feature_cfg = self.env_cfg["feature"]
         self.device = device
         self.verbose = self.task_cfg.get("verbose", False)
 
         self.n_env = self.env_cfg["num_envs"]
-        use_feature = self.env_cfg["feature"]["use_feature"]
-        env_dim = self.env_cfg["feature"]["dim"]
+        self.use_feature = self.feature_cfg.get("use_feature", None)
         self.randTasks = self.task_cfg.get("rand_task", False)
         self.taskSet_train = self.task_cfg.get("taskSet_train", None)
         self.taskSet_eval = self.task_cfg.get("taskSet_eval", None)
         self.intervalWeightRand = self.task_cfg.get("intervalWeightRand", 2)
 
-        wTrain = self.define_task(use_feature, env_dim, self.task_cfg["task_wTrain"])
-        wEval = self.define_task(use_feature, env_dim, self.task_cfg["task_wEval"])
+        wTrain = self.define_task(self.use_feature, self.task_cfg["task_wTrain"])
+        wEval = self.define_task(self.use_feature, self.task_cfg["task_wEval"])
 
         self.Train = TaskObject(
             wTrain,
@@ -120,9 +120,12 @@ class SmartTask:
             print("[Task] evaluation tasks: \n", self.Eval.W)
             print("\n")
 
-    def define_task(self):
+    def define_task(self, c, w):
         """define initial task weight as a vector"""
-        NotImplementedError
+        l = []
+        for i in range(len(w)):
+            l += c[i] * [w[i]]
+        return l
 
     def rand_task(self, episodes):
         if (
@@ -138,7 +141,7 @@ class SmartTask:
                 print("[Task] Train.taskRatio: ", self.Train.taskRatio)
                 print("[Task] Train Task Counts: ", torch.bincount(self.Train.id))
                 print("[Task] Eval.W[0]: ", self.Eval.W[0])
-                print("[Task] Train.taskRatio: ", self.Eval.taskRatio)
+                print("[Task] Eval.taskRatio: ", self.Eval.taskRatio)
                 print("[Task] Eval Task Counts: ", torch.bincount(self.Eval.id))
                 print("\n")
 
@@ -168,11 +171,13 @@ class SmartTask:
 
 class PointMassTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
+        self.env_dim = env_cfg["feature"]["dim"]
+
         super().__init__(env_cfg, device)
 
-    def define_task(self, c, dim, w):
+    def define_task(self, c, w):
         w_pos_norm = c[0] * [w[0]]
-        w_vel = c[1] * dim * [w[1]]
+        w_vel = c[1] * self.env_dim * [w[1]]
         w_vel_norm = c[2] * [w[2]]
         w_prox = c[3] * [w[3]]
         return w_pos_norm + w_vel + w_vel_norm + w_prox
@@ -182,25 +187,25 @@ class PointerTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
         super().__init__(env_cfg, device)
 
-    def define_task(self, c, d, w):
-        w_px = c[0] * [w[0]]
-        w_py = c[1] * [w[1]]
-        w_vel_norm = c[2] * [w[2]]
-        w_ang_norm = c[3] * [w[3]]
-        w_angvel_norm = c[4] * [w[4]]
-        return w_px + w_py + w_vel_norm + w_ang_norm + w_angvel_norm
+
+class BlimpTask(SmartTask):
+    def __init__(self, env_cfg, device) -> None:
+        super().__init__(env_cfg, device)
+
+    def define_task(self, c, w):
+        return w
+
 
 class AntTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
         super().__init__(env_cfg, device)
 
-    def define_task(self, c, d, w):
+    def define_task(self, c, w):
         w_px = c[0] * [w[0]]
         w_py = c[1] * [w[1]]
         w_alive = c[2] * [w[2]]
 
         return w_px + w_py + w_alive
-        
 
 
 def task_constructor(env_cfg, device):
@@ -208,6 +213,8 @@ def task_constructor(env_cfg, device):
         return PointerTask(env_cfg, device)
     elif "pointmass" in env_cfg["env_name"].lower():
         return PointMassTask(env_cfg, device)
+    elif "blimp" in env_cfg["env_name"].lower():
+        return BlimpTask(env_cfg, device)
     elif "ant" in env_cfg["env_name"].lower():
         return AntTask(env_cfg, device)
     else:

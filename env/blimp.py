@@ -18,7 +18,7 @@ class Blimp(VecEnv):
         self.num_act = 4  # 
         self.reset_dist = 10.0  # when to reset
 
-        self.spawn_height = cfg["task"].get("spawn_height", 15)
+        self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         # blimp parameters
         # smoothning factor for fan thrusts

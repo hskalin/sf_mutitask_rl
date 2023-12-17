@@ -1,10 +1,10 @@
 capacity : 2000000 
 mini_batch_size : 4096
-min_n_experience : 1024 
-multi_step : 1
+min_n_experience : 10240
+multi_step : 1 # not implemented
 prioritized_replay : False
 alpha : 0.6 
 beta : 0.4 
 eps : 1e-8
 framestacked_replay: True
-stack_size: 10
+stack_size: 5

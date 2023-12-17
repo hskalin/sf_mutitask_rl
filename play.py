@@ -11,6 +11,7 @@ from common.util import (
 )
 
 from agents.compose import CompositionAgent
+from agents.composeh import RMACompAgent
 from agents.sac import SACAgent
 
 import torch
@@ -28,13 +29,15 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb.init(mode="disabled")
     wandb_dict = fix_wandb(wandb.config)
 
-    print_dict(wandb_dict)
+    # print_dict(wandb_dict)
     update_dict(cfg_dict, wandb_dict)
 
+    
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
-    # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
     cfg_dict["buffer"]["min_n_experience"] = 0
-    cfg_dict["env"]["task"]["rand_weights"] = False
+
+    # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
+    cfg_dict["env"]["task"]["rand_task"] = False
     cfg_dict["env"]["task"]["rand_vel_targets"] = False
     cfg_dict["env"]["mode"] = "play"
     cfg_dict["env"]["sim"]["headless"] = False
@@ -46,15 +49,15 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     if "sac" in cfg_dict["agent"]["name"].lower():
         agent = SACAgent(cfg=cfg_dict)
-    else:
+    elif "composition" in cfg_dict["agent"]["name"].lower():
         agent = CompositionAgent(cfg_dict)
+    else:
+        agent = RMACompAgent(cfg_dict)
+        agent.phase=1
 
     agent.load_torch_model(
-        "/home/nilaksh/rl/sf_mutitask_rl/logs/sfgpi/Pointer2D/2023-07-27-14-45-08/model20/"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacomp/PointMass2DRand/2023-12-12-05-08-22/model40"
     )
-    # agent.load_torch_model(
-    #     "/home/nilaksh/rl/con_comp/logs/dacgpi/Pointer2D/2023-07-14-13-28-23/model100/"
-    # )
 
     root = Tk()
     root.title("test")

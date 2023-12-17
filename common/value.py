@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from common.activation import FTA
+from common.util import check_samples
 
 
 # Initialize Policy weights
@@ -345,6 +346,11 @@ class MultiheadSFNetwork(BaseNetwork):
         )
 
     def forward(self, state, action):
+        n_state = check_samples(state)
+        n_action = check_samples(action)
+        state = state.view(n_state, -1)
+        action = action.view(n_action, -1)
+
         x1, x2 = self.model(state, action)
         x1 = x1[:, : self.n_heads, :]
         x2 = x2[:, : self.n_heads, :]

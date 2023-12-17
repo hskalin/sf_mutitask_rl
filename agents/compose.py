@@ -295,7 +295,7 @@ class CompositionAgent(MultitaskAgent):
 
     def _collective_learning(self, s, a, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
-        sf = self.comp.calc_sf(s, a, self.sf)
+        sf = self.comp.forward_sf(s, a, self.sf)
 
         # [N, Ha, Hsf]<--[N, Ha, Hsf, F], [Hsf, F]
         qs = torch.einsum("ijkl,kl->ijk", sf, w)
@@ -400,5 +400,3 @@ class CompositionAgent(MultitaskAgent):
         self.sf.load(path + "sf")
         hard_update(self.sf_target, self.sf)
         grad_false(self.sf_target)
-
-

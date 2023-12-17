@@ -3,10 +3,15 @@ import datetime
 import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
+from omegaconf import DictConfig, OmegaConf
 
 import torch
 from common.util import AverageMeter, check_act, check_obs, dump_cfg, np2ts
-from common.vec_buffer import VectorizedReplayBuffer, FrameStackedReplayBuffer, VecPrioritizedReplayBuffer
+from common.vec_buffer import (
+    VectorizedReplayBuffer,
+    FrameStackedReplayBuffer,
+    VecPrioritizedReplayBuffer,
+)
 from env.wrapper.multiTask import multitaskenv_constructor
 
 import wandb
@@ -56,7 +61,6 @@ class IsaacAgent(AbstractAgent):
         self.observation_shape = [self.observation_dim]
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
-        self.obs_stackSize = 1
 
         self.setup_replaybuffer()
         self.mini_batch_size = int(self.buffer_cfg["mini_batch_size"])
@@ -77,7 +81,9 @@ class IsaacAgent(AbstractAgent):
             )
             self.log_path = self.env_cfg["log_path"] + log_dir
             Path(self.log_path).mkdir(parents=True, exist_ok=True)
-            dump_cfg(self.log_path + "cfg", cfg)
+            dcfg = DictConfig(cfg)
+            dcfg = OmegaConf.to_object(dcfg)
+            dump_cfg(self.log_path + "cfg", dcfg)
 
         self.steps = 0
         self.episodes = 0
@@ -111,7 +117,7 @@ class IsaacAgent(AbstractAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.steps > self.total_timesteps:
+            if self.episodes >= self.total_episodes:
                 break
 
     def train_episode(self, gui_app=None, gui_rew=None):
@@ -154,8 +160,10 @@ class IsaacAgent(AbstractAgent):
         return episode_r, episode_steps
 
     def step(self, episode_steps, s):
+        assert not torch.isnan(s).any(), "detect anomaly state"
+
         a = self.act(s, self.task.Train)
-        assert not torch.isinf(a).any(), "detect action infinity"
+        assert not torch.isnan(a).any(), "detect anomaly action"
 
         self.env.step(a)
         done = self.env.reset_buf.clone()
@@ -163,7 +171,7 @@ class IsaacAgent(AbstractAgent):
         self.env.reset()
 
         r = self.calc_reward(s_next, self.task.Train.W)
-        assert not torch.isinf(r).any(), "detect reward infinity"
+        assert not torch.isnan(r).any(), "detect anomaly reward"
 
         masked_done = False if episode_steps >= self.episode_max_step else done
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
@@ -226,7 +234,7 @@ class IsaacAgent(AbstractAgent):
         wandb.log({"reward/eval": torch.mean(returns).item()})
 
     def act(self, s, task, mode="explore"):
-        s = check_obs(s, self.observation_dim*self.obs_stackSize)
+        s = check_obs(s, self.observation_dim)
 
         a = self._act(s, task, mode)
 
@@ -236,7 +244,10 @@ class IsaacAgent(AbstractAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
+                a = (
+                    2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
+                    - 1
+                )
 
             w = copy.copy(np2ts(task.W))
 
@@ -257,6 +268,9 @@ class IsaacAgent(AbstractAgent):
     def exploit(self):
         raise NotImplementedError
 
+    def learn(self):
+        pass
+
     def save_torch_model(self):
         raise NotImplementedError
 
@@ -270,7 +284,6 @@ class MultitaskAgent(IsaacAgent):
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
-
     def train_episode(self, gui_app=None, gui_rew=None):
         episode_r, _ = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
 
@@ -280,7 +293,10 @@ class MultitaskAgent(IsaacAgent):
     def _act(self, s, task, mode):
         with torch.no_grad():
             if (self.steps <= self.min_n_experience) and mode == "explore":
-                a = 2 * torch.rand((self.n_env, self.env.num_act), device=self.device) - 1
+                a = (
+                    2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
+                    - 1
+                )
 
             w = copy.copy(np2ts(task.W))
             id = copy.copy(np2ts(task.id))

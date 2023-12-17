@@ -130,7 +130,7 @@ class VectorizedReplayBuffer:
         }
 
 
-class FrameStackedReplayBuffer(VectorizedReplayBuffer):
+class FrameStackedReplayBuffer:
     def __init__(
         self,
         obs_shape,
@@ -141,125 +141,49 @@ class FrameStackedReplayBuffer(VectorizedReplayBuffer):
         stack_size,
         device,
         mini_batch_size=64,
-        return_stackedObs=True,
-        *args,
-        **kwargs,
-    ):
-        
-        super().__init__(
-            obs_shape=obs_shape,
-            action_shape=action_shape,
-            feature_shape=feature_shape,
-            capacity=capacity,
-            device=device,
-            mini_batch_size=mini_batch_size,
-        )
-        self.n_env = n_env
-        self.stack_size = stack_size
-        self.return_stackedObs = return_stackedObs
-
-        self.ra = self.n_env * torch.arange(1, self.stack_size + 1)
-        self.ra = self.ra.to(self.device)
-
-    def sample(self, batch_size=None):
-        if batch_size is None:
-            batch_size = self.batch_size
-
-        idxs = torch.randint(
-            0,
-            self.capacity if self.full else self.idx,
-            (batch_size,),
-            device=self.device,
-        )
-        obses = self.obses[idxs]  # [N, F]
-        prev_obses = self.stack_obs(idxs)  # [N, F, S]
-        features = self.features[idxs]
-        actions = self.actions[idxs]
-        rewards = self.rewards[idxs]
-        next_obses = self.next_obses[idxs]
-        dones = self.dones[idxs]
-
-        if self.return_stackedObs:
-            obses = torch.concat([obses[:, :, None], prev_obses], dim=2)
-
-        return {
-            "obs": obses,
-            "prev_obses": prev_obses,
-            "feature": features,
-            "action": actions,
-            "reward": rewards,
-            "next_obs": next_obses,
-            "done": dones,
-        }
-
-    def stack_obs(self, idx):
-        # select idxes
-        ra = self.ra.repeat((idx.shape[0], 1))
-        ids = idx[:, None] - ra  # [N sample, N stack] <-- [N sample]
-
-        # if full then go back
-        if self.full:
-            obs_stacked = self.obses[ids]  # [N sample, N stack, F]
-        else:
-            obs_stacked = self.obses[torch.where(ids < 0, -1, ids)]
-            obs_stacked[ids < 0] = 0
-
-        # correct by dones
-        dop = self.dones[ids]  # [N sample, N stack, 1]
-        m = torch.where(torch.cumsum(dop, 1) > 0, 0, 1)
-        obs_stacked = m * obs_stacked  # [N sample, N stack, F]
-        return obs_stacked.permute(0,2,1)
-
-
-class FrameStackedReplayBuffer2:
-    def __init__(
-        self,
-        obs_shape,
-        action_shape,
-        feature_shape,
-        capacity,
-        n_env,
-        stack_size,
-        device,
-        mini_batch_size=64,
-        return_stackedObs=True,
         *args,
         **kwargs,
     ):
         self.device = device
         self.batch_size = mini_batch_size
-        self.capacity = capacity/n_env
+        self.capacity = int(capacity // n_env)
 
-        self.n_env = n_env
+        self.n_env = int(n_env)
         self.stack_size = stack_size
-        self.return_stackedObs = return_stackedObs
 
         self.obses = torch.empty(
             (self.capacity, n_env, *obs_shape), dtype=torch.float32, device=self.device
         )
         self.features = torch.empty(
-            (self.capacity, n_env, *feature_shape), dtype=torch.float32, device=self.device
+            (self.capacity, n_env, *feature_shape),
+            dtype=torch.float32,
+            device=self.device,
         )
         self.next_obses = torch.empty(
             (self.capacity, n_env, *obs_shape), dtype=torch.float32, device=self.device
         )
         self.actions = torch.empty(
-            (self.capacity, n_env, *action_shape), dtype=torch.float32, device=self.device
+            (self.capacity, n_env, *action_shape),
+            dtype=torch.float32,
+            device=self.device,
         )
         self.rewards = torch.empty(
             (self.capacity, n_env, 1), dtype=torch.float32, device=self.device
         )
-        self.dones = torch.empty((self.capacity, n_env, 1), dtype=torch.bool, device=self.device)
+        self.dones = torch.empty(
+            (self.capacity, n_env, 1), dtype=torch.bool, device=self.device
+        )
 
         self.idx = 0
         self.full = False
 
+        self.stack_range = torch.arange(0, self.stack_size, device=self.device)
+
     def __len__(self):
-        return self.idx
+        return self.idx * self.n_env
 
     def add(self, obs, feature, action, reward, next_obs, done):
-        self.idx += 1
-        if self.idx == self.capacity-1:
+        if self.idx + 1 == self.capacity:
             self.full = True
             self.idx = 0
 
@@ -270,13 +194,15 @@ class FrameStackedReplayBuffer2:
         self.next_obses[self.idx] = next_obs
         self.dones[self.idx] = done
 
+        self.idx += 1
+
     def sample(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
 
         # select sample
-        idx1 = torch.randint( 
-            0,
+        idx1 = torch.randint(
+            self.stack_size - 1,
             self.capacity if self.full else self.idx,
             (batch_size,),
             device=self.device,
@@ -289,40 +215,57 @@ class FrameStackedReplayBuffer2:
             device=self.device,
         )
 
-        obses = self.obses[idx1, idx2]  # [B, F] <-- [N, Nenv, F]
-        prev_obses = self.stack_obs(idx1, idx2)  # [B, F, S]
+        obses = self.obses[idx1, idx2]  # [B, F] <-- [N, NE, F]
+        stacked_obs = self.stack_data(self.obses, idx1, idx2)  # [B, F, S]
         features = self.features[idx1, idx2]
         actions = self.actions[idx1, idx2]
+        stacked_act = self.stack_data(self.actions, idx1, idx2)  # [B, F, S]
         rewards = self.rewards[idx1, idx2]
         next_obses = self.next_obses[idx1, idx2]
         dones = self.dones[idx1, idx2]
 
-        if self.return_stackedObs:
-            obses = torch.concat([obses[:, :, None], prev_obses], dim=2)
-
         return {
             "obs": obses,
-            "prev_obses": prev_obses,
+            "stacked_obs": stacked_obs,
             "feature": features,
             "action": actions,
+            "stacked_act": stacked_act,
             "reward": rewards,
             "next_obs": next_obses,
             "done": dones,
         }
-    
-    def stack_obs(self, idx1, idx2):
-        # [N, B, F] <-- [N, Nenv, F]
-        stacked_obs = self.obses[:, idx2]
 
-        # [N, B, F, S] <-- [N, B, F]
-        stacked_obs = stacked_obs.unfold(0, self.stack_size, 1)
+    def stack_data(self, x, idx1, idx2):
+        # [NE, F, N] <-- [N, NE, F]
+        stacked_obj = x.permute(1, 2, 0)
 
-        stacked_obs = stacked_obs[idx1]
+        # [NE, F, N-H+1, S] <-- [NE, F, N]
+        stacked_obj = stacked_obj.unfold(2, self.stack_size, 1)
+
+        # [N-H+1, NE, F, S] <-- [NE, F, N-H+1, S]
+        stacked_obj = stacked_obj.permute(2, 0, 1, 3)
+
+        # [N-H+1, NE, F, S]
+        stacked_obj = torch.flip(stacked_obj, (3,))  # descending order
+
+        # [B, F, S] <-- [N-H+1, NE, F, S]
+        stacked_obj = stacked_obj[idx1 - self.stack_size + 1, idx2]
+
+        # correct by dones
+        ra = self.stack_range.repeat((idx1.shape[0], 1))  # [B, S]
+        ids1 = idx1[:, None] - ra  # [B, S] <-- [B]
+        ids2 = idx2[:, None].repeat_interleave(self.stack_size, 1)  # [B, S] <-- [B]
+        dones = self.dones[ids1, ids2]  # [B, S, 1] <-- [N, NE, 1]
+        dones[:, 0] = False
+
+        mask = torch.where(torch.cumsum(dones, 1) > 0, 0, 1).permute(
+            0, 2, 1
+        )  # [B, S, 1]
+        stacked_obj = mask * stacked_obj  # [B, S, F]
+
+        return stacked_obj  # [B, F, S]
 
 
-        return stacked_obs # [B, F, S]
-
-    
 class VecPrioritizedReplayBuffer:
     def __init__(
         self,
@@ -371,24 +314,17 @@ class VecPrioritizedReplayBuffer:
 
 
 if __name__ == "__main__":
-    capacity = 10
+    capacity = 20
     device = "cuda"
-    data_size = 10
-    stack_size = 5
+    data_size = 4
+    stack_size = 3
 
-    n_env = 1
-    obs_dim = 3
+    n_env = 2
+    obs_dim = 4
     feat_dim = 4
     act_dim = 2
     rew_dim = 1
     done_dim = 1
-
-    obs = torch.rand(data_size, obs_dim)
-    feature = torch.rand(data_size, feat_dim)
-    action = torch.rand(data_size, act_dim)
-    reward = torch.rand(data_size, rew_dim)
-    next_obs = torch.rand(data_size, obs_dim)
-    done = torch.randint(0, 2, (data_size, done_dim))
 
     buf = FrameStackedReplayBuffer(
         obs_shape=(obs_dim,),
@@ -400,13 +336,22 @@ if __name__ == "__main__":
         device=device,
     )
 
-    buf.add(obs, feature, action, reward, next_obs, done)
+    for _ in range(data_size):
+        obs = torch.rand(n_env, obs_dim)
+        feature = torch.rand(n_env, feat_dim)
+        action = torch.rand(n_env, act_dim)
+        reward = torch.rand(n_env, rew_dim)
+        next_obs = torch.rand(n_env, obs_dim)
+        done = torch.randint(0, 2, (n_env, done_dim))
+
+        buf.add(obs, feature, action, reward, next_obs, done)
+
     print(len(buf))
 
-    sample = buf.sample(1)
+    sample = buf.sample(5)
     print("buf.obs", buf.obses)
     print("buf.dones", buf.dones)
     print("obs", sample["obs"])
-    print("prev_obses", sample["prev_obses"])
+    print("stacked_obs", sample["stacked_obs"])
     print("obs shape", sample["obs"].shape)
-    print("prev_obses shape", sample["prev_obses"].shape)
+    print("stacked_obs shape", sample["stacked_obs"].shape)

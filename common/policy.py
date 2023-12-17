@@ -70,31 +70,31 @@ class GaussianPolicyBuilder(nn.Module):
         nn.init.xavier_uniform_(self.mean_linear.weight, 1e-3)
 
     def forward(self, state):
-        x = F.relu(self.linear1(state))
+        x = F.selu(self.linear1(state))
         x = torch.cat([x, state], dim=1) if self.resnet else x
 
-        x = F.relu(self.linear2(x))
+        x = F.selu(self.linear2(x))
 
         if self.num_layers > 2:
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear3(x))
+            x = F.selu(self.linear3(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear4(x))
+            x = F.selu(self.linear4(x))
 
         if self.num_layers > 4:
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear5(x))
+            x = F.selu(self.linear5(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear6(x))
+            x = F.selu(self.linear6(x))
 
         if self.num_layers == 8:
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear7(x))
+            x = F.selu(self.linear7(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
-            x = F.relu(self.linear8(x))
+            x = F.selu(self.linear8(x))
 
         mean = self.mean_linear(x)
         log_std = self.log_std_linear(x)
@@ -180,16 +180,16 @@ class MultiheadGaussianPolicyBuilder(nn.Module):
         out_dim = action_dim * self.max_nheads
 
         if self.layernorm:
-            self.ln1 = nn.LayerNorm(in_dim, elementwise_affine=True)
-            self.ln2 = nn.LayerNorm(in_dim, elementwise_affine=True)
+            self.ln1 = nn.LayerNorm(in_dim)
+            self.ln2 = nn.LayerNorm(in_dim)
             if num_layers > 2:
-                self.ln3 = nn.LayerNorm(in_dim, elementwise_affine=True)
-                self.ln4 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln3 = nn.LayerNorm(in_dim)
+                self.ln4 = nn.LayerNorm(in_dim)
             if num_layers > 4:
-                self.ln5 = nn.LayerNorm(in_dim, elementwise_affine=True)
-                self.ln6 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln5 = nn.LayerNorm(in_dim)
+                self.ln6 = nn.LayerNorm(in_dim)
             if num_layers == 8:
-                self.ln7 = nn.LayerNorm(in_dim, elementwise_affine=True)
+                self.ln7 = nn.LayerNorm(in_dim)
 
         self.linear1 = nn.Linear(observation_dim, hidden_dim)
         self.linear2 = nn.Linear(in_dim, hidden_dim)
@@ -217,38 +217,38 @@ class MultiheadGaussianPolicyBuilder(nn.Module):
         nn.init.xavier_uniform_(self.mean_linear.weight, 1e-3)
 
     def forward(self, state):
-        x = F.relu(self.linear1(state))
+        x = F.selu(self.linear1(state))
 
         x = torch.cat([x, state], dim=1) if self.resnet else x
         x = self.ln1(x) if self.layernorm else x
-        x = F.relu(self.linear2(x))
+        x = F.selu(self.linear2(x))
 
         if self.num_layers > 2:
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln2(x) if self.layernorm else x
-            x = F.relu(self.linear3(x))
+            x = F.selu(self.linear3(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln3(x) if self.layernorm else x
-            x = F.relu(self.linear4(x))
+            x = F.selu(self.linear4(x))
 
         if self.num_layers > 4:
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln4(x) if self.layernorm else x
-            x = F.relu(self.linear5(x))
+            x = F.selu(self.linear5(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln5(x) if self.layernorm else x
-            x = F.relu(self.linear6(x))
+            x = F.selu(self.linear6(x))
 
         if self.num_layers == 8:
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln6(x) if self.layernorm else x
-            x = F.relu(self.linear7(x))
+            x = F.selu(self.linear7(x))
 
             x = torch.cat([x, state], dim=1) if self.resnet else x
             x = self.ln7(x) if self.layernorm else x
-            x = F.relu(self.linear8(x))
+            x = F.selu(self.linear8(x))
 
         if self.fta:
             x = self.ln_l(x)
