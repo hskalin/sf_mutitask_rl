@@ -111,9 +111,13 @@ class IsaacAgent(AbstractAgent):
     def run(self):
         while True:
             self.train_episode()
+            wandb.log({"reward/train": self.game_rewards.get_mean()})
+            wandb.log({"reward/episode_length": self.game_lengths.get_mean()})
 
             if self.eval and (self.episodes % self.eval_interval == 0):
-                self.evaluate()
+                returns = self.evaluate()
+                wandb.log({"reward/eval": torch.mean(returns).item()})
+
                 if self.save_model:
                     self.save_torch_model()
 
@@ -154,24 +158,28 @@ class IsaacAgent(AbstractAgent):
             if episode_steps >= self.episode_max_step:
                 break
 
-        wandb.log({"reward/train": self.game_rewards.get_mean()})
-        wandb.log({"reward/episode_length": self.game_lengths.get_mean()})
-
         return episode_r, episode_steps
 
     def step(self, episode_steps, s):
-        assert not torch.isnan(s).any(), "detect anomaly state"
+        assert not torch.isnan(
+            s
+        ).any(), f"detect anomaly state {(torch.isnan(s)==True).nonzero()}"
 
         a = self.act(s, self.task.Train)
-        assert not torch.isnan(a).any(), "detect anomaly action"
+        assert not torch.isnan(
+            a
+        ).any(), f"detect anomaly action {(torch.isnan(a)==True).nonzero()}"
 
         self.env.step(a)
         done = self.env.reset_buf.clone()
         s_next = self.env.obs_buf.clone()
         self.env.reset()
 
+        assert not torch.isnan(
+            s_next
+        ).any(), f"detect anomaly state {(torch.isnan(s_next)==True).nonzero()}"
+
         r = self.calc_reward(s_next, self.task.Train.W)
-        assert not torch.isnan(r).any(), "detect anomaly reward"
 
         masked_done = False if episode_steps >= self.episode_max_step else done
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
@@ -231,7 +239,7 @@ class IsaacAgent(AbstractAgent):
             returns[i] = torch.mean(episode_r).item()
 
         print(f"===== finish evaluate ====")
-        wandb.log({"reward/eval": torch.mean(returns).item()})
+        return returns
 
     def act(self, s, task, mode="explore"):
         s = check_obs(s, self.observation_dim)

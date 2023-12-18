@@ -9,7 +9,7 @@ import wandb
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
-from common.pid import BlimpPositionControl
+from common.pid import BlimpPositionControl, BlimpHoverControl
 from common.policy import BaseNetwork, MultiheadGaussianPolicy, weights_init_
 from common.util import (
     AverageMeter,
@@ -144,7 +144,6 @@ class RMACompPIDAgent(MultitaskAgent):
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
         self.imitation_coeff = self.agent_cfg["imitation_coeff"]
-        self.imi_idx = 0  # the first policy head should imitate pid control
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -197,7 +196,10 @@ class RMACompPIDAgent(MultitaskAgent):
             **self.policy_net_kwargs,
         ).to(self.device)
 
-        self.controller = BlimpPositionControl(device=self.device)
+        # self.controllers = BlimpPositionControl(device=self.device)
+        self.controllers = []
+        self.controllers.append(BlimpPositionControl(device=self.device))
+        self.controllers.append(BlimpHoverControl(device=self.device))
 
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
@@ -279,9 +281,13 @@ class RMACompPIDAgent(MultitaskAgent):
         print(f"============= start phase {self.phase} =============")
         while True:
             self.train_episode()
+            wandb.log({"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
+            wandb.log({"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
 
             if self.eval and (self.episodes % self.eval_interval == 0):
-                self.evaluate()
+                returns = self.evaluate()
+                wandb.log({"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+
                 if self.save_model:
                     self.save_torch_model()
 
@@ -299,9 +305,13 @@ class RMACompPIDAgent(MultitaskAgent):
             print(f"============= start phase {self.phase} =============")
             while True:
                 self.train_episode()
+                wandb.log({"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
+                wandb.log({"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
 
                 if self.eval and (self.episodes % self.eval_interval == 0):
-                    self.evaluate()
+                    returns =  self.evaluate()
+                    wandb.log({"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+
                     if self.save_model:
                         self.save_torch_model()
 
@@ -309,6 +319,7 @@ class RMACompPIDAgent(MultitaskAgent):
                     break
 
         print(f"============= finish =============")
+
 
     def act(self, o, task, mode="explore"):
         o = check_obs(o, self.observation_dim + self.env_latent_dim)
@@ -499,8 +510,6 @@ class RMACompPIDAgent(MultitaskAgent):
 
         s = s_stack[:, :, 0]
         s_raw, e = self.parse_state(s)  # [N, S], [N, E]
-        prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
-
         z = self.encoder(e)
         s = torch.concat([s_raw, z], dim=1)
 
@@ -519,6 +528,8 @@ class RMACompPIDAgent(MultitaskAgent):
         info["action_norm"] = action_norm.mean().detach().item()
 
         if self.use_continuity_loss:
+            prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
+            
             # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
                 prev_a[:, None, :] - a_heads, dim=2, keepdim=True
@@ -528,13 +539,24 @@ class RMACompPIDAgent(MultitaskAgent):
             )
             info["continuity_loss"] = continuity_loss.mean().detach().item()
 
-        if self.use_imitation_loss:
-            a_pid = self.controller.act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
+        # if self.use_kl_loss:
+        #     curr_a = a_stack[:, :, 0]  # [N, A] <-- [N, A, K]
+        #     # encourage continuous action, [N,H,1] <-- [N,H,A] - [N, A]
+        #     continuity_loss = torch.norm(
+        #         prev_a[:, :, :] - curr_a, dim=2, keepdim=True
+        #     )
+        #     policy_loss = (
+        #         policy_loss + (1 - self.alpha) * self.continuity_coeff * continuity_loss
+        #     )
+        #     info["kl_loss"] = continuity_loss.mean().detach().item()
 
+        if self.use_imitation_loss:
             imi_loss = torch.zeros_like(policy_loss)  # [N, H, A]
-            imi_loss[:, self.imi_idx] = torch.norm(
-                a_pid - a_heads[:, self.imi_idx], dim=1, keepdim=True
-            )
+            for i in range(len(self.controllers)):
+                a_pid = self.controllers[i].act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
+                imi_loss[:, i] = torch.norm(
+                    a_pid - a_heads[:, i], dim=1, keepdim=True
+                )
 
             policy_loss = policy_loss + self.alpha * self.imitation_coeff * imi_loss
             info["imitation_loss"] = imi_loss.mean().detach().item()

@@ -266,6 +266,9 @@ class BlimpFeature(FeatureAbstract):
 
         # robot vel
         self.slice_rbv = slice(15, 18)
+        self.slice_rbvx = slice(15, 16)
+        self.slice_rbvy = slice(16, 17)
+        self.slice_rbvz = slice(17, 18)
 
         # robot thrust
         self.slice_thrust = slice(27, 28)
@@ -305,7 +308,7 @@ class BlimpFeature(FeatureAbstract):
         robot_angVel = s[:, self.slice_rbangvel]
         robot_v = s[:, self.slice_rbv]
         robot_thrust = s[:, self.slice_thrust]
-        robot_act = s[:, self.slice_prev_act]
+        # robot_act = s[:, self.slice_prev_act]
 
         error_yaw = s[:, self.slice_err_yaw]
         error_yaw_to_goal = s[:, self.slice_err_yaw_to_goal]

@@ -21,11 +21,15 @@ class VecEnv:
         self.max_episode_length = cfg.get("max_episode_length", 500)
 
         self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
+        self.rand_avel_targets = cfg["task"].get("rand_avel_targets", False)
         self.train = cfg.get("mode", "train")
 
         self.goal_lim = cfg.get("goal_lim", 10)
         self.vel_lim = cfg.get("vel_lim", 5)
         self.goal_vel_lim = cfg.get("goal_vel_lim", 3)
+        self.avel_lim = cfg.get("avel_lim", 1)
+        self.goal_avel_lim = cfg.get("goal_avel_lim", 0.5)
+
         self.init_vels = cfg["task"].get("init_vel", True)
 
         self.device = cfg["sim"]["sim_device"]
@@ -40,21 +44,33 @@ class VecEnv:
         self.sim_params.use_gpu_pipeline = True
 
         # set simulation parameters (we use PhysX engine by default, these parameters are from the example file)
-        
+
         cfgPhy = cfg["sim"].get("physx", {})
-        self.sim_params.physx.num_position_iterations = cfgPhy.get("num_position_iterations", 4)
-        self.sim_params.physx.num_velocity_iterations = cfgPhy.get("num_velocity_iterations", 0)
+        self.sim_params.physx.num_position_iterations = cfgPhy.get(
+            "num_position_iterations", 4
+        )
+        self.sim_params.physx.num_velocity_iterations = cfgPhy.get(
+            "num_velocity_iterations", 0
+        )
         self.sim_params.physx.rest_offset = cfgPhy.get("rest_offset", 0.001)
         self.sim_params.physx.contact_offset = cfgPhy.get("contact_offset", 0.02)
         self.sim_params.physx.use_gpu = cfgPhy.get("use_gpu ", True)
         self.sim_params.physx.num_threads = cfgPhy.get("num_threads", 4)
         self.sim_params.physx.solver_type = cfgPhy.get("solver_type", 1)
-        self.sim_params.physx.bounce_threshold_velocity = cfgPhy.get("bounce_threshold_velocity", 0.2)
-        self.sim_params.physx.max_depenetration_velocity = cfgPhy.get("max_depenetration_velocity", 10.0)
-        self.sim_params.physx.default_buffer_size_multiplier = cfgPhy.get("default_buffer_size_multiplier",5.0)
-        self.sim_params.physx.max_gpu_contact_pairs = cfgPhy.get("max_gpu_contact_pairs",8388608)
-        self.sim_params.physx.num_subscenes = cfgPhy.get("num_subscenes",4)
-        #self.sim_params.physx.contact_collection = cfgPhy.get("contact_collection", 0)
+        self.sim_params.physx.bounce_threshold_velocity = cfgPhy.get(
+            "bounce_threshold_velocity", 0.2
+        )
+        self.sim_params.physx.max_depenetration_velocity = cfgPhy.get(
+            "max_depenetration_velocity", 10.0
+        )
+        self.sim_params.physx.default_buffer_size_multiplier = cfgPhy.get(
+            "default_buffer_size_multiplier", 5.0
+        )
+        self.sim_params.physx.max_gpu_contact_pairs = cfgPhy.get(
+            "max_gpu_contact_pairs", 8388608
+        )
+        self.sim_params.physx.num_subscenes = cfgPhy.get("num_subscenes", 4)
+        # self.sim_params.physx.contact_collection = cfgPhy.get("contact_collection", 0)
 
         # acquire gym interface
         self.gym = gymapi.acquire_gym()
@@ -64,7 +80,6 @@ class VecEnv:
             gymapi.SIM_PHYSX,
             self.sim_params,
         )
-        
 
         # allocate buffers
         self.obs_buf = torch.zeros(

@@ -42,9 +42,12 @@
 env_name: "BlimpRand"
 num_envs: 1024
 
+# randomize range = lim*[-1,1]
 goal_lim: 20
 goal_vel_lim: 5
+goal_avel_lim: 0.5
 vel_lim: 5
+avel_lim: 0.5 # ~15 deg/sec
 
 episode_max_step: 1000
 total_episodes: 100
@@ -60,7 +63,7 @@ log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 
 blimp:
-  spawn_height: 15
+  spawn_height: 20
   mass: 8.907
   ema_smooth: 0.3
   # indices of blimp bodies for which aerodynamics is calculated
@@ -95,10 +98,12 @@ task:
   verbose: False
 
   rand_task: True # fix train task or not
+  domain_rand: True # randomize env latent
   
   init_vel:           True
   rand_vel_targets:   True
-
+  rand_avel_targets:   False
+  
   # proximity reward
   proximity_threshold: 5 # [m]
 
@@ -116,16 +121,15 @@ task:
   # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
   taskSet_train: "achievable"
   taskSet_eval: "achievable"
-  adaptive_task: True
+  adaptive_task: False
 
   # set of task weights
-  # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust, pidPosGuide]
+  # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]
   taskSet: 
     navigation: [
       [1,1,0,0,0,0,0,0,0,0,0,0],
       [1,1,0,0,0,0,0,0,0,0,.05,.05],
       [1,1,0,1,0,0,0,0,0,0,0,0],
-      [1,1,0,1,1,0,0,0,0,0,0,0],
       [1,1,0,0,0,0,0,1,0,0,0,0],
       [1,1,0,1,0,0,0,1,0,0,0,0],
       [1,1,0,0,0,0,0,0,.1,.1,.1,.1],
@@ -147,18 +151,18 @@ task:
       [0,0,0,1,1,1,0,0,.2,0,0,0],
       [0,0,0,1,1,1,0,0,0,.2,0,0],
       [0,0,0,1,1,1,0,0,0,0,0,.2],
-      [0,0,0,1,1,1,0,0,.1,.1,0,.2],
+      [0,0,0,1,1,1,0,0,.1,.1,.1,.1],
     ]
 
     achievable:   [
       # controller
       [1,1,0,0,0,0,0,0,0,0,0,0],
-      
+      [0,1,1,0,0,0,0,0,0,0,0,0],
+
       # navigation
       [1,1,0,0,0,0,0,0,0,0,0,0],
       [1,1,0,0,0,0,0,0,0,0,.2,.2],
       [1,1,0,1,0,0,0,0,0,0,0,0],
-      [1,1,0,1,1,0,0,0,0,0,0,0],
       [1,1,0,0,0,0,0,1,0,0,0,0],
       [1,1,0,1,0,0,0,1,0,0,0,0],
       [1,1,0,0,0,0,0,0,.1,.1,.1,.1],

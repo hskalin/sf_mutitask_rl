@@ -33,6 +33,8 @@ parameters:
     max: 0.01
   agent.lr_schedule:
     values: [True, False]
+  env.task.adaptive_task:
+    values: [False]
   agent.norm_task_by_sf:
     values: [False]
   agent.policy_net_kwargs.resnet:
@@ -53,6 +55,8 @@ parameters:
     values: [5]
   env.num_envs:
     values: [1024]
+  env.task.adaptive_task:
+    values: [False]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:
