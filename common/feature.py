@@ -237,10 +237,10 @@ class BlimpFeature(FeatureAbstract):
         self.verbose = self.feature_cfg.get("verbose", False)
 
         self.Kp = torch.tensor(
-            self.env_cfg["goal_lim"], dtype=torch.float64, device=device
+            self.env_cfg["goal"]["pos_lim"], dtype=torch.float64, device=device
         )
         self.Kv = torch.tensor(
-            self.env_cfg["vel_lim"], dtype=torch.float64, device=device
+            self.env_cfg["goal"]["vel_lim"], dtype=torch.float64, device=device
         )
         self.ProxThresh = torch.tensor(
             self.env_cfg["task"]["proximity_threshold"],

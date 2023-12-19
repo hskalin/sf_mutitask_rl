@@ -42,13 +42,6 @@
 env_name: "BlimpRand"
 num_envs: 1024
 
-# randomize range = lim*[-1,1]
-goal_lim: 20
-goal_vel_lim: 5
-goal_avel_lim: 0.5
-vel_lim: 5
-avel_lim: 0.5 # ~15 deg/sec
-
 episode_max_step: 1000
 total_episodes: 100
 
@@ -94,6 +87,29 @@ aero:
   wind_mag: 1
   wind_std: 0.3
 
+goal:  
+  pos_lim: 30
+  vel_lim: 5
+  avel_lim: 0.5
+  min_z: 5
+
+  # desired position trajecotry
+  kWayPt: 1
+  wp_max_dist: 10
+  trigger_dist: 5
+
+  # targets for play
+  target_pos:     [0, 0, 20] # x, y, z
+  target_vel:     [0, 0, 0] # vx, vy, vz
+  target_ang:     [0, 0, 0] # rpy
+  target_angvel:  [0, 0, 0] # wx, wy, wz
+  
+  rand_pos_targets: True
+  rand_ang_targets: True
+  rand_vel_targets: True
+  rand_avel_targets: True
+
+
 task:
   verbose: False
 
@@ -101,17 +117,9 @@ task:
   domain_rand: True # randomize env latent
   
   init_vel:           True
-  rand_vel_targets:   True
-  rand_avel_targets:   False
   
   # proximity reward
   proximity_threshold: 5 # [m]
-
-  # targets for play
-  target_pos:     [0, 0, 20] # x, y
-  target_vel:     [0, 0, 0] # vx, vy, vz
-  target_ang:     [0, 0, 0] # rpy
-  target_angvel:  [0, 0, 0] # wx, wy, wz
 
   # specify initial task weight
   # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust, pidPosGuide]

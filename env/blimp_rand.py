@@ -8,6 +8,7 @@ from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 
 from .base.vec_env import VecEnv
+from .base.goal import RandomWayPoints
 
 
 class BlimpRand(VecEnv):
@@ -27,7 +28,9 @@ class BlimpRand(VecEnv):
 
         # blimp parameters
         # smoothning factor for fan thrusts
-        self.ema_smooth = torch.tensor(cfg["blimp"]["ema_smooth"], device=self.sim_device)
+        self.ema_smooth = torch.tensor(
+            cfg["blimp"]["ema_smooth"], device=self.sim_device
+        )
         self.drag_bodies = torch.tensor(
             cfg["blimp"]["drag_body_idxs"], device=self.sim_device
         ).to(torch.long)
@@ -74,7 +77,7 @@ class BlimpRand(VecEnv):
         self.k_effort_thrust = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_effort_botthrust = torch.zeros(self.num_envs, device=self.sim_device)
 
-        self.k_ema_smooth = torch.zeros((self.num_envs,2), device=self.sim_device)
+        self.k_ema_smooth = torch.zeros((self.num_envs, 2), device=self.sim_device)
         self.k_body_areas = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
         self.k_drag_coefs = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
         self.k_wind_mean = torch.zeros((self.num_envs, 3), device=self.sim_device)
@@ -85,45 +88,69 @@ class BlimpRand(VecEnv):
         self.k_body_torque_coeff = torch.zeros(
             (self.num_envs, 5), device=self.sim_device
         )
-        
+
         self.randomize_latent()
 
         # task specific buffers
         # the goal position and rotation are not randomized, instead
         # the spawning pos and rot of the blimp is, since the network gets relative
         # values, these are functionally the same
-        self.goal_pos = torch.tile(
-            torch.tensor(
-                cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
-            ),
-            (self.num_envs, 1),
+
+        self.vel_lim = cfg["goal"].get("vel_lim", 5)
+        self.avel_lim = cfg["goal"].get("avel_lim", 1)
+
+        self.wp = RandomWayPoints(
+            device=self.sim_device,
+            num_envs=self.num_envs,
+            init_pos=cfg["goal"]["target_pos"],
+            init_vel=cfg["goal"]["target_vel"],
+            init_ang=cfg["goal"]["target_ang"],
+            init_angvel=cfg["goal"]["target_angvel"],
+            rand_pos=cfg["goal"].get("rand_pos_targets", True),
+            rand_ang=cfg["goal"].get("rand_ang_targets", True),
+            rand_vel=cfg["goal"].get("rand_vel_targets", True),
+            rand_angvel=cfg["goal"].get("rand_avel_targets", True),
+            pos_lim=cfg["goal"].get("lim", 10),
+            vel_lim=cfg["goal"].get("vel_lim", 5),
+            angvel_lim=cfg["goal"].get("avel_lim", 0.5),
+            kWayPt=cfg["goal"].get("kWayPt", 2),
+            wp_max_dist=cfg["goal"].get("wp_max_dist", 10 / np.sqrt(3)),
+            trigger_dist=cfg["goal"].get("trigger_dist", 2),
+            min_z=cfg["goal"].get("min_z", 5),
         )
+
+        # self.goal_pos = torch.tile(
+        #     torch.tensor(
+        #         cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
+        #     ),
+        #     (self.num_envs, 1),
+        # )
         # self.goal_pos[..., 2] = self.spawn_height
 
-        self.goal_rot = torch.tile(
-            torch.tensor(
-                cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32
-            ),
-            (self.num_envs, 1),
-        )
+        # self.goal_rot = torch.tile(
+        #     torch.tensor(
+        #         cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32
+        #     ),
+        #     (self.num_envs, 1),
+        # )
         # self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
 
-        self.goal_lvel = torch.tile(
-            torch.tensor(
-                cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
-            ),
-            (self.num_envs, 1),
-        )
+        # self.goal_lvel = torch.tile(
+        #     torch.tensor(
+        #         cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
+        #     ),
+        #     (self.num_envs, 1),
+        # )
         # self.goal_lvel[..., 2] = 0.0  # set vz zero
 
-        self.goal_avel = torch.tile(
-            torch.tensor(
-                cfg["task"]["target_angvel"],
-                device=self.sim_device,
-                dtype=torch.float32,
-            ),
-            (self.num_envs, 1),
-        )
+        # self.goal_avel = torch.tile(
+        #     torch.tensor(
+        #         cfg["task"]["target_angvel"],
+        #         device=self.sim_device,
+        #         dtype=torch.float32,
+        #     ),
+        #     (self.num_envs, 1),
+        # )
         # self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # initialise envs and state tensors
@@ -183,7 +210,7 @@ class BlimpRand(VecEnv):
         self.gym.add_ground(self.sim, plane_params)
 
         # define environment space (for visualisation)
-        spacing = self.goal_lim
+        spacing = self.wp.pos_lim
         lower = gymapi.Vec3(0.5 * -spacing, -spacing, 0.0)
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
         num_per_row = int(np.sqrt(self.num_envs))
@@ -250,9 +277,9 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 2] = yaw
 
         # relative angles
-        self.obs_buf[env_ids, 3] = roll - self.goal_rot[env_ids, 0]
-        self.obs_buf[env_ids, 4] = pitch - self.goal_rot[env_ids, 1]
-        self.obs_buf[env_ids, 5] = yaw - self.goal_rot[env_ids, 2]
+        self.obs_buf[env_ids, 3] = roll - self.wp.ang[env_ids, 0]
+        self.obs_buf[env_ids, 4] = pitch - self.wp.ang[env_ids, 1]
+        self.obs_buf[env_ids, 5] = yaw - self.wp.ang[env_ids, 2]
 
         # robot sin cos angle
         sin_y = torch.sin(pitch)
@@ -271,7 +298,8 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 10] = self.rb_pos[env_ids, 0, 2]
 
         # relative pos
-        rel_pos = self.rb_pos[env_ids, 0] - self.goal_pos[env_ids]
+        self.wp.update_idx(self.rb_pos[:, 0])
+        rel_pos = self.rb_pos[env_ids, 0] - self.wp.get_pos()[env_ids]
         self.obs_buf[env_ids, 11] = rel_pos[:, 0]
         self.obs_buf[env_ids, 12] = rel_pos[:, 1]
         self.obs_buf[env_ids, 13] = rel_pos[:, 2]
@@ -296,7 +324,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 17] = zv
 
         # relative vel
-        vel = self.rb_lvels[env_ids, 0] - self.goal_lvel[env_ids]
+        vel = self.rb_lvels[env_ids, 0] - self.wp.get_vel()[env_ids]
 
         xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
         self.obs_buf[env_ids, 18] = xv
@@ -311,7 +339,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 23] = ang_vel[:, 2]
 
         # rel angular velocities
-        ang_vel = self.rb_avels[env_ids, 0] - self.goal_avel[env_ids]
+        ang_vel = self.rb_avels[env_ids, 0] - self.wp.angvel[env_ids]
 
         self.obs_buf[env_ids, 24] = ang_vel[:, 0]
         self.obs_buf[env_ids, 25] = ang_vel[:, 1]
@@ -401,7 +429,6 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.k_blimp_mass[env_ids]
         d += 1
         self.obs_buf[env_ids, d] = self.k_bouyancy[env_ids]
-
 
     def randomize_latent(self, env_ids=None):
         if env_ids is None:
@@ -493,7 +520,6 @@ class BlimpRand(VecEnv):
             self.max_episode_length,
         )
 
-
     def reset(self):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
 
@@ -501,15 +527,16 @@ class BlimpRand(VecEnv):
             return
 
         def sampling(size, scale):
-            return scale*2*(torch.rand(size, device=self.sim_device)-0.5)
-
+            return scale * 2 * (torch.rand(size, device=self.sim_device) - 0.5)
 
         # randomise initial positions and velocities
-        positions = sampling((len(env_ids), self.num_bodies, 3), self.goal_lim)
+        positions = sampling((len(env_ids), self.num_bodies, 3), self.wp.pos_lim)
         positions[..., 2] += self.spawn_height
-        positions[..., 2] = torch.where(positions[..., 2]<=2.0, self.spawn_height, positions[..., 2])
+        positions[..., 2] = torch.where(
+            positions[..., 2] <= 2.0, self.spawn_height, positions[..., 2]
+        )
 
-        rotations = sampling((len(env_ids), 4), math.pi)
+        rotations = sampling((len(env_ids), 3), math.pi)
         rotations[..., 0:2] = 0
 
         # set random pos, rot, vels
@@ -517,18 +544,27 @@ class BlimpRand(VecEnv):
         self.rb_rot[env_ids, 0, :] = quat_from_euler_xyz(
             rotations[:, 0], rotations[:, 1], rotations[:, 2]
         )
-        self.goal_rot[env_ids, 2] = rotations[:, 3]
+        # self.goal_rot[env_ids, 2] = rotations[:, 3]
 
         if self.init_vels:
-            self.rb_lvels[env_ids, :] = sampling((len(env_ids), self.num_bodies, 3), self.vel_lim)
-            self.rb_avels[env_ids, :] = sampling((len(env_ids), self.num_bodies, 3), self.avel_lim)
+            self.rb_lvels[env_ids, :] = sampling(
+                (len(env_ids), self.num_bodies, 3), self.vel_lim
+            )
+            self.rb_avels[env_ids, :] = sampling(
+                (len(env_ids), self.num_bodies, 3), self.avel_lim
+            )
 
-        if self.train and self.rand_vel_targets:
-            self.goal_lvel[env_ids, :] = sampling((len(env_ids), 3), self.goal_vel_lim)
+        # sample new waypoint
+        self.wp.reset(env_ids)
+        self.wp.ang[env_ids, 0:2] = 0
+        self.wp.angvel[env_ids, 0:2] = 0
 
-        if self.train and self.rand_avel_targets:
-            self.goal_avel[env_ids, :] = sampling((len(env_ids), 3), self.goal_avel_lim)
-            self.goal_avel[env_ids, 0:2] = 0
+        # if self.train and self.rand_vel_targets:
+        #     self.goal_lvel[env_ids, :] = sampling((len(env_ids), 3), self.goal_vel_lim)
+
+        # if self.train and self.rand_avel_targets:
+        #     self.goal_avel[env_ids, :] = sampling((len(env_ids), 3), self.goal_avel_lim)
+        #     self.goal_avel[env_ids, 0:2] = 0
 
         # domain randomization
         self.randomize_latent(env_ids)
@@ -562,8 +598,12 @@ class BlimpRand(VecEnv):
         actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
 
         # EMA smoothing thrusts
-        actions[:, 0] = actions[:, 0] * self.k_ema_smooth[:,0] + self.prev_actions[:, 0]*(1-self.k_ema_smooth[:,0])
-        actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:,1] + self.prev_actions[:, 2]*(1-self.k_ema_smooth[:,1])
+        actions[:, 0] = actions[:, 0] * self.k_ema_smooth[:, 0] + self.prev_actions[
+            :, 0
+        ] * (1 - self.k_ema_smooth[:, 0])
+        actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:, 1] + self.prev_actions[
+            :, 2
+        ] * (1 - self.k_ema_smooth[:, 1])
 
         self.prev_actions = actions
 
@@ -644,21 +684,21 @@ class BlimpRand(VecEnv):
         line_colors += [[0, 0, 0], [0, 0, 0]]
         for i in range(envs):
             vertices = [
-                [self.goal_pos[i, 0].item(), self.goal_pos[i, 1].item(), 0],
+                [self.wp.get_pos()[i, 0].item(), self.wp.get_pos()[i, 1].item(), 0],
                 [
-                    self.goal_pos[i, 0].item(),
-                    self.goal_pos[i, 1].item(),
-                    self.goal_pos[i, 2].item(),
+                    self.wp.get_pos()[i, 0].item(),
+                    self.wp.get_pos()[i, 1].item(),
+                    self.wp.get_pos()[i, 2].item(),
                 ],
                 [
-                    self.goal_pos[i, 0].item(),
-                    self.goal_pos[i, 1].item(),
-                    self.goal_pos[i, 2].item(),
+                    self.wp.get_pos()[i, 0].item(),
+                    self.wp.get_pos()[i, 1].item(),
+                    self.wp.get_pos()[i, 2].item(),
                 ],
                 [
-                    self.goal_pos[i, 0].item() + math.cos(self.goal_rot[i, 2].item()),
-                    self.goal_pos[i, 1].item() + math.sin(self.goal_rot[i, 2].item()),
-                    self.goal_pos[i, 2].item(),
+                    self.wp.get_pos()[i, 0].item() + math.cos(self.wp.ang[i, 2].item()),
+                    self.wp.get_pos()[i, 1].item() + math.sin(self.wp.ang[i, 2].item()),
+                    self.wp.get_pos()[i, 2].item(),
                 ],
             ]
             if len(line_vertices) > i:

@@ -20,15 +20,12 @@ class VecEnv:
         self.num_envs = cfg.get("num_envs", 512)
         self.max_episode_length = cfg.get("max_episode_length", 500)
 
-        self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
-        self.rand_avel_targets = cfg["task"].get("rand_avel_targets", False)
         self.train = cfg.get("mode", "train")
 
-        self.goal_lim = cfg.get("goal_lim", 10)
-        self.vel_lim = cfg.get("vel_lim", 5)
-        self.goal_vel_lim = cfg.get("goal_vel_lim", 3)
-        self.avel_lim = cfg.get("avel_lim", 1)
-        self.goal_avel_lim = cfg.get("goal_avel_lim", 0.5)
+        # self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
+        # self.rand_avel_targets = cfg["task"].get("rand_avel_targets", False)
+        # self.vel_lim = cfg.get("vel_lim", 5)
+        # self.avel_lim = cfg.get("avel_lim", 1)
 
         self.init_vels = cfg["task"].get("init_vel", True)
 
