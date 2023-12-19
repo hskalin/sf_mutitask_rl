@@ -44,16 +44,28 @@ class BlimpPositionController(IsaacAgent):
             **self.ctrl_cfg["vel"],
         )
 
+    # def explore(self, s, w):
+    #     err_yaw, err_planar, err_z = self.parse_state(s)
+
+    #     yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
+    #     alt_ctrl = self.alt_ctrl.action(err_z)
+    #     vel_ctrl = self.vel_ctrl.action(err_planar)
+    #     thrust_vec = -1 * torch.ones_like(vel_ctrl)
+    #     a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
+    #     # a = torch.tensor([-1, 0, thrust_vec, 0])
+
+    #     return a
+
     def explore(self, s, w):
         err_yaw, err_planar, err_z = self.parse_state(s)
 
         yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
         alt_ctrl = self.alt_ctrl.action(err_z)
-        vel_ctrl = self.vel_ctrl.action(err_planar)
-        thrust_vec = -1 * torch.ones_like(vel_ctrl)
-        a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
-        # a = torch.tensor([-1, 0, thrust_vec, 0])
 
+        vel_ctrl = torch.where(err_z[:,None] <= -3, self.vel_ctrl.action(torch.abs(err_z)), self.vel_ctrl.action(err_planar))
+        thrust_vec = torch.where(err_z[:,None] <= -3, torch.zeros_like(vel_ctrl), -1*torch.ones_like(vel_ctrl))
+
+        a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         return a
 
     def exploit(self, s, w):

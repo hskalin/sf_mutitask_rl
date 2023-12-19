@@ -27,7 +27,7 @@ class BlimpRand(VecEnv):
 
         # blimp parameters
         # smoothning factor for fan thrusts
-        self.ema_smooth = cfg["blimp"].get("ema_smooth", 0.3)
+        self.ema_smooth = torch.tensor(cfg["blimp"]["ema_smooth"], device=self.sim_device)
         self.drag_bodies = torch.tensor(
             cfg["blimp"]["drag_body_idxs"], device=self.sim_device
         ).to(torch.long)
@@ -52,8 +52,8 @@ class BlimpRand(VecEnv):
         self.domain_rand = cfg["task"].get("domain_rand", True)
 
         if self.domain_rand:
-            ra0, ra1 = [0.8, 1.2]
-            rb0, rb1 = [0.5, 1.5]
+            ra0, ra1 = [0.8, 1.25]
+            rb0, rb1 = [0.6, 1.7]
         else:
             ra0, ra1 = [1.0, 1.0]
             rb0, rb1 = [1.0, 1.0]
@@ -74,7 +74,7 @@ class BlimpRand(VecEnv):
         self.k_effort_thrust = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_effort_botthrust = torch.zeros(self.num_envs, device=self.sim_device)
 
-        self.k_ema_smooth = torch.zeros(self.num_envs, device=self.sim_device)
+        self.k_ema_smooth = torch.zeros((self.num_envs,2), device=self.sim_device)
         self.k_body_areas = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
         self.k_drag_coefs = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
         self.k_wind_mean = torch.zeros((self.num_envs, 3), device=self.sim_device)
@@ -98,7 +98,7 @@ class BlimpRand(VecEnv):
             ),
             (self.num_envs, 1),
         )
-        self.goal_pos[..., 2] = self.spawn_height
+        # self.goal_pos[..., 2] = self.spawn_height
 
         self.goal_rot = torch.tile(
             torch.tensor(
@@ -201,7 +201,7 @@ class BlimpRand(VecEnv):
 
         # define blimp pose
         pose = gymapi.Transform()
-        pose.p.z = self.spawn_height  # generate the blimp 1m from the ground
+        pose.p.z = self.spawn_height  # generate the blimp h m from the ground
         pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         # generate environments
@@ -339,8 +339,8 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 2]
 
         # thrust
-        d += 1
-        self.obs_buf[env_ids, d] = self.actions_tensor_prev[env_ids, 3, 2]
+        # d += 1
+        # self.obs_buf[env_ids, d] = self.actions_tensor_prev[env_ids, 3, 2]
 
         # effort
         d += 1
@@ -348,7 +348,9 @@ class BlimpRand(VecEnv):
         d += 1
         self.obs_buf[env_ids, d] = self.k_effort_botthrust[env_ids]
         d += 1
-        self.obs_buf[env_ids, d] = self.k_ema_smooth[env_ids]
+        self.obs_buf[env_ids, d] = self.k_ema_smooth[env_ids, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.k_ema_smooth[env_ids, 1]
 
         d += 1
         self.obs_buf[env_ids, d] = self.k_body_areas[env_ids, 0, 0]
@@ -417,7 +419,7 @@ class BlimpRand(VecEnv):
         self.k_effort_botthrust[env_ids] = sample_from_range(
             self.range_effort_botthrust
         )[0]
-        self.k_ema_smooth[env_ids] = sample_from_range(self.range_ema_smooth)[0]
+        self.k_ema_smooth[env_ids] = sample_from_range(self.range_ema_smooth, 2)
 
         # randomize dragbody
         a = sample_from_range(self.range_body_areas0, 3)
@@ -558,6 +560,11 @@ class BlimpRand(VecEnv):
     def step(self, actions):
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
         actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
+
+        # EMA smoothing thrusts
+        actions[:, 0] = actions[:, 0] * self.k_ema_smooth[:,0] + self.prev_actions[:, 0]*(1-self.k_ema_smooth[:,0])
+        actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:,1] + self.prev_actions[:, 2]*(1-self.k_ema_smooth[:,1])
+
         self.prev_actions = actions
 
         # zeroing out any prev action
@@ -575,12 +582,12 @@ class BlimpRand(VecEnv):
         )  # bot propeller
 
         # EMA smoothing thrusts
-        self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
-            :, [3, 4, 7], :
-        ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
-            1 - self.ema_smooth
-        )
-        self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
+        # self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
+        #     :, [3, 4, 7], :
+        # ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
+        #     1 - self.ema_smooth
+        # )
+        # self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
 
         # buoyancy
         self.actions_tensor[:] = simulate_buoyancy(
@@ -914,14 +921,6 @@ def compute_point_reward(
     reset = torch.where(
         torch.abs(ang_velz) > torch.pi / 3, torch.ones_like(reset_buf), reset
     )
-
-    # reset nan
-    # reset = torch.where(torch.isnan(x_pos), torch.ones_like(reset_buf), reset)
-    # reset = torch.where(torch.isnan(y_pos), torch.ones_like(reset_buf), reset)
-    # reset = torch.where(torch.isnan(z_pos), torch.ones_like(reset_buf), reset)
-    # reset = torch.where(torch.isnan(ang_velx), torch.ones_like(reset_buf), reset)
-    # reset = torch.where(torch.isnan(ang_vely), torch.ones_like(reset_buf), reset)
-    # reset = torch.where(torch.isnan(ang_velz), torch.ones_like(reset_buf), reset)
 
     truncated_buf = torch.where(
         progress_buf >= max_episode_length - 1,

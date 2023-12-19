@@ -153,12 +153,8 @@ class BlimpHoverControl:
         yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
         alt_ctrl = self.alt_ctrl.action(err_z)
 
-        if err_planar <= 10 and err_z <= 5:
-            vel_ctrl = self.vel_ctrl.action(torch.abs(err_z))
-            thrust_vec = torch.zeros_like(vel_ctrl)
-        else:
-            vel_ctrl = self.vel_ctrl.action(err_planar)
-            thrust_vec = -1*torch.ones_like(vel_ctrl)
+        vel_ctrl = torch.where(err_z[:,None] <= -3, self.vel_ctrl.action(torch.abs(err_z)), self.vel_ctrl.action(err_planar))
+        thrust_vec = torch.where(err_z[:,None] <= -3, torch.zeros_like(vel_ctrl), -1*torch.ones_like(vel_ctrl))
 
         a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         return a

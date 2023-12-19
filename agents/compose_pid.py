@@ -10,12 +10,10 @@ from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
 from common.pid import BlimpPositionControl, BlimpHoverControl
-from common.policy import BaseNetwork, MultiheadGaussianPolicy, weights_init_
+from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
-    AverageMeter,
     check_act,
     check_obs,
-    dump_cfg,
     grad_false,
     hard_update,
     np2ts,
@@ -281,12 +279,12 @@ class RMACompPIDAgent(MultitaskAgent):
         print(f"============= start phase {self.phase} =============")
         while True:
             self.train_episode()
-            wandb.log({"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
-            wandb.log({"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
+            wandb.log({f"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
+            wandb.log({f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
 
             if self.eval and (self.episodes % self.eval_interval == 0):
                 returns = self.evaluate()
-                wandb.log({"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+                wandb.log({f"reward/eval_phase{self.phase}": torch.mean(returns).item()})
 
                 if self.save_model:
                     self.save_torch_model()
@@ -305,12 +303,12 @@ class RMACompPIDAgent(MultitaskAgent):
             print(f"============= start phase {self.phase} =============")
             while True:
                 self.train_episode()
-                wandb.log({"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
-                wandb.log({"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
+                wandb.log({f"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
+                wandb.log({f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
 
                 if self.eval and (self.episodes % self.eval_interval == 0):
                     returns =  self.evaluate()
-                    wandb.log({"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+                    wandb.log({f"reward/eval_phase{self.phase}": torch.mean(returns).item()})
 
                     if self.save_model:
                         self.save_torch_model()
@@ -405,7 +403,6 @@ class RMACompPIDAgent(MultitaskAgent):
 
         sf_loss, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
         policy_loss, entropies, info = self.update_policy(batch)
-        # policy_loss, entropies, action_norm, continuity_loss = self.update_policy(batch)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
@@ -529,7 +526,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
         if self.use_continuity_loss:
             prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
-            
+
             # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
                 prev_a[:, None, :] - a_heads, dim=2, keepdim=True
@@ -539,24 +536,11 @@ class RMACompPIDAgent(MultitaskAgent):
             )
             info["continuity_loss"] = continuity_loss.mean().detach().item()
 
-        # if self.use_kl_loss:
-        #     curr_a = a_stack[:, :, 0]  # [N, A] <-- [N, A, K]
-        #     # encourage continuous action, [N,H,1] <-- [N,H,A] - [N, A]
-        #     continuity_loss = torch.norm(
-        #         prev_a[:, :, :] - curr_a, dim=2, keepdim=True
-        #     )
-        #     policy_loss = (
-        #         policy_loss + (1 - self.alpha) * self.continuity_coeff * continuity_loss
-        #     )
-        #     info["kl_loss"] = continuity_loss.mean().detach().item()
-
         if self.use_imitation_loss:
             imi_loss = torch.zeros_like(policy_loss)  # [N, H, A]
             for i in range(len(self.controllers)):
                 a_pid = self.controllers[i].act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
-                imi_loss[:, i] = torch.norm(
-                    a_pid - a_heads[:, i], dim=1, keepdim=True
-                )
+                imi_loss[:, i] = torch.abs(a_pid - a_heads[:, i])
 
             policy_loss = policy_loss + self.alpha * self.imitation_coeff * imi_loss
             info["imitation_loss"] = imi_loss.mean().detach().item()

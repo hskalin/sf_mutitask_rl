@@ -19,7 +19,7 @@ norm_task_by_sf: False
 use_continuity_loss: True
 continuity_coeff: 0.01
 use_imitation_loss: True
-imitation_coeff: 0.01
+imitation_coeff: 10.0
 sf_net_kwargs: 
     hidden_dim: 64
     num_layers: 4
