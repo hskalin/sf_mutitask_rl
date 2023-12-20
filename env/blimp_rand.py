@@ -16,17 +16,17 @@ class BlimpRand(VecEnv):
         # task-specific parameters
         self.num_obs = 31
         self.num_act = 4
-        self.reset_dist = 50.0  # when to reset [m]
-
-        self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         # domain randomization
         self.num_latent = 29
         self.num_obs += self.num_latent
 
+        self.reset_dist = 50.0  # when to reset [m]
+        self.spawn_height = cfg["blimp"].get("spawn_height", 15)
+
         super().__init__(cfg=cfg)
 
-        self.hover_task = None
+        self.hover_task = None  # TODO: this is a hack
 
         # blimp parameters
         # smoothning factor for fan thrusts
@@ -45,15 +45,15 @@ class BlimpRand(VecEnv):
             [0.47, 1.29, 270.0, 3.0, 2.5], device=self.sim_device
         )  # [coef, p, BL4, balance torque, fin torque coef]
 
+        self.effort_thrust = 5.0
+        self.effort_botthrust = 3.0
+
         # wind
         self.wind_dirs = torch.tensor(cfg["aero"]["wind_dirs"], device=self.sim_device)
         self.wind_mag = cfg["aero"]["wind_mag"]
         self.wind_std = cfg["aero"]["wind_std"]
 
         # randomized env latents
-        self.range_effort_thrust = [4.0, 6.0]
-        self.range_effort_botthrust = [1.5, 4.5]
-
         self.domain_rand = cfg["task"].get("domain_rand", True)
 
         if self.domain_rand:
@@ -63,6 +63,11 @@ class BlimpRand(VecEnv):
             ra0, ra1 = [1.0, 1.0]
             rb0, rb1 = [1.0, 1.0]
 
+        self.range_effort_thrust = [self.effort_thrust * rb0, self.effort_thrust * rb1]
+        self.range_effort_botthrust = [
+            self.effort_botthrust * rb0,
+            self.effort_botthrust * rb1,
+        ]
         self.range_ema_smooth = [self.ema_smooth * rb0, self.ema_smooth * rb1]
         self.range_body_areas0 = [self.body_areas[0] * ra0, self.body_areas[0] * ra1]
         self.range_body_areas1 = [self.body_areas[1] * ra0, self.body_areas[1] * ra1]
@@ -76,9 +81,9 @@ class BlimpRand(VecEnv):
             self.body_torque_coeff * ra0,
             self.body_torque_coeff * ra1,
         ]
+
         self.k_effort_thrust = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_effort_botthrust = torch.zeros(self.num_envs, device=self.sim_device)
-
         self.k_ema_smooth = torch.zeros((self.num_envs, 2), device=self.sim_device)
         self.k_body_areas = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
         self.k_drag_coefs = torch.zeros((self.num_envs, 9, 3), device=self.sim_device)
@@ -93,13 +98,8 @@ class BlimpRand(VecEnv):
 
         self.randomize_latent()
 
-        # task specific buffers
-        # the goal position and rotation are not randomized, instead
-        # the spawning pos and rot of the blimp is, since the network gets relative
-        # values, these are functionally the same
-
         self.vel_lim = cfg["goal"].get("vel_lim", 5)
-        self.avel_lim = cfg["goal"].get("avel_lim", 1)
+        self.avel_lim = cfg["goal"].get("avel_lim", 0.5)
 
         self.wp = RandomWayPoints(
             device=self.sim_device,
@@ -120,40 +120,6 @@ class BlimpRand(VecEnv):
             trigger_dist=cfg["goal"].get("trigger_dist", 2),
             min_z=cfg["goal"].get("min_z", 5),
         )
-
-        # self.goal_pos = torch.tile(
-        #     torch.tensor(
-        #         cfg["task"]["target_pos"], device=self.sim_device, dtype=torch.float32
-        #     ),
-        #     (self.num_envs, 1),
-        # )
-        # self.goal_pos[..., 2] = self.spawn_height
-
-        # self.goal_rot = torch.tile(
-        #     torch.tensor(
-        #         cfg["task"]["target_ang"], device=self.sim_device, dtype=torch.float32
-        #     ),
-        #     (self.num_envs, 1),
-        # )
-        # self.goal_rot[..., 0:2] = 0.0  # set roll and pitch zero
-
-        # self.goal_lvel = torch.tile(
-        #     torch.tensor(
-        #         cfg["task"]["target_vel"], device=self.sim_device, dtype=torch.float32
-        #     ),
-        #     (self.num_envs, 1),
-        # )
-        # self.goal_lvel[..., 2] = 0.0  # set vz zero
-
-        # self.goal_avel = torch.tile(
-        #     torch.tensor(
-        #         cfg["task"]["target_angvel"],
-        #         device=self.sim_device,
-        #         dtype=torch.float32,
-        #     ),
-        #     (self.num_envs, 1),
-        # )
-        # self.goal_avel[..., 0:2] = 0.0  # set wx, wy zero
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -300,7 +266,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 10] = self.rb_pos[env_ids, 0, 2]
 
         # relative pos
-        self.wp.update_idx(self.rb_pos[:, 0], self.hover_task)
+        self.wp.update_state(self.rb_pos[:, 0], self.hover_task)
         rel_pos = self.rb_pos[env_ids, 0] - self.wp.get_pos()[env_ids]
         self.obs_buf[env_ids, 11] = rel_pos[:, 0]
         self.obs_buf[env_ids, 12] = rel_pos[:, 1]
@@ -326,7 +292,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 17] = zv
 
         # relative vel
-        vel = self.rb_lvels[env_ids, 0] - self.wp.get_vel()[env_ids]
+        vel = self.rb_lvels[env_ids, 0] - self.wp.vel[env_ids]
 
         xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
         self.obs_buf[env_ids, 18] = xv
@@ -546,7 +512,6 @@ class BlimpRand(VecEnv):
         self.rb_rot[env_ids, 0, :] = quat_from_euler_xyz(
             rotations[:, 0], rotations[:, 1], rotations[:, 2]
         )
-        # self.goal_rot[env_ids, 2] = rotations[:, 3]
 
         if self.init_vels:
             self.rb_lvels[env_ids, :] = sampling(
@@ -618,14 +583,6 @@ class BlimpRand(VecEnv):
         self.actions_tensor[:, 7, 1] = (
             self.k_effort_botthrust * actions[:, 1]
         )  # bot propeller
-
-        # EMA smoothing thrusts
-        # self.actions_tensor[:, [3, 4, 7], :] = self.actions_tensor[
-        #     :, [3, 4, 7], :
-        # ] * self.ema_smooth + self.actions_tensor_prev[:, [3, 4, 7], :] * (
-        #     1 - self.ema_smooth
-        # )
-        # self.actions_tensor_prev[:, [3, 4, 7], :] = self.actions_tensor[:, [3, 4, 7], :]
 
         # buoyancy
         self.actions_tensor[:] = simulate_buoyancy(

@@ -25,10 +25,13 @@ class RandomWayPoints:
         wp_dist=10 / np.sqrt(3),  # [m] generate next wp within range
         trigger_dist=2,  # [m] activate next wp if robot within range
         min_z=5,
+        path_vel=True,  # generate velocity command from waypoints
     ) -> None:
         self.num_envs = num_envs
         self.device = device
         self.kWayPt = kWayPt
+
+        self.path_vel = path_vel if kWayPt >= 2 else False
 
         self.pos_lim = pos_lim
         self.vel_lim = vel_lim
@@ -56,7 +59,7 @@ class RandomWayPoints:
             self.init_vel = init_vel
             self.vel = torch.tile(
                 torch.tensor(init_vel, device=self.device, dtype=torch.float32),
-                (self.num_envs, self.kWayPt, 1),
+                (self.num_envs, 1),
             )
         else:
             self.vel = None
@@ -84,10 +87,7 @@ class RandomWayPoints:
     def get_pos(self):
         return self.pos[range(self.num_envs), self.idx.squeeze()]
 
-    def get_vel(self):
-        return self.vel[range(self.num_envs), self.idx.squeeze()]
-
-    def update_idx(self, rb_pos, hover_task=None):
+    def update_state(self, rb_pos, hover_task=None):
         """check if robot is close to waypoint"""
         dist = torch.norm(
             rb_pos - self.pos[range(self.num_envs), self.idx.squeeze()],
@@ -96,10 +96,13 @@ class RandomWayPoints:
             keepdim=True,
         )
         self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
-        self.idx = torch.where(self.idx > self.kWayPt - 1, 0, self.idx)
+        self.idx = self.check_idx(self.idx)
 
         if hover_task is not None:
             self.idx = torch.where(hover_task[:, None] == True, 0, self.idx)
+
+        if self.path_vel:
+            self.update_vel(rb_pos)
 
     def sample(self, env_ids):
         if self.rand_pos:
@@ -108,9 +111,7 @@ class RandomWayPoints:
             )
 
         if self.rand_vel:
-            self.vel[env_ids] = self._sample(
-                (len(env_ids), self.kWayPt, 3), self.vel_lim
-            )
+            self.vel[env_ids] = self._sample((len(env_ids), 3), self.vel_lim)
 
         if self.rand_ang:
             self.ang[env_ids] = self._sample((len(env_ids), 3), math.pi)
@@ -138,3 +139,21 @@ class RandomWayPoints:
     def reset(self, env_ids):
         self.idx[env_ids] = 0
         self.sample(env_ids)
+
+    def update_vel(self, rbpos, Kv=0.5):
+        prev_pos = self.pos[
+            range(self.num_envs), self.check_idx(self.idx - 1).squeeze()
+        ]  # [N, 3]
+
+        path = self.get_pos() - prev_pos
+
+        k = torch.einsum("ij,ij->i", rbpos - prev_pos, path) / torch.einsum(
+            "ij,ij->i", path, path
+        )
+        k = torch.where(k > 1, 1 - k, k)
+        self.vel = Kv * (path + prev_pos + k[:, None] * path - rbpos)
+
+    def check_idx(self, idx):
+        idx = torch.where(idx > self.kWayPt - 1, 0, idx)
+        idx = torch.where(idx < 0, self.kWayPt - 1, idx)
+        return idx
