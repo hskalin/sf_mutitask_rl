@@ -14,6 +14,7 @@ class TaskObject:
         self.dim = int(self.initW.shape[0])
 
         self.W = self.normalize_task(torch.tile(self.initW, (self.n_env, 1)))  # [N, F]
+        self.id = None
 
         if self.taskSetType != "uniform":
             self.taskSet = self.define_taskSet(self.taskSetType)

@@ -10,9 +10,7 @@ from common.util import (
     AverageMeter,
 )
 
-from agents.compose import CompositionAgent
-from agents.composeh import RMACompAgent
-from agents.sac import SACAgent
+from run import get_agent
 
 import torch
 import numpy as np
@@ -21,6 +19,96 @@ import wandb
 
 from tkinter import *
 
+class PlayUI:
+    def __init__(self, cfg_dict, model_path) -> None:
+        self.root = Tk()
+        self.root.title("test")
+        self.root.geometry("300x500")
+
+        # init and load agent
+        self.agent = get_agent(cfg_dict)
+        self.agent.load_torch_model(model_path)
+
+        self.weights = self.agent.task.Eval.W.clone()
+
+        self.weightLabels = cfg_dict["env"]["task"]["taskLabels"]
+
+        self.rew = None
+        self.generate_scales()
+        self.print_step_reward()
+
+    def weight_update_function(self, dimension):
+        def update_val(val):
+            self.weights[..., dimension] = float(val)
+            self.agent.task.Eval.W[:] = self.weights[:]
+            self.agent.task.Eval.W = self.agent.task.Eval.W / self.agent.task.Eval.W.norm(1, 1, keepdim=True)
+
+        return update_val
+    
+    def target_update_function(self, dimension):
+        def update_val(val):
+            self.agent.env.goal_pos[..., dimension] = float(val)
+        return update_val
+    
+    def add_scale(self, dimension, gen_func, label, range=(0,1), type="weight"):
+        scale = Scale(
+            self.root,
+            from_=range[0],
+            to=range[1],
+            digits=3,
+            resolution=0.01,
+            label=label,
+            orient=HORIZONTAL,
+            command=gen_func(dimension),
+        )
+        if type=="weight":
+            scale.set(self.agent.task.Eval.W[0, dimension].item())
+        scale.pack()
+
+    def generate_scales(self):
+        for i, label in enumerate(self.weightLabels):
+            self.add_scale(dimension=i, gen_func=self.weight_update_function, label=label)
+
+        self.add_scale(dimension=0, gen_func=self.target_update_function, label="target pos", range=(-2,2), type="target")
+
+    def print_step_reward(self):
+        self.rew = DoubleVar(name="reward")  # instantiate the IntVar variable class
+        self.rew.set(0.0)  # set it to 0 as the initial value
+
+        # the label's textvariable is set to the variable class instance
+        Label(self.root, text="step reward").pack()
+        Label(self.root, textvariable=self.rew).pack()
+
+    def _debug_ui(self):
+        # only runs UI loop without inference
+        while True:
+            self.root.update_idletasks()
+            self.root.update()
+
+            print(self.agent.task.Eval.W[0])
+
+    def play(self):
+        avgStepRew = AverageMeter(1, 20).to(self.agent.device)
+        while True:
+            s = self.agent.reset_env()
+            for _ in range(5000):
+                self.root.update_idletasks()
+                self.root.update()
+
+                a = self.agent.act(s, self.agent.task.Eval, "exploit")
+                print(self.agent.task.Eval.W[0])
+
+                self.agent.env.step(a)
+                s_next = self.agent.env.obs_buf.clone()
+                self.agent.env.reset()
+
+                r = self.agent.calc_reward(s_next, self.agent.task.Eval.W)
+                s = s_next
+                avgStepRew.update(r)
+                if self.rew:
+                    self.rew.set(avgStepRew.get_mean())
+
+    
 
 @hydra.main(config_name="config", config_path="./cfg")
 def launch_rlg_hydra(cfg: DictConfig):
@@ -47,177 +135,10 @@ def launch_rlg_hydra(cfg: DictConfig):
     torch.manual_seed(456)
     np.random.seed(456)
 
-    if "sac" in cfg_dict["agent"]["name"].lower():
-        agent = SACAgent(cfg=cfg_dict)
-    elif "composition" in cfg_dict["agent"]["name"].lower():
-        agent = CompositionAgent(cfg_dict)
-    else:
-        agent = RMACompAgent(cfg_dict)
-        agent.phase=1
+    model_path = "/home/nilaksh/rl/btp/sf_mutitask_rl/logs/composition/PointMass2D/2023-12-19-20-08-02/model4/"
 
-    agent.load_torch_model(
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacomp/PointMass2DRand/2023-12-12-05-08-22/model40"
-    )
-
-    root = Tk()
-    root.title("test")
-    root.geometry("300x500")
-
-    weights = agent.w_eval.clone()
-
-    def update_px(val):
-        weights[..., 0] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_py(val):
-        weights[..., 1] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_velnorm(val):
-        weights[..., 2] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_ang(val):
-        weights[..., 3] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_angvel(val):
-        weights[..., 4] = float(val)
-        agent.w_eval[:] = weights[:]
-        agent.w_eval = agent.w_eval / agent.w_eval.norm(1, 1, keepdim=True)
-
-    def update_target_ang(val):
-        agent.env.goal_rot[..., 2] = float(val)
-
-    def update_targ_vel(val):
-        agent.env.goal_lvel[..., 0] = float(val)
-
-    px_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="px",
-        orient=HORIZONTAL,
-        command=update_px,
-    )
-    px_slide.set(agent.w_eval[0, 0].item())
-    px_slide.pack()
-
-    py_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="py",
-        orient=HORIZONTAL,
-        command=update_py,
-    )
-    py_slide.set(agent.w_eval[0, 1].item())
-    py_slide.pack()
-
-    vel_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="vel norm",
-        orient=HORIZONTAL,
-        command=update_velnorm,
-    )
-    vel_slide.set(agent.w_eval[0, 2].item())
-    vel_slide.pack()
-
-    ang_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="ang",
-        orient=HORIZONTAL,
-        command=update_ang,
-    )
-    ang_slide.set(agent.w_eval[0, 3].item())
-    ang_slide.pack()
-
-    angvel_slide = Scale(
-        root,
-        from_=0,
-        to=1,
-        digits=3,
-        resolution=0.01,
-        label="angvel",
-        orient=HORIZONTAL,
-        command=update_angvel,
-    )
-    angvel_slide.set(agent.w_eval[0, 4].item())
-    angvel_slide.pack()
-
-    targ_vel_slide = Scale(
-        root,
-        from_=-3.14,
-        to=3.14,
-        digits=3,
-        resolution=0.05,
-        label="target vel x",
-        orient=HORIZONTAL,
-        command=update_targ_vel,
-    )
-    targ_vel_slide.pack()
-
-    targ_ang_slide = Scale(
-        root,
-        from_=-3.14,
-        to=3.14,
-        digits=3,
-        resolution=0.05,
-        label="target yaw",
-        orient=HORIZONTAL,
-        command=update_target_ang,
-    )
-    targ_ang_slide.pack()
-
-    rew = DoubleVar(name="reward")  # instantiate the IntVar variable class
-    rew.set(0.0)  # set it to 0 as the initial value
-
-    # the label's textvariable is set to the variable class instance
-    Label(root, text="step reward").pack()
-    Label(root, textvariable=rew).pack()
-
-    # root.mainloop()
-
-    # while True:
-    #     agent.train_episode(root, rew)
-    #     if agent.steps > agent.total_timesteps:
-    #         break
-
-    avgStepRew = AverageMeter(1, 20).to(agent.device)
-
-    while True:
-        s = agent.reset_env()
-        for _ in range(5000):
-            root.update_idletasks()
-            root.update()
-
-            a = agent.act(s, agent.w_eval, "exploit")
-            print(agent.w_eval[0])
-
-            agent.env.step(a)
-            s_next = agent.env.obs_buf.clone()
-            agent.env.reset()
-
-            r = agent.calc_reward(s_next, agent.w_eval)
-            s = s_next
-            avgStepRew.update(r)
-            rew.set(avgStepRew.get_mean())
+    playob = PlayUI(cfg_dict, model_path)
+    playob.play()
 
     wandb.finish()
 

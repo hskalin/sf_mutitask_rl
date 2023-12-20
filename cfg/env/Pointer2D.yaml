@@ -42,6 +42,8 @@ task:
   taskSet_eval: "achievable"
   adaptive_task: True
 
+  taskLabels: ["px", "py", "vel norm", "ang", "angvel"]
+
   # set of task weights
   taskSet:
     achievable:   [
