@@ -137,7 +137,6 @@ class RMACompPIDAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
@@ -332,6 +331,36 @@ class RMACompPIDAgent(MultitaskAgent):
 
         print(f"============= finish =============")
 
+    def step(self, episode_steps, s):
+        assert not torch.isnan(
+            s
+        ).any(), f"detect anomaly state {(torch.isnan(s)==True).nonzero()}"
+
+        a = self.act(s, self.task.Train)
+        assert not torch.isnan(
+            a
+        ).any(), f"detect anomaly action {(torch.isnan(a)==True).nonzero()}"
+
+        self.env.step(a, self.task.hover_task)
+        done = self.env.reset_buf.clone()
+        s_next = self.env.obs_buf.clone()
+        self.env.reset()
+
+        assert not torch.isnan(
+            s_next
+        ).any(), f"detect anomaly state {(torch.isnan(s_next)==True).nonzero()}"
+
+        r = self.calc_reward(s_next, self.task.Train.W)
+
+        masked_done = False if episode_steps >= self.episode_max_step else done
+        self.save_to_buffer(s, a, r, s_next, done, masked_done)
+
+        if self.is_update():
+            for _ in range(self.updates_per_step):
+                self.learn()
+
+        return s_next, r, done
+
     def act(self, o, task, mode="explore"):
         o = check_obs(o, self.observation_dim + self.env_latent_dim)
 
@@ -502,10 +531,6 @@ class RMACompPIDAgent(MultitaskAgent):
         sf_loss = loss1 + loss2
 
         update_params(self.sf_optimizer, self.sf, sf_loss, self.grad_clip)
-
-        # update sf scale
-        if self.norm_task_by_sf:
-            self.comp.update_sf_norm(target_sf.mean([0, 1]).abs())
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()

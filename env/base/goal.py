@@ -87,7 +87,7 @@ class RandomWayPoints:
     def get_vel(self):
         return self.vel[range(self.num_envs), self.idx.squeeze()]
 
-    def update_idx(self, rb_pos):
+    def update_idx(self, rb_pos, hover_task=None):
         """check if robot is close to waypoint"""
         dist = torch.norm(
             rb_pos - self.pos[range(self.num_envs), self.idx.squeeze()],
@@ -97,6 +97,9 @@ class RandomWayPoints:
         )
         self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
         self.idx = torch.where(self.idx > self.kWayPt - 1, 0, self.idx)
+
+        if hover_task is not None:
+            self.idx = torch.where(hover_task[:, None] == True, 0, self.idx)
 
     def sample(self, env_ids):
         if self.rand_pos:

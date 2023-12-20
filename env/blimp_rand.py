@@ -26,6 +26,8 @@ class BlimpRand(VecEnv):
 
         super().__init__(cfg=cfg)
 
+        self.hover_task = None
+
         # blimp parameters
         # smoothning factor for fan thrusts
         self.ema_smooth = torch.tensor(
@@ -298,7 +300,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, 10] = self.rb_pos[env_ids, 0, 2]
 
         # relative pos
-        self.wp.update_idx(self.rb_pos[:, 0])
+        self.wp.update_idx(self.rb_pos[:, 0], self.hover_task)
         rel_pos = self.rb_pos[env_ids, 0] - self.wp.get_pos()[env_ids]
         self.obs_buf[env_ids, 11] = rel_pos[:, 0]
         self.obs_buf[env_ids, 12] = rel_pos[:, 1]
@@ -559,13 +561,6 @@ class BlimpRand(VecEnv):
         self.wp.ang[env_ids, 0:2] = 0
         self.wp.angvel[env_ids, 0:2] = 0
 
-        # if self.train and self.rand_vel_targets:
-        #     self.goal_lvel[env_ids, :] = sampling((len(env_ids), 3), self.goal_vel_lim)
-
-        # if self.train and self.rand_avel_targets:
-        #     self.goal_avel[env_ids, :] = sampling((len(env_ids), 3), self.goal_avel_lim)
-        #     self.goal_avel[env_ids, 0:2] = 0
-
         # domain randomization
         self.randomize_latent(env_ids)
 
@@ -593,7 +588,10 @@ class BlimpRand(VecEnv):
         # refresh new observation after reset
         self.get_obs()
 
-    def step(self, actions):
+    def step(self, actions, hover_task=None):
+        if hover_task is not None:
+            self.hover_task = hover_task
+
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
         actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
 

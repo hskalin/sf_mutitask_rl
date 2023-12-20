@@ -18,15 +18,11 @@ class Compositions:
         self.action_dim = action_dim
         self.device = device
 
+        self.norm_task_by_sf = agent_cfg["norm_task_by_sf"]
+
         self.record_impact = False
         self.impact_x_idx = []  # record primitive impact on x-axis
         self.policy_idx = []  # record primitive summon frequency
-
-        self.norm_task_by_sf = agent_cfg["norm_task_by_sf"]
-        if self.norm_task_by_sf:
-            self.sf_norm_coeff = torch.ones(
-                (self.feature_dim), device=device, dtype=torch.float32
-            )
 
         self.mask_nullcomp = (
             torch.eye(self.n_heads).unsqueeze(dim=-1).bool().to(self.device)
@@ -60,10 +56,6 @@ class Compositions:
     def act(self, s, w, id, mode="exploit", composition="sfgpi"):
         if composition == "null" or composition is None:
             return self.null_comp(s, id)
-
-        if self.norm_task_by_sf:
-            w /= self.sf_norm_coeff.abs()  # normalized by SF scale
-            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         return self.composition_methods(composition)(s, w, mode)
 
@@ -128,8 +120,13 @@ class Compositions:
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.forward_sf(s, a, self.sf)
 
+        if self.norm_task_by_sf:
+            w /= curr_sf.mean([0, 1, 2]).abs()  # normalized by SF scale
+            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
+
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         qs = torch.einsum("ijkl,il->ijk", curr_sf, w)
+
         return qs  # [N,Ha,Hsf]
 
     def gpi(self, acts, value, rule="q"):
@@ -222,9 +219,6 @@ class Compositions:
         idx = impact.argmax(1)
         self.impact_x_idx.extend(idx[:, 0].reshape(-1).cpu().numpy())
         return impact
-
-    def update_sf_norm(self, sf_norm):
-        self.sf_norm_coeff = sf_norm
 
     def reset(self):
         self.prev_impact = torch.zeros(

@@ -20,7 +20,7 @@ parameters:
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [False]
+    values: [True]
   agent.use_continuity_loss:
     values: [True]
   agent.continuity_coeff:
@@ -46,7 +46,7 @@ parameters:
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
-    values: [False]
+    values: [True, False]
   agent.sf_net_kwargs.layernorm:
     values: [True]
   buffer.framestacked_replay:
@@ -55,8 +55,6 @@ parameters:
     values: [5]
   env.num_envs:
     values: [1024]
-  env.task.adaptive_task:
-    values: [False]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:
