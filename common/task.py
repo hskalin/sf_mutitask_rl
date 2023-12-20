@@ -194,7 +194,8 @@ class BlimpTask(SmartTask):
         super().__init__(env_cfg, device)
 
         self.hover_task_id = self.task_cfg["hover_task_id"]
-        self.update_hovTasks()
+        if self.randTasks:
+            self.update_hovTasks()
 
     def update_hovTasks(self):  # a hack to identify hover tasks
         self.hover_task = torch.any(

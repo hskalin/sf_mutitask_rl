@@ -94,9 +94,9 @@ goal:
   min_z: 5
 
   # desired position trajecotry
-  kWayPt: 3
+  kWayPt: 4
   wp_max_dist: 20
-  trigger_dist: 5
+  trigger_dist: 4
 
   # targets for play
   target_pos:     [0, 0, 20] # x, y, z
@@ -109,7 +109,6 @@ goal:
   rand_vel_targets: True
   rand_avel_targets: True
 
-
 task:
   verbose: False
 
@@ -119,7 +118,7 @@ task:
   rand_task: True # fix train task or not
   domain_rand: True # randomize env latent
   
-  init_vel:           True
+  init_vel: True
   
   # proximity reward
   proximity_threshold: 5 # [m]
