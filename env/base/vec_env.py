@@ -22,10 +22,11 @@ class VecEnv:
 
         self.train = cfg.get("mode", "train")
 
-        # self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
-        # self.rand_avel_targets = cfg["task"].get("rand_avel_targets", False)
-        # self.vel_lim = cfg.get("vel_lim", 5)
-        # self.avel_lim = cfg.get("avel_lim", 1)
+        self.rand_vel_targets = cfg["task"].get("rand_vel_targets", False)
+        self.rand_avel_targets = cfg["task"].get("rand_avel_targets", False)
+        self.goal_lim = cfg.get("goal_lim", 10)
+        self.vel_lim = cfg.get("vel_lim", 5)
+        self.avel_lim = cfg.get("avel_lim", 1)
 
         self.init_vels = cfg["task"].get("init_vel", True)
 

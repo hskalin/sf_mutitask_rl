@@ -280,11 +280,17 @@ class RMACompPIDAgent(MultitaskAgent):
         while True:
             self.train_episode()
             wandb.log({f"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
-            wandb.log({f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
+            wandb.log(
+                {
+                    f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()
+                }
+            )
 
             if self.eval and (self.episodes % self.eval_interval == 0):
                 returns = self.evaluate()
-                wandb.log({f"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+                wandb.log(
+                    {f"reward/eval_phase{self.phase}": torch.mean(returns).item()}
+                )
 
                 if self.save_model:
                     self.save_torch_model()
@@ -303,12 +309,20 @@ class RMACompPIDAgent(MultitaskAgent):
             print(f"============= start phase {self.phase} =============")
             while True:
                 self.train_episode()
-                wandb.log({f"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
-                wandb.log({f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()})
+                wandb.log(
+                    {f"reward/train_phase{self.phase}": self.game_rewards.get_mean()}
+                )
+                wandb.log(
+                    {
+                        f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()
+                    }
+                )
 
                 if self.eval and (self.episodes % self.eval_interval == 0):
-                    returns =  self.evaluate()
-                    wandb.log({f"reward/eval_phase{self.phase}": torch.mean(returns).item()})
+                    returns = self.evaluate()
+                    wandb.log(
+                        {f"reward/eval_phase{self.phase}": torch.mean(returns).item()}
+                    )
 
                     if self.save_model:
                         self.save_torch_model()
@@ -317,7 +331,6 @@ class RMACompPIDAgent(MultitaskAgent):
                     break
 
         print(f"============= finish =============")
-
 
     def act(self, o, task, mode="explore"):
         o = check_obs(o, self.observation_dim + self.env_latent_dim)
@@ -419,8 +432,8 @@ class RMACompPIDAgent(MultitaskAgent):
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
                 "loss/action_norm": info.get("action_norm", 0),
-                "loss/action_continuity": -info.get("continuity_loss", 0), 
-                "loss/imitation_loss": info.get("imitation_loss", 0), 
+                "loss/action_continuity": -info.get("continuity_loss", 0),
+                "loss/imitation_loss": info.get("imitation_loss", 0),
                 "state/mean_SF1": mean_sf1,
                 "state/mean_SF2": mean_sf2,
                 "state/target_sf": target_sf,
@@ -525,9 +538,9 @@ class RMACompPIDAgent(MultitaskAgent):
         info["action_norm"] = action_norm.mean().detach().item()
 
         if self.use_continuity_loss:
+            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
 
-            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
                 prev_a[:, None, :] - a_heads, dim=2, keepdim=True
             )

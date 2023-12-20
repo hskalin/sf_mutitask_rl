@@ -97,7 +97,6 @@ class RandomWayPoints:
         )
         self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
         self.idx = torch.where(self.idx > self.kWayPt - 1, 0, self.idx)
-        print(self.idx.squeeze())
 
     def sample(self, env_ids):
         if self.rand_pos:

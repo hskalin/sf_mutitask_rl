@@ -43,7 +43,7 @@ env_name: "BlimpRand"
 num_envs: 1024
 
 episode_max_step: 1000
-total_episodes: 100
+total_episodes: 70
 
 mode: "train" # train or test
 
