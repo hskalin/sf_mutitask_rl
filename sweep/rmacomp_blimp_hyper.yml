@@ -29,14 +29,14 @@ parameters:
   agent.use_imitation_loss:
     values: [True]
   agent.imitation_coeff:
-    min: 0.1
-    max: 10.0
+    min: 0.01
+    max: 20.0
   agent.lr_schedule:
     values: [True, False]
   env.task.adaptive_task:
     values: [False]
   agent.norm_task_by_sf:
-    values: [False]
+    values: [True, False]
   agent.policy_net_kwargs.resnet:
     values: [True]
   agent.policy_net_kwargs.fta:
