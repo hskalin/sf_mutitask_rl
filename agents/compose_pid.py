@@ -137,6 +137,8 @@ class RMACompPIDAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
+        self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
+
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
@@ -620,6 +622,11 @@ class RMACompPIDAgent(MultitaskAgent):
 
         # [N, Ha, F] <-- [NHa, Hsf, F]
         curr_sf = self._process_sfs(curr_sf1, curr_sf2)
+
+        if self.norm_task_by_sf:
+            w = copy.copy(self.w_primitive)
+            w /= curr_sf.mean([0, 1]).abs()  # normalized by SF scale
+            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         # [N,H]<-- [N,H,F]*[H,F]
         qs = torch.einsum("ijk,jk->ij", curr_sf, self.w_primitive)

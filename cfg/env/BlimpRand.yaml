@@ -95,8 +95,8 @@ goal:
 
   # desired position trajecotry
   kWayPt: 4
-  wp_max_dist: 20
-  trigger_dist: 4
+  wp_dist: 15
+  trigger_dist: 3
 
   # targets for play
   target_pos:     [0, 0, 20] # x, y, z

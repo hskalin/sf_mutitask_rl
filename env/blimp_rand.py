@@ -116,7 +116,7 @@ class BlimpRand(VecEnv):
             vel_lim=cfg["goal"].get("vel_lim", 5),
             angvel_lim=cfg["goal"].get("avel_lim", 0.5),
             kWayPt=cfg["goal"].get("kWayPt", 2),
-            wp_max_dist=cfg["goal"].get("wp_max_dist", 10 / np.sqrt(3)),
+            wp_dist=cfg["goal"].get("wp_dist", 10),
             trigger_dist=cfg["goal"].get("trigger_dist", 2),
             min_z=cfg["goal"].get("min_z", 5),
         )

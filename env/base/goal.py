@@ -22,7 +22,7 @@ class RandomWayPoints:
         vel_lim=None,
         angvel_lim=None,
         kWayPt=1,
-        wp_max_dist=10 / np.sqrt(3),  # [m] generate next wp within range
+        wp_dist=10 / np.sqrt(3),  # [m] generate next wp within range
         trigger_dist=2,  # [m] activate next wp if robot within range
         min_z=5,
     ) -> None:
@@ -39,7 +39,7 @@ class RandomWayPoints:
         self.rand_vel = rand_vel
         self.rand_angvel = rand_angvel
 
-        self.wp_max_dist = wp_max_dist
+        self.wp_dist = wp_dist
         self.trigger_dist = torch.tensor(trigger_dist).to(self.device)
         self.min_z = min_z
 
@@ -103,8 +103,8 @@ class RandomWayPoints:
 
     def sample(self, env_ids):
         if self.rand_pos:
-            self.pos[env_ids] = self._sample_within_distance(
-                len(env_ids), self.pos_lim, kWP=self.kWayPt, dist=self.wp_max_dist
+            self.pos[env_ids] = self._sample_on_distance(
+                len(env_ids), self.pos_lim, kWP=self.kWayPt, dist=self.wp_dist
             )
 
         if self.rand_vel:
@@ -118,14 +118,16 @@ class RandomWayPoints:
         if self.rand_angvel:
             self.angvel[env_ids] = self._sample((len(env_ids), 3), self.angvel_lim)
 
-    def _sample(self, size, scale):
+    def _sample(self, size, scale=1):
         return scale * 2 * (torch.rand(size, device=self.device) - 0.5)
 
-    def _sample_within_distance(self, size, scale, kWP, dist):
+    def _sample_on_distance(self, size, scale, kWP, dist):
         """next wp is spawned near prev wp"""
         pos = self._sample((size, kWP, 3), scale)
         for i in range(kWP - 1):
-            pos[:, i + 1] = pos[:, i] + self._sample((size, 3), dist)
+            x = self._sample((size, 3))
+            x = dist * x / torch.norm(x, dim=1, keepdim=True)
+            pos[:, i + 1] = pos[:, i] + x
 
         pos[..., 2] += self.pos_lim
         pos[..., 2] = torch.where(
