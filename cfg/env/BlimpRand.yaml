@@ -133,6 +133,7 @@ task:
 
   # set of task weights
   # [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]
+  taskLabels:  ['planar', 'Z', 'proximity', 'vx', 'vy', 'vz', 'yaw', 'yaw2goal', 'regRP', 'regPQR', 'regV', 'regThrust']
   taskSet: 
     navigation: [
       [1,1,0,0,0,0,0,0,0,0,0,0],

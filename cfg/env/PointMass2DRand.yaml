@@ -40,6 +40,8 @@ task:
   taskSet_eval: "achievable"
   adaptive_task: True
 
+  taskLabels: ["pos norm", "vx", "vy", "vel norm", "proximity"]
+  
   # set of achievable task weights
   taskSet:
     achievable: [[1, 0, 0, 0, 0],
