@@ -247,9 +247,12 @@ class BlimpFeature(FeatureAbstract):
             dtype=torch.float64,
             device=device,
         )
+        self.trigger_dist = torch.tensor(
+            self.env_cfg["goal"].get("trigger_dist", 2)
+        ).to(self.device)
         self.Ka = torch.pi
 
-        self.dim = 12
+        self.dim = 13
         if self.verbose:
             print("[Feature] dim", self.dim)
 
@@ -262,44 +265,47 @@ class BlimpFeature(FeatureAbstract):
         self.slice_rbRP = slice(0, 2)
 
         # robot ang vel
-        self.slice_rbangvel = slice(21, 24)
+        self.slice_rbangvel = slice(22, 25)
 
         # robot vel
-        self.slice_rbv = slice(15, 18)
-        self.slice_rbvx = slice(15, 16)
-        self.slice_rbvy = slice(16, 17)
-        self.slice_rbvz = slice(17, 18)
+        self.slice_rbv = slice(16, 19)
+        self.slice_rbvx = slice(16, 17)
+        self.slice_rbvy = slice(17, 18)
+        self.slice_rbvz = slice(18, 19)
 
         # robot thrust
-        self.slice_thrust = slice(27, 28)
+        self.slice_thrust = slice(28, 29)
 
         # robot actions
-        self.slice_prev_act = slice(27, 31)
+        self.slice_prev_act = slice(28, 32)
 
         # relative angle
-        self.slice_err_roll = slice(3, 4)
-        self.slice_err_pitch = slice(4, 5)
-        self.slice_err_yaw = slice(5, 6)
+        self.slice_err_roll = slice(7, 8)
+        self.slice_err_pitch = slice(8, 9)
+        self.slice_err_yaw = slice(9, 10)
 
         # relative position
         self.slice_err_planar = slice(11, 13)
         self.slice_err_z = slice(13, 14)
         self.slice_err_dist = slice(11, 14)
+        self.slice_trigger = slice(14, 15)
 
         # relative yaw to goal position
-        self.slice_err_yaw_to_goal = slice(14, 15)
+        self.slice_err_yaw_to_goal = slice(15, 16)
 
         # relative velocity
-        self.slice_err_vx = slice(18, 19)
-        self.slice_err_vy = slice(19, 20)
-        self.slice_err_vz = slice(20, 21)
-        self.slice_err_vplanar = slice(18, 20)
+        self.slice_err_vx = slice(20, 21)
+        self.slice_err_vy = slice(21, 22)
+        self.slice_err_vz = slice(22, 23)
+        self.slice_err_vplanar = slice(20, 22)
+
+        self.slice_err_vnorm = slice(19, 20)
 
         # relative angular velocity
-        self.slice_err_p = slice(24, 25)
-        self.slice_err_q = slice(25, 26)
-        self.slice_err_r = slice(26, 27)
-        self.slice_err_angvel = slice(24, 27)
+        self.slice_err_p = slice(26, 27)
+        self.slice_err_q = slice(27, 28)
+        self.slice_err_r = slice(28, 29)
+        self.slice_err_angvel = slice(26, 29)
 
     def extract(self, s):
         features = []
@@ -316,11 +322,12 @@ class BlimpFeature(FeatureAbstract):
         error_planar = s[:, self.slice_err_planar]
         error_posZ = s[:, self.slice_err_z]
         error_dist = s[:, self.slice_err_dist]
+        trigger = s[:, self.slice_trigger]
 
         error_vx = s[:, self.slice_err_vx]
         error_vy = s[:, self.slice_err_vy]
         error_vz = s[:, self.slice_err_vz]
-        # error_vplanar = s[:, self.slice_err_vplanar]
+        error_vnorm = s[:, self.slice_err_vnorm]
 
         # error_angVel_p = s[:, self.slice_err_p]
         # error_angVel_q = s[:, self.slice_err_q]
@@ -328,7 +335,7 @@ class BlimpFeature(FeatureAbstract):
         # error_angVel = s[:, self.slice_err_angvel]
 
         # planar:
-        x = self.compute_featurePosNorm(error_planar)
+        x = self.compute_featurePosNorm(error_planar) + 10 * trigger
         features.append(x)
 
         # posZ:
@@ -349,6 +356,10 @@ class BlimpFeature(FeatureAbstract):
 
         # vz:
         x = self.compute_featureVelNorm(error_vz)
+        features.append(x)
+
+        # vnorm:
+        x = self.compute_featureVelNorm(error_vnorm)
         features.append(x)
 
         # yaw:

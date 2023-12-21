@@ -89,13 +89,13 @@ class RandomWayPoints:
 
     def update_state(self, rb_pos, hover_task=None):
         """check if robot is close to waypoint"""
-        dist = torch.norm(
-            rb_pos - self.pos[range(self.num_envs), self.idx.squeeze()],
+        planar_dist = torch.norm(
+            rb_pos[:, 0:2] - self.pos[range(self.num_envs), self.idx.squeeze(), 0:2],
             p=2,
             dim=1,
             keepdim=True,
         )
-        self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
+        self.idx = torch.where(planar_dist <= self.trigger_dist, self.idx + 1, self.idx)
         self.idx = self.check_idx(self.idx)
 
         if hover_task is not None:
@@ -139,6 +139,91 @@ class RandomWayPoints:
     def reset(self, env_ids):
         self.idx[env_ids] = 0
         self.sample(env_ids)
+
+    def update_vel(self, rbpos, Kv=0.5):
+        prev_pos = self.pos[
+            range(self.num_envs), self.check_idx(self.idx - 1).squeeze()
+        ]  # [N, 3]
+
+        path = self.get_pos() - prev_pos
+
+        k = torch.einsum("ij,ij->i", rbpos - prev_pos, path) / torch.einsum(
+            "ij,ij->i", path, path
+        )
+        k = torch.where(k > 1, 1 - k, k)
+        self.vel = Kv * (path + prev_pos + k[:, None] * path - rbpos)
+
+    def check_idx(self, idx):
+        idx = torch.where(idx > self.kWayPt - 1, 0, idx)
+        idx = torch.where(idx < 0, self.kWayPt - 1, idx)
+        return idx
+
+
+class FixWayPoints:
+    """fixed waypoints"""
+
+    def __init__(
+        self,
+        device,
+        num_envs,
+        pos_lim=None,
+        trigger_dist=2,
+        **kwargs,
+    ) -> None:
+        self.num_envs = num_envs
+        self.device = device
+        self.trigger_dist = trigger_dist
+
+        self.pos_lim = pos_lim
+
+        self.kWayPt = 4
+        wps = torch.tensor(
+            [[[20, -20, 15], [20, 20, 15], [-20, 20, 15], [-20, -20, 15]]],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self.pos = torch.tile(wps, (self.num_envs, 1, 1))
+
+        self.vel = torch.tile(
+            torch.tensor([5, 0, 0], device=self.device, dtype=torch.float32),
+            (self.num_envs, 1),
+        )
+
+        self.ang = torch.tile(
+            torch.tensor([0, 0, 0], device=self.device, dtype=torch.float32),
+            (self.num_envs, 1),
+        )
+
+        self.angvel = torch.tile(
+            torch.tensor([0, 0, 0], device=self.device, dtype=torch.float32),
+            (self.num_envs, 1),
+        )
+
+        self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
+
+    def get_pos(self):
+        return self.pos[range(self.num_envs), self.idx.squeeze()]
+
+    def update_state(self, rb_pos, hover_task=None):
+        """check if robot is close to waypoint"""
+        dist = torch.norm(
+            rb_pos - self.get_pos(),
+            p=2,
+            dim=1,
+            keepdim=True,
+        )
+        self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
+        trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
+        self.idx = self.check_idx(self.idx)
+
+        if hover_task is not None:
+            self.idx = torch.where(hover_task[:, None] == True, 0, self.idx)
+
+        self.update_vel(rb_pos)
+        return trigger
+
+    def reset(self, env_ids):
+        self.idx[env_ids] = 0
 
     def update_vel(self, rbpos, Kv=0.5):
         prev_pos = self.pos[

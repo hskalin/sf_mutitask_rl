@@ -154,7 +154,7 @@ class RMACompPIDAgent(MultitaskAgent):
         # rma: train an adaptor module for sim-to-real
         # [phase1: train. phase2: train adaptation module. phase3: deploy]
         self.rma = self.agent_cfg["rma"]
-        self.phase = 1
+        self.phase = self.agent_cfg.get("phase", 1)
         self.episodes_phase2 = int(self.total_episodes // 3)
         self.timesteps_phase2 = (
             self.n_env * self.episode_max_step * self.episodes_phase2
@@ -195,9 +195,9 @@ class RMACompPIDAgent(MultitaskAgent):
             **self.policy_net_kwargs,
         ).to(self.device)
 
-        # self.controllers = BlimpPositionControl(device=self.device)
         self.controllers = []
-        self.controllers.append(BlimpPositionControl(device=self.device))
+        # self.controllers.append(BlimpPositionControl(device=self.device))
+        self.controllers.append(BlimpHoverControl(device=self.device))
         self.controllers.append(BlimpHoverControl(device=self.device))
 
         self.encoder = ENVEncoder(

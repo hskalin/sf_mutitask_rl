@@ -8,20 +8,20 @@ from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 
 from .base.vec_env import VecEnv
-from .base.goal import RandomWayPoints
+from .base.goal import RandomWayPoints, FixWayPoints
 
 
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 31
+        self.num_obs = 32
         self.num_act = 4
 
         # domain randomization
-        self.num_latent = 29
+        self.num_latent = 30
         self.num_obs += self.num_latent
 
-        self.reset_dist = 50.0  # when to reset [m]
+        self.reset_dist = cfg["blimp"].get("reset_dist", 50)  # when to reset [m]
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         super().__init__(cfg=cfg)
@@ -101,25 +101,33 @@ class BlimpRand(VecEnv):
         self.vel_lim = cfg["goal"].get("vel_lim", 5)
         self.avel_lim = cfg["goal"].get("avel_lim", 0.5)
 
-        self.wp = RandomWayPoints(
-            device=self.sim_device,
-            num_envs=self.num_envs,
-            init_pos=cfg["goal"]["target_pos"],
-            init_vel=cfg["goal"]["target_vel"],
-            init_ang=cfg["goal"]["target_ang"],
-            init_angvel=cfg["goal"]["target_angvel"],
-            rand_pos=cfg["goal"].get("rand_pos_targets", True),
-            rand_ang=cfg["goal"].get("rand_ang_targets", True),
-            rand_vel=cfg["goal"].get("rand_vel_targets", True),
-            rand_angvel=cfg["goal"].get("rand_avel_targets", True),
-            pos_lim=cfg["goal"].get("lim", 10),
-            vel_lim=cfg["goal"].get("vel_lim", 5),
-            angvel_lim=cfg["goal"].get("avel_lim", 0.5),
-            kWayPt=cfg["goal"].get("kWayPt", 2),
-            wp_dist=cfg["goal"].get("wp_dist", 10),
-            trigger_dist=cfg["goal"].get("trigger_dist", 2),
-            min_z=cfg["goal"].get("min_z", 5),
-        )
+        if "fix" in cfg["goal"]["type"].lower():
+            self.wp = FixWayPoints(
+                device=self.device,
+                num_envs=self.num_envs,
+                trigger_dist=cfg["goal"].get("trigger_dist", 2),
+                pos_lim=cfg["goal"].get("lim", 10),
+            )
+        else:
+            self.wp = RandomWayPoints(
+                device=self.sim_device,
+                num_envs=self.num_envs,
+                init_pos=cfg["goal"]["target_pos"],
+                init_vel=cfg["goal"]["target_vel"],
+                init_ang=cfg["goal"]["target_ang"],
+                init_angvel=cfg["goal"]["target_angvel"],
+                rand_pos=cfg["goal"].get("rand_pos_targets", True),
+                rand_ang=cfg["goal"].get("rand_ang_targets", True),
+                rand_vel=cfg["goal"].get("rand_vel_targets", True),
+                rand_angvel=cfg["goal"].get("rand_avel_targets", True),
+                pos_lim=cfg["goal"].get("lim", 10),
+                vel_lim=cfg["goal"].get("vel_lim", 5),
+                angvel_lim=cfg["goal"].get("avel_lim", 0.5),
+                kWayPt=cfg["goal"].get("kWayPt", 2),
+                wp_dist=cfg["goal"].get("wp_dist", 10),
+                trigger_dist=cfg["goal"].get("trigger_dist", 2),
+                min_z=cfg["goal"].get("min_z", 5),
+            )
 
         # initialise envs and state tensors
         self.envs = self.create_envs()
@@ -224,6 +232,11 @@ class BlimpRand(VecEnv):
 
         return envs
 
+    def check_angle(self, ang):
+        ang = torch.where(ang > torch.pi, ang - 2 * torch.pi, ang)
+        ang = torch.where(ang < -torch.pi, ang + 2 * torch.pi, ang)
+        return ang
+
     def get_obs(self, env_ids=None):
         if env_ids is None:
             env_ids = np.arange(self.num_envs)
@@ -235,92 +248,91 @@ class BlimpRand(VecEnv):
         roll, pitch, yaw = get_euler_xyz(self.rb_rot[env_ids, 0, :])
 
         # maps rpy from -pi to pi
-        pitch = torch.where(pitch > torch.pi, pitch - 2 * torch.pi, pitch)
-        yaw = torch.where(yaw > torch.pi, yaw - 2 * torch.pi, yaw)
-        roll = torch.where(roll > torch.pi, roll - 2 * torch.pi, roll)
+        roll = self.check_angle(roll)
+        pitch = self.check_angle(pitch)
+        yaw = self.check_angle(yaw)
 
         # robot angle
         self.obs_buf[env_ids, 0] = roll
         self.obs_buf[env_ids, 1] = pitch
         self.obs_buf[env_ids, 2] = yaw
 
-        # relative angles
-        self.obs_buf[env_ids, 3] = roll - self.wp.ang[env_ids, 0]
-        self.obs_buf[env_ids, 4] = pitch - self.wp.ang[env_ids, 1]
-        self.obs_buf[env_ids, 5] = yaw - self.wp.ang[env_ids, 2]
-
         # robot sin cos angle
-        sin_y = torch.sin(pitch)
-        cos_y = torch.cos(pitch)
+        self.obs_buf[env_ids, 3] = torch.sin(pitch)
+        self.obs_buf[env_ids, 4] = torch.cos(pitch)
 
-        sin_z = torch.sin(yaw)
-        cos_z = torch.cos(yaw)
+        self.obs_buf[env_ids, 5] = torch.sin(yaw)
+        self.obs_buf[env_ids, 6] = torch.cos(yaw)
 
-        self.obs_buf[env_ids, 6] = sin_y
-        self.obs_buf[env_ids, 7] = cos_y
+        # relative angles
+        roll = roll - self.wp.ang[env_ids, 0]
+        pitch = pitch - self.wp.ang[env_ids, 1]
+        yaw = yaw - self.wp.ang[env_ids, 2]
 
-        self.obs_buf[env_ids, 8] = sin_z
-        self.obs_buf[env_ids, 9] = cos_z
+        roll = self.check_angle(roll)
+        pitch = self.check_angle(pitch)
+        yaw = self.check_angle(yaw)
+
+        self.obs_buf[env_ids, 7] = roll
+        self.obs_buf[env_ids, 8] = pitch
+        self.obs_buf[env_ids, 9] = yaw
 
         # robot z
         self.obs_buf[env_ids, 10] = self.rb_pos[env_ids, 0, 2]
 
         # relative pos
-        self.wp.update_state(self.rb_pos[:, 0], self.hover_task)
+        trigger = self.wp.update_state(self.rb_pos[:, 0], self.hover_task)
         rel_pos = self.rb_pos[env_ids, 0] - self.wp.get_pos()[env_ids]
         self.obs_buf[env_ids, 11] = rel_pos[:, 0]
         self.obs_buf[env_ids, 12] = rel_pos[:, 1]
         self.obs_buf[env_ids, 13] = rel_pos[:, 2]
+        self.obs_buf[env_ids, 14] = trigger[env_ids, 0]
 
         # relative yaw to goal position
-        desired_yaw = torch.arctan2(rel_pos[:, 1], rel_pos[:, 0]) - torch.pi
-        ang_to_goal = desired_yaw - yaw
-        ang_to_goal = torch.where(
-            ang_to_goal > torch.pi, ang_to_goal - 2 * torch.pi, ang_to_goal
-        )
-        ang_to_goal = torch.where(
-            ang_to_goal < -torch.pi, ang_to_goal + 2 * torch.pi, ang_to_goal
-        )
-        self.obs_buf[env_ids, 14] = ang_to_goal
+        self.obs_buf[env_ids, 15] = self.check_angle(compute_heading(yaw, rel_pos))
 
         # robot vel
         vel = self.rb_lvels[env_ids, 0]
 
         xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
-        self.obs_buf[env_ids, 15] = xv
-        self.obs_buf[env_ids, 16] = yv
-        self.obs_buf[env_ids, 17] = zv
+        self.obs_buf[env_ids, 16] = xv
+        self.obs_buf[env_ids, 17] = yv
+        self.obs_buf[env_ids, 18] = zv
+
+        # relative velnorm
+        velnorm = xv - torch.norm(self.wp.vel[env_ids, 0:2], dim=1)
+        self.obs_buf[env_ids, 19] = velnorm
 
         # relative vel
         vel = self.rb_lvels[env_ids, 0] - self.wp.vel[env_ids]
 
         xv, yv, zv = globalToLocalRot(roll, pitch, yaw, vel[:, 0], vel[:, 1], vel[:, 2])
-        self.obs_buf[env_ids, 18] = xv
-        self.obs_buf[env_ids, 19] = yv
-        self.obs_buf[env_ids, 20] = zv
+        self.obs_buf[env_ids, 20] = xv
+        self.obs_buf[env_ids, 21] = yv
+        self.obs_buf[env_ids, 22] = zv
 
         # robot angular velocities
         ang_vel = self.rb_avels[env_ids, 0]
 
-        self.obs_buf[env_ids, 21] = ang_vel[:, 0]
-        self.obs_buf[env_ids, 22] = ang_vel[:, 1]
-        self.obs_buf[env_ids, 23] = ang_vel[:, 2]
+        self.obs_buf[env_ids, 23] = ang_vel[:, 0]
+        self.obs_buf[env_ids, 24] = ang_vel[:, 1]
+        self.obs_buf[env_ids, 25] = ang_vel[:, 2]
 
         # rel angular velocities
         ang_vel = self.rb_avels[env_ids, 0] - self.wp.angvel[env_ids]
 
-        self.obs_buf[env_ids, 24] = ang_vel[:, 0]
-        self.obs_buf[env_ids, 25] = ang_vel[:, 1]
-        self.obs_buf[env_ids, 26] = ang_vel[:, 2]
+        self.obs_buf[env_ids, 26] = ang_vel[:, 0]
+        self.obs_buf[env_ids, 27] = ang_vel[:, 1]
+        self.obs_buf[env_ids, 28] = ang_vel[:, 2]
 
         # previous actions
-        self.obs_buf[env_ids, 27] = self.prev_actions[env_ids, 0]
-        self.obs_buf[env_ids, 28] = self.prev_actions[env_ids, 1]
-        self.obs_buf[env_ids, 29] = self.prev_actions[env_ids, 2]
-        self.obs_buf[env_ids, 30] = self.prev_actions[env_ids, 3]
+        self.obs_buf[env_ids, 29] = self.prev_actions[env_ids, 0]
+        self.obs_buf[env_ids, 30] = self.prev_actions[env_ids, 1]
+        self.obs_buf[env_ids, 31] = self.prev_actions[env_ids, 2]
+        self.obs_buf[env_ids, 32] = self.prev_actions[env_ids, 3]
 
         # include env_latent to the observation
-        d = 31
+        d = 33
 
         # robot actuator states
         # thrust vectoring angle
@@ -463,9 +475,9 @@ class BlimpRand(VecEnv):
 
         z_abs = self.obs_buf[:, 10]
 
-        wx = self.obs_buf[:, 21]
-        wy = self.obs_buf[:, 22]
-        wz = self.obs_buf[:, 23]
+        wx = self.obs_buf[:, 23]
+        wy = self.obs_buf[:, 24]
+        wz = self.obs_buf[:, 25]
 
         (
             self.reward_buf[:],
@@ -780,6 +792,12 @@ class BlimpRand(VecEnv):
 #####################################################################
 ###=========================jit functions=========================###
 #####################################################################
+
+
+@torch.jit.script
+def compute_heading(yaw, rel_pos):
+    # type: (Tensor, Tensor) -> Tensor
+    return torch.arctan2(rel_pos[:, 1], rel_pos[:, 0]) - torch.pi - yaw
 
 
 @torch.jit.script
