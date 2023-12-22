@@ -36,6 +36,8 @@ parameters:
   env.task.adaptive_task:
     values: [False]
   agent.norm_task_by_sf:
+    values: [False]
+  agent.use_decoder:
     values: [True, False]
   agent.policy_net_kwargs.resnet:
     values: [True]
@@ -52,7 +54,7 @@ parameters:
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [5]
+    values: [5, 10]
   env.num_envs:
     values: [1024]
   env.task.taskSet_train:

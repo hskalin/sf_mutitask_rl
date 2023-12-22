@@ -69,6 +69,24 @@ class ENVEncoder(nn.Module):
         self.load_state_dict(torch.load(path))
 
 
+class ENVDecoder(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim) -> None:
+        super().__init__()
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(in_dim, out_dim, hidden_dim),
+            example_inputs=torch.rand(1, in_dim),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
+
+
 class AdaptationModule(nn.Module):
     def __init__(self, in_dim, out_dim, stack_size, kernel_size=5) -> None:
         super().__init__()
@@ -139,6 +157,7 @@ class RMACompPIDAgent(MultitaskAgent):
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
         self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
 
+        self.use_decoder = self.agent_cfg["use_decoder"]
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
@@ -168,7 +187,7 @@ class RMACompPIDAgent(MultitaskAgent):
         ), f"number of task {self.n_heads} exceed the maximum"
 
         # define models
-        self.latent_dim = self.observation_dim  # Z = S
+        self.latent_dim = int(self.observation_dim // 2)  # Z = S/2
         self.sf = MultiheadSFNetwork(
             observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
@@ -204,6 +223,13 @@ class RMACompPIDAgent(MultitaskAgent):
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
         ).to(self.device)
 
+        if self.use_decoder:
+            self.decoder = ENVDecoder(
+                in_dim=self.observation_dim + self.latent_dim,
+                out_dim=self.env_latent_dim,
+                hidden_dim=256,
+            ).to(self.device)
+
         self.adaptor = AdaptationModule(
             in_dim=self.observation_dim,
             out_dim=self.latent_dim,
@@ -215,6 +241,7 @@ class RMACompPIDAgent(MultitaskAgent):
             [
                 {"params": self.sf.parameters()},
                 {"params": self.encoder.parameters()},
+                {"params": self.decoder.parameters()},
             ],
             lr=self.lr,
             betas=[0.9, 0.999],
@@ -224,7 +251,6 @@ class RMACompPIDAgent(MultitaskAgent):
             lr=self.policy_lr,
             betas=[0.9, 0.999],
         )
-
         self.adaptor_optimizer = Adam(
             self.adaptor.parameters(), lr=self.adaptor_lr, betas=[0.9, 0.999]
         )
@@ -306,6 +332,7 @@ class RMACompPIDAgent(MultitaskAgent):
             grad_false(self.sf_target)
             grad_false(self.policy)
             grad_false(self.encoder)
+            grad_false(self.decoder)
 
             print(f"============= start phase {self.phase} =============")
             while True:
@@ -445,8 +472,8 @@ class RMACompPIDAgent(MultitaskAgent):
 
         batch = self.replay_buffer.sample(self.mini_batch_size)
 
-        sf_loss, mean_sf1, mean_sf2, target_sf = self.update_sf(batch)
-        policy_loss, entropies, info = self.update_policy(batch)
+        sf_loss, info_sf = self.update_sf(batch)
+        policy_loss, entropies, info_pi = self.update_policy(batch)
 
         if self.lr_schedule:
             self.lrScheduler_sf.step()
@@ -462,17 +489,24 @@ class RMACompPIDAgent(MultitaskAgent):
             metrics = {
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
-                "loss/action_norm": info.get("action_norm", 0),
-                "loss/action_continuity": -info.get("continuity_loss", 0),
-                "loss/imitation_loss": info.get("imitation_loss", 0),
-                "state/mean_SF1": mean_sf1,
-                "state/mean_SF2": mean_sf2,
-                "state/target_sf": target_sf,
+                "loss/action_norm": info_pi.get("action_norm", 0),
+                "loss/action_continuity": -info_pi.get("continuity_loss", 0),
+                "loss/imitation_loss": info_pi.get("imitation_loss", 0),
+                "state/mean_SF1": info_sf["curr_sf1"],
+                "state/mean_SF2": info_sf["curr_sf2"],
+                "state/target_sf": info_sf["target_sf"],
                 "state/entropy": entropies.detach().mean().item(),
                 "state/policy_idx": wandb.Histogram(self.comp.policy_idx),
                 "state/lr_sf": self.sf_optimizer.param_groups[0]["lr"],
                 "state/lr_policy": self.policy_optimizer.param_groups[0]["lr"],
             }
+            if self.use_decoder:
+                metrics.update(
+                    {
+                        "state/decoder_loss": info_sf["decoder_loss"],
+                    }
+                )
+
             if self.comp.record_impact:
                 metrics.update(
                     {
@@ -521,23 +555,35 @@ class RMACompPIDAgent(MultitaskAgent):
         z_next = self.encoder(e_next)
         s_next = torch.concat([s_next, z_next], dim=1)  # [N, S+Z]
 
+        # compute sf loss
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <--[N, S+Z], [N,A]
         target_sf = self._calc_target_sf(f, s_next, dones)  # [N, H, F]
 
-        loss1 = torch.mean((curr_sf1 - target_sf).pow(2))  # R <-- [N, H, F]
-        loss2 = torch.mean((curr_sf2 - target_sf).pow(2))  # R <-- [N, H, F]
+        sf_loss = torch.mean((curr_sf1 - target_sf).pow(2)) + torch.mean(
+            (curr_sf2 - target_sf).pow(2)
+        )  # R <-- [N, H, F]
 
-        sf_loss = loss1 + loss2
+        # compute encoder decoder loss
+        if self.use_decoder:
+            decoder_loss = torch.mean((self.decoder(s) - e).pow(2)) + torch.mean(
+                (self.decoder(s_next) - e_next).pow(2)
+            )
 
-        update_params(self.sf_optimizer, self.sf, sf_loss, self.grad_clip)
+        self.sf_optimizer.zero_grad()
+        if self.use_decoder:
+            decoder_loss.backward(retain_graph=True)
+        sf_loss.backward()
+        self.sf_optimizer.step()
 
-        # log means to monitor training.
-        sf_loss = sf_loss.detach().item()
-        curr_sf1 = curr_sf1.detach().mean().item()
-        curr_sf2 = curr_sf2.detach().mean().item()
-        target_sf = target_sf.detach().mean().item()
+        # log to monitor training.
+        info = {}
+        info["curr_sf1"] = curr_sf1.detach().mean().item()
+        info["curr_sf2"] = curr_sf2.detach().mean().item()
+        info["target_sf"] = target_sf.detach().mean().item()
+        if self.use_decoder:
+            info["decoder_loss"] = decoder_loss.detach().item()
 
-        return sf_loss, curr_sf1, curr_sf2, target_sf
+        return sf_loss.detach().item(), info
 
     def update_policy(self, batch):
         s_stack = batch["stacked_obs"]
@@ -718,12 +764,18 @@ class RMACompPIDAgent(MultitaskAgent):
         self.policy.save(path + "policy")
         self.sf.save(path + "sf")
         self.encoder.save(path + "encoder")
+
+        if self.use_decoder:
+            self.decoder.save(path + "decoder")
         self.adaptor.save(path + "adaptor")
 
     def load_torch_model(self, path):
         self.policy.load(path + "/policy")
         self.sf.load(path + "/sf")
         self.encoder.load(path + "/encoder")
+
+        if self.use_decoder:
+            self.decoder.load(path + "/decoder")
         self.adaptor.load(path + "/adaptor")
 
         hard_update(self.sf_target, self.sf)
