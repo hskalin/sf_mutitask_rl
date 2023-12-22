@@ -503,7 +503,7 @@ class RMACompPIDAgent(MultitaskAgent):
             if self.use_decoder:
                 metrics.update(
                     {
-                        "state/decoder_loss": info_sf["decoder_loss"],
+                        "loss/decoder_loss": info_sf["decoder_loss"],
                     }
                 )
 
