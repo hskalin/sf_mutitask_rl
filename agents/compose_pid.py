@@ -196,9 +196,9 @@ class RMACompPIDAgent(MultitaskAgent):
         ).to(self.device)
 
         self.controllers = []
-        # self.controllers.append(BlimpPositionControl(device=self.device))
+        self.controllers.append(BlimpPositionControl(device=self.device))
         self.controllers.append(BlimpHoverControl(device=self.device))
-        self.controllers.append(BlimpHoverControl(device=self.device))
+        self.controllers.append(BlimpPositionControl(device=self.device))
 
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
@@ -343,7 +343,7 @@ class RMACompPIDAgent(MultitaskAgent):
             a
         ).any(), f"detect anomaly action {(torch.isnan(a)==True).nonzero()}"
 
-        self.env.step(a, self.task.hover_task)
+        self.env.step(a)
         done = self.env.reset_buf.clone()
         s_next = self.env.obs_buf.clone()
         self.env.reset()
@@ -505,13 +505,10 @@ class RMACompPIDAgent(MultitaskAgent):
             wandb.log(metrics)
 
     def update_sf(self, batch):
-        (s, _, f, a, a_stack, _, s_next, dones) = (
+        (s, f, a, s_next, dones) = (
             batch["obs"],
-            batch["stacked_obs"],
             batch["feature"],
             batch["action"],
-            batch["stacked_act"],
-            batch["reward"],
             batch["next_obs"],
             batch["done"],
         )
@@ -543,7 +540,7 @@ class RMACompPIDAgent(MultitaskAgent):
         return sf_loss, curr_sf1, curr_sf2, target_sf
 
     def update_policy(self, batch):
-        s_stack, a_stack = batch["stacked_obs"], batch["stacked_act"]
+        s_stack = batch["stacked_obs"]
 
         s = s_stack[:, :, 0]
         s_raw, e = self.parse_state(s)  # [N, S], [N, E]
@@ -565,9 +562,9 @@ class RMACompPIDAgent(MultitaskAgent):
         info["action_norm"] = action_norm.mean().detach().item()
 
         if self.use_continuity_loss:
-            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
-            prev_a = a_stack[:, :, 1]  # [N, A] <-- [N, A, K]
+            prev_a = batch["stacked_act"][..., 1]  # [N, A] <-- [N, A, K]
 
+            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
                 prev_a[:, None, :] - a_heads, dim=2, keepdim=True
             )

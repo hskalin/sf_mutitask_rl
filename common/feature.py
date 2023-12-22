@@ -253,7 +253,7 @@ class BlimpFeature(FeatureAbstract):
         ).to(self.device)
         self.Ka = torch.pi
 
-        self.dim = 14
+        self.dim = 12
         if self.verbose:
             print("[Feature] dim", self.dim)
 
@@ -263,7 +263,6 @@ class BlimpFeature(FeatureAbstract):
 
         # robot angle
         self.slice_rb_angle = slice(0, 0 + 3)
-        self.slice_rb_rp = slice(0, 0 + 2)
 
         # goal angle
         self.slice_goal_angle = slice(3, 3 + 3)
@@ -281,29 +280,32 @@ class BlimpFeature(FeatureAbstract):
         self.slice_err_posHov = slice(11, 11 + 3)
 
         # robot vel
-        self.slice_rb_v = slice(15, 15 + 3)
+        self.slice_rb_v = slice(14, 14 + 3)
 
         # goal vel
-        self.slice_goal_v = slice(18, 18 + 3)
+        self.slice_goal_v = slice(17, 17 + 3)
 
         # robot ang vel
-        self.slice_rb_angvel = slice(24, 24 + 3)
+        self.slice_rb_angvel = slice(20, 20 + 3)
 
         # goal ang vel
-        self.slice_goal_angvel = slice(20, 20 + 3)
+        self.slice_goal_angvel = slice(23, 23 + 3)
+
+        # robot thrust
+        self.slice_actuators = slice(26, 26 + 1)
 
         # robot actions
-        self.slice_prev_act = slice(27, 27 + 3)
+        self.slice_prev_act = slice(28, 28 + 3)
 
     def extract(self, s):
         features = []
 
         # raw obs
         robot_angle = s[:, self.slice_rb_angle]
-        robot_angVel = s[:, self.slice_rb_angvel]
+        # robot_angVel = s[:, self.slice_rb_angvel]
         robot_v = s[:, self.slice_rb_v]
-        robot_prevact = s[:, self.slice_prev_act]
-        robot_thrust = robot_prevact[:, 0:1] + 1
+        robot_thrust = s[:, self.slice_actuators]
+        # robot_prev_act = s[:, self.slice_prev_act]
         robot_headingV, _, _ = globalToLocalRot(
             robot_angle[:, 0],
             robot_angle[:, 1],
@@ -316,13 +318,13 @@ class BlimpFeature(FeatureAbstract):
         goal_ang = s[:, self.slice_goal_angle]
         goal_v = s[:, self.slice_goal_v]
         # goal_angVel = s[:, self.slice_goal_angvel]
-        goal_trigger = s[:, self.slice_goal_trigger]
+        # goal_trigger = s[:, self.slice_goal_trigger]
 
         # prepare feature
         error_ang = check_angle(robot_angle - goal_ang)  # rel angle
         error_posNav = s[:, self.slice_err_posNav]
-        error_posHov = s[:, self.slice_err_posHov]
-        error_v = robot_v - goal_v
+        # error_posHov = s[:, self.slice_err_posHov]
+        error_v = s[:, self.slice_rb_v] - s[:, self.slice_goal_v]
         # error_angVel = robot_angVel - goal_angVel
 
         error_navHeading = check_angle(
@@ -339,7 +341,7 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Nav trigger:
-        x = 100.0 * goal_trigger
+        x = 100.0 * s[:, self.slice_goal_trigger]
         features.append(x)
 
         # Nav yaw_to_goal:
@@ -347,7 +349,7 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Hov proxDist:
-        x = self.compute_featureProx(error_posHov)
+        x = self.compute_featureProx(s[:, self.slice_err_posHov])
         features.append(x)
 
         # Hov yaw:
@@ -374,22 +376,14 @@ class BlimpFeature(FeatureAbstract):
         x = self.compute_featureAngNorm(robot_angle[:, 0:2])
         features.append(x)
 
-        # regulate angvel:
-        x = self.compute_featureAngVelNorm(robot_angVel)
-        features.append(x)
-
-        # regulate robot velocity
-        x = self.compute_featureVelNorm(robot_v)
-        features.append(x)
-
         # regulate robot thrust: rescale to [0, 2], similar to angle scale
-        x = self.compute_featureAngNorm(robot_thrust)
+        x = self.compute_featureAngNorm(robot_thrust + 1)
         features.append(x)
 
         f = torch.concatenate(features, 1)
         if self.verbose:
             print(
-                "[Feature] features [planar, Z, trigger, yaw2goal, proximity, yaw, vnorm, vx, vy, vz,  regRP, regAngVel, regV, regThrust]"
+                "[Feature] features [planar, Z, trigger, yaw2goal, proximity, yaw, vnorm, vx, vy, vz,  regRP, regThrust]"
             )
             print(f)
         return f

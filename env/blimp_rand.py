@@ -14,7 +14,7 @@ from .base.goal import RandomWayPoints, FixWayPoints
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 31
+        self.num_obs = 32
         self.num_act = 4
 
         # domain randomization
@@ -26,7 +26,6 @@ class BlimpRand(VecEnv):
 
         super().__init__(cfg=cfg)
 
-        self.hover_task = None
         self.id_absZ = 0
         self.id_relpos = [0, 0, 0]
         self.id_angvel = [0, 0, 0]
@@ -156,6 +155,11 @@ class BlimpRand(VecEnv):
 
         self.prev_actions = torch.zeros(
             (self.num_envs, self.num_act),
+            device=self.sim_device,
+            dtype=torch.float,
+        )
+        self.prev_actuator = torch.zeros(
+            (self.num_envs, 2),
             device=self.sim_device,
             dtype=torch.float,
         )
@@ -294,17 +298,8 @@ class BlimpRand(VecEnv):
         self.id_relpos[2] = d
         self.obs_buf[env_ids, d] = rel_pos[:, 2]
 
-        # goal type
-        d += 1  # 14
-        if self.hover_task is not None:
-            self.obs_buf[env_ids, d] = self.hover_task.to(torch.float32)
-        else:
-            self.obs_buf[env_ids, d] = torch.zeros_like(
-                rel_pos[:, 2], device=self.device
-            )
-
         # robot vel
-        d += 1  # 15
+        d += 1  # 14
         self.obs_buf[env_ids, d] = self.rb_lvels[env_ids, body_id, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.rb_lvels[env_ids, body_id, 1]
@@ -312,7 +307,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.rb_lvels[env_ids, body_id, 2]
 
         # goal vel
-        d += 1  # 18
+        d += 1  # 17
         self.obs_buf[env_ids, d] = self.wp.vel[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.wp.vel[env_ids, 1]
@@ -320,7 +315,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.wp.vel[env_ids, 2]
 
         # robot angular velocities
-        d += 1  # 21
+        d += 1  # 20
         self.id_angvel[0] = d
         self.obs_buf[env_ids, d] = self.rb_avels[env_ids, body_id, 0]
         d += 1
@@ -331,15 +326,21 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.rb_avels[env_ids, body_id, 2]
 
         # goal ang vel
-        d += 1  # 24
+        d += 1  # 23
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 1]
         d += 1
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 2]
 
+        # prev thrusts
+        d += 1  # 26
+        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 0]
+        d += 1
+        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 1]
+
         # previous actions
-        d += 1  # 27
+        d += 1  # 28
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 1]
@@ -352,7 +353,7 @@ class BlimpRand(VecEnv):
 
         # robot actuator states
         # thrust vectoring angle
-        d += 1  # 31
+        d += 1  # 32
         self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 0]
 
         # rudder
@@ -578,22 +579,21 @@ class BlimpRand(VecEnv):
         # refresh new observation after reset
         self.get_obs()
 
-    def step(self, actions, hover_task=None):
-        if hover_task is not None:
-            self.hover_task = hover_task
-
+    def step(self, actions):
         actions = actions.to(self.sim_device).reshape((self.num_envs, self.num_act))
         actions = torch.clamp(actions, -1.0, 1.0)  # [thrust, yaw, stick, pitch]
+        self.prev_actions = actions
 
         # EMA smoothing thrusts
-        actions[:, 0] = actions[:, 0] * self.k_ema_smooth[:, 0] + self.prev_actions[
+        actions[:, 0] = actions[:, 0] * self.k_ema_smooth[:, 0] + self.prev_actuator[
             :, 0
         ] * (1 - self.k_ema_smooth[:, 0])
-        actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:, 1] + self.prev_actions[
-            :, 2
+        actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:, 1] + self.prev_actuator[
+            :, 1
         ] * (1 - self.k_ema_smooth[:, 1])
 
-        self.prev_actions = actions
+        self.prev_actuator[:, 0] = actions[:, 0]
+        self.prev_actuator[:, 1] = actions[:, 2]
 
         # zeroing out any prev action
         self.actions_tensor[:] = 0.0
@@ -956,6 +956,7 @@ def compute_point_reward(
         torch.abs(sqr_dist) > reset_dist**2, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
+    reset = torch.where(z_abs > 50, torch.ones_like(reset_buf), reset)
 
     reset = torch.where(
         torch.abs(ang_velx) > torch.pi / 3, torch.ones_like(reset_buf), reset

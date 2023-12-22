@@ -183,7 +183,7 @@ class FrameStackedReplayBuffer:
         return self.idx * self.n_env
 
     def add(self, obs, feature, action, reward, next_obs, done):
-        if self.idx + 1 == self.capacity:
+        if self.idx == self.capacity:
             self.full = True
             self.idx = 0
 
@@ -201,12 +201,18 @@ class FrameStackedReplayBuffer:
             batch_size = self.batch_size
 
         # select sample
+        if self.full:
+            sra = [0, self.capacity]
+        else:
+            sra = [self.stack_size - 1, self.idx]
+
         idx1 = torch.randint(
-            self.stack_size - 1,
-            self.capacity if self.full else self.idx,
+            sra[0],
+            sra[1],
             (batch_size,),
             device=self.device,
         )
+
         # select env
         idx2 = torch.randint(
             0,
@@ -236,34 +242,23 @@ class FrameStackedReplayBuffer:
         }
 
     def stack_data(self, x, idx1, idx2):
-        # [NE, F, N] <-- [N, NE, F]
-        stacked_obj = x.permute(1, 2, 0)
-
-        # [NE, F, N-H+1, S] <-- [NE, F, N]
-        stacked_obj = stacked_obj.unfold(2, self.stack_size, 1)
-
-        # [N-H+1, NE, F, S] <-- [NE, F, N-H+1, S]
-        stacked_obj = stacked_obj.permute(2, 0, 1, 3)
-
-        # [N-H+1, NE, F, S]
-        stacked_obj = torch.flip(stacked_obj, (3,))  # descending order
-
-        # [B, F, S] <-- [N-H+1, NE, F, S]
-        stacked_obj = stacked_obj[idx1 - self.stack_size + 1, idx2]
-
-        # correct by dones
         ra = self.stack_range.repeat((idx1.shape[0], 1))  # [B, S]
         ids1 = idx1[:, None] - ra  # [B, S] <-- [B]
         ids2 = idx2[:, None].repeat_interleave(self.stack_size, 1)  # [B, S] <-- [B]
+
+        stacked_obj = x[ids1, ids2]  # [B, S, F] <-- [N, NE, F]
+
+        if not self.full:
+            stacked_obj[ids1 < 0] = 0
+
+        # correct by dones
         dones = self.dones[ids1, ids2]  # [B, S, 1] <-- [N, NE, 1]
         dones[:, 0] = False
+        mask = torch.where(torch.cumsum(dones, 1) > 0, 0, 1)  # [B, S, 1]
 
-        mask = torch.where(torch.cumsum(dones, 1) > 0, 0, 1).permute(
-            0, 2, 1
-        )  # [B, S, 1]
-        stacked_obj = mask * stacked_obj  # [B, S, F]
+        stacked_obj = mask * stacked_obj  # [B, S, F]=[B, S, 1]*[B, S, F]
 
-        return stacked_obj  # [B, F, S]
+        return stacked_obj.permute(0, 2, 1)  # [B, F, S]
 
 
 class VecPrioritizedReplayBuffer:
@@ -316,7 +311,7 @@ class VecPrioritizedReplayBuffer:
 if __name__ == "__main__":
     capacity = 20
     device = "cuda"
-    data_size = 4
+    data_size = 5
     stack_size = 3
 
     n_env = 2
@@ -346,12 +341,12 @@ if __name__ == "__main__":
 
         buf.add(obs, feature, action, reward, next_obs, done)
 
-    print(len(buf))
+    print("len buf", len(buf))
 
-    sample = buf.sample(5)
+    sample = buf.sample(1)
     print("buf.obs", buf.obses)
-    print("buf.dones", buf.dones)
-    print("obs", sample["obs"])
+    # print("buf.dones", buf.dones)
+    # print("obs", sample["obs"])
     print("stacked_obs", sample["stacked_obs"])
-    print("obs shape", sample["obs"].shape)
-    print("stacked_obs shape", sample["stacked_obs"].shape)
+    # print("obs shape", sample["obs"].shape)
+    # print("stacked_obs shape", sample["stacked_obs"].shape)

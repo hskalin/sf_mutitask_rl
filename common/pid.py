@@ -88,13 +88,33 @@ class BlimpPositionControl:
             a = self.act(s_stack[:, :, -i - 1])
         return a
 
+    # def act(self, s):
+    #     err_yaw, err_planar, err_z = self.parse_state(s)
+
+    #     yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
+    #     alt_ctrl = self.alt_ctrl.action(err_z)
+    #     vel_ctrl = self.vel_ctrl.action(err_planar)
+    #     thrust_vec = -1 * torch.ones_like(vel_ctrl)
+    #     a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
+    #     return a
+
     def act(self, s):
         err_yaw, err_planar, err_z = self.parse_state(s)
 
         yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
         alt_ctrl = self.alt_ctrl.action(err_z)
-        vel_ctrl = self.vel_ctrl.action(err_planar)
-        thrust_vec = -1 * torch.ones_like(vel_ctrl)
+
+        vel_ctrl = torch.where(
+            err_z[:, None] <= -3,
+            torch.ones_like(alt_ctrl),
+            self.vel_ctrl.action(err_planar),
+        )
+        thrust_vec = torch.where(
+            err_z[:, None] <= -3,
+            torch.zeros_like(vel_ctrl),
+            -1 * torch.ones_like(vel_ctrl),
+        )
+
         a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         return a
 
@@ -153,6 +173,8 @@ class BlimpHoverControl(BlimpPositionControl):
             **self.ctrl_cfg["vel"],
         )
 
+        self.slice_err_posHov = slice(11, 11 + 3)
+
     def act(self, s):
         err_yaw, err_planar, err_z = self.parse_state(s)
 
@@ -172,3 +194,15 @@ class BlimpHoverControl(BlimpPositionControl):
 
         a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         return a
+
+    def parse_state(self, s):
+        error_posHov = s[:, self.slice_err_posHov]
+        robot_angle = s[:, self.slice_rb_angle]
+
+        error_navHeading = check_angle(
+            compute_heading(yaw=robot_angle[:, 2], rel_pos=error_posHov)
+        )
+        err_planar = error_posHov[:, 0:2]
+        err_planar = torch.norm(err_planar, dim=1, keepdim=True)
+        err_z = error_posHov[:, 2]
+        return error_navHeading, err_planar, err_z

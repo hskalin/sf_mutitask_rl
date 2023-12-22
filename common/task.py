@@ -116,8 +116,10 @@ class SmartTask:
 
         if self.verbose:
             print("[Task] training task set: \n", self.Train.taskSetType)
+            print("[Task] training tasks id: \n", self.Train.id)
             print("[Task] training tasks: \n", self.Train.W)
             print("[Task] evaluation task set: \n", self.Eval.taskSetType)
+            print("[Task] evaluation tasks id: \n", self.Eval.id)
             print("[Task] evaluation tasks: \n", self.Eval.W)
             print("\n")
 
@@ -138,7 +140,7 @@ class SmartTask:
 
             if self.verbose:
                 print("[Task] sample new tasks:")
-                print("[Task] Train.W[0]: ", self.Train.W[0])
+                print("[Task] Train.W[0]: ", self.Train.W)
                 print("[Task] Train.taskRatio: ", self.Train.taskRatio)
                 print("[Task] Train Task Counts: ", torch.bincount(self.Train.id))
                 print("[Task] Eval.W[0]: ", self.Eval.W[0])
@@ -192,43 +194,6 @@ class PointerTask(SmartTask):
 class BlimpTask(SmartTask):
     def __init__(self, env_cfg, device) -> None:
         super().__init__(env_cfg, device)
-
-        self.hover_task_id = self.task_cfg["hover_task_id"]
-        if self.randTasks:
-            self.update_hovTasks()
-
-    def update_hovTasks(self):  # a hack to identify hover tasks
-        self.hover_task = torch.any(
-            torch.stack(
-                [
-                    torch.eq(self.Train.id, idx).logical_or_(
-                        torch.eq(self.Train.id, idx)
-                    )
-                    for idx in self.hover_task_id
-                ],
-                dim=0,
-            ),
-            dim=0,
-        )
-
-    def rand_task(self, episodes):
-        if (
-            ((episodes - 1) % self.intervalWeightRand == 0)
-            and (self.env_cfg["mode"] == "train")
-            and (self.randTasks)
-        ):
-            self.Train.sample_tasks()
-            self.update_hovTasks()
-
-            if self.verbose:
-                print("[Task] sample new tasks:")
-                print("[Task] Train.W[0]: ", self.Train.W[0])
-                print("[Task] Train.taskRatio: ", self.Train.taskRatio)
-                print("[Task] Train Task Counts: ", torch.bincount(self.Train.id))
-                print("[Task] Eval.W[0]: ", self.Eval.W[0])
-                print("[Task] Eval.taskRatio: ", self.Eval.taskRatio)
-                print("[Task] Eval Task Counts: ", torch.bincount(self.Eval.id))
-                print("\n")
 
     def define_task(self, c, w):
         return w
