@@ -9,7 +9,7 @@ import wandb
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
-from common.pid import BlimpPositionControl, BlimpHoverControl
+from common.pid import BlimpPositionControl, BlimpHoverControl, BlimpVelocityControl
 from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
     check_act,
@@ -217,7 +217,7 @@ class RMACompPIDAgent(MultitaskAgent):
         self.controllers = []
         self.controllers.append(BlimpPositionControl(device=self.device))
         self.controllers.append(BlimpHoverControl(device=self.device))
-        self.controllers.append(BlimpPositionControl(device=self.device))
+        self.controllers.append(BlimpVelocityControl(device=self.device))
 
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256

@@ -100,7 +100,7 @@ goal:
   # position trajectory
   kWayPt: 4
   wp_dist: 15
-  trigger_dist: 3
+  trigger_dist: 5
 
   # targets for play
   target_pos:     [0, 0, 20] # x, y, z

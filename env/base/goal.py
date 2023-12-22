@@ -220,7 +220,7 @@ class FixWayPoints:
     def update_state(self, rb_pos):
         """check if robot is close to waypoint"""
         dist = torch.norm(
-            rb_pos - self.get_pos_nav(self.idx),
+            rb_pos[:, 0:2] - self.get_pos_nav(self.idx)[:, 0:2],
             p=2,
             dim=1,
             keepdim=True,
@@ -235,7 +235,7 @@ class FixWayPoints:
     def reset(self, env_ids):
         self.idx[env_ids] = 0
 
-    def update_vel(self, rbpos, Kv=0.5):
+    def update_vel(self, rbpos, Kv=0.1):
         prev_pos = self.get_pos_nav(self.idx - 1)
         path = self.get_pos_nav() - prev_pos
 
