@@ -237,15 +237,26 @@ class RMACompPIDAgent(MultitaskAgent):
         ).to(self.device)
         self.adaptor_loss = nn.MSELoss()
 
-        self.sf_optimizer = Adam(
-            [
-                {"params": self.sf.parameters()},
-                {"params": self.encoder.parameters()},
-                {"params": self.decoder.parameters()},
-            ],
-            lr=self.lr,
-            betas=[0.9, 0.999],
-        )
+        if self.use_decoder:
+            self.sf_optimizer = Adam(
+                [
+                    {"params": self.sf.parameters()},
+                    {"params": self.encoder.parameters()},
+                    {"params": self.decoder.parameters()},
+                ],
+                lr=self.lr,
+                betas=[0.9, 0.999],
+            )
+        else:
+            self.sf_optimizer = Adam(
+                [
+                    {"params": self.sf.parameters()},
+                    {"params": self.encoder.parameters()},
+                ],
+                lr=self.lr,
+                betas=[0.9, 0.999],
+            )
+
         self.policy_optimizer = Adam(
             self.policy.parameters(),
             lr=self.policy_lr,
@@ -492,6 +503,9 @@ class RMACompPIDAgent(MultitaskAgent):
                 "loss/action_norm": info_pi.get("action_norm", 0),
                 "loss/action_continuity": -info_pi.get("continuity_loss", 0),
                 "loss/imitation_loss": info_pi.get("imitation_loss", 0),
+                "loss/imitation_loss0": info_pi.get("imitation_loss0", 0),
+                "loss/imitation_loss1": info_pi.get("imitation_loss1", 0),
+                "loss/imitation_loss2": info_pi.get("imitation_loss2", 0),
                 "state/mean_SF1": info_sf["curr_sf1"],
                 "state/mean_SF2": info_sf["curr_sf2"],
                 "state/target_sf": info_sf["target_sf"],
@@ -627,6 +641,9 @@ class RMACompPIDAgent(MultitaskAgent):
 
             policy_loss = policy_loss + self.imitation_coeff * imi_loss  # * self.alpha
             info["imitation_loss"] = imi_loss.mean().detach().item()
+            info["imitation_loss0"] = imi_loss[:, 0].mean().detach().item()
+            info["imitation_loss1"] = imi_loss[:, 1].mean().detach().item()
+            info["imitation_loss2"] = imi_loss[:, 2].mean().detach().item()
 
         policy_loss = torch.mean(policy_loss)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)

@@ -204,7 +204,7 @@ class FrameStackedReplayBuffer:
         if self.full:
             sra = [0, self.capacity]
         else:
-            sra = [self.stack_size - 1, self.idx]
+            sra = [0, self.idx]
 
         idx1 = torch.randint(
             sra[0],
