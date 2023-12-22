@@ -2,12 +2,12 @@ program: run.py
 method: bayes
 metric:
   goal: maximize
-  name: reward/eval
+  name: reward/eval_phase2
 
 parameters:
   agent.lr:
-    min: 0.0001
-    max: 0.01
+    min: 0.00005
+    max: 0.005
   agent.policy_lr:
     min: 0.0001
     max: 0.01

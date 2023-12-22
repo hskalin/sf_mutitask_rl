@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 import torch
+from common.torch_jit_utils import *
 
 
 class FeatureAbstract(ABC):
@@ -252,7 +253,7 @@ class BlimpFeature(FeatureAbstract):
         ).to(self.device)
         self.Ka = torch.pi
 
-        self.dim = 13
+        self.dim = 14
         if self.verbose:
             print("[Feature] dim", self.dim)
 
@@ -261,120 +262,119 @@ class BlimpFeature(FeatureAbstract):
         )
 
         # robot angle
-        self.slice_rbangle = slice(0, 3)
-        self.slice_rbRP = slice(0, 2)
+        self.slice_rb_angle = slice(0, 0 + 3)
+        self.slice_rb_rp = slice(0, 0 + 2)
 
-        # robot ang vel
-        self.slice_rbangvel = slice(22, 25)
+        # goal angle
+        self.slice_goal_angle = slice(3, 3 + 3)
+
+        # robot z
+        self.slice_rb_z = slice(6, 6 + 1)
+
+        # goal trigger
+        self.slice_goal_trigger = slice(7, 7 + 1)
+
+        # relative position to nav goal
+        self.slice_err_posNav = slice(8, 8 + 3)
+
+        # relative position to hov goal
+        self.slice_err_posHov = slice(11, 11 + 3)
 
         # robot vel
-        self.slice_rbv = slice(16, 19)
-        self.slice_rbvx = slice(16, 17)
-        self.slice_rbvy = slice(17, 18)
-        self.slice_rbvz = slice(18, 19)
+        self.slice_rb_v = slice(15, 15 + 3)
 
-        # robot thrust
-        self.slice_thrust = slice(28, 29)
+        # goal vel
+        self.slice_goal_v = slice(18, 18 + 3)
+
+        # robot ang vel
+        self.slice_rb_angvel = slice(24, 24 + 3)
+
+        # goal ang vel
+        self.slice_goal_angvel = slice(20, 20 + 3)
 
         # robot actions
-        self.slice_prev_act = slice(28, 32)
-
-        # relative angle
-        self.slice_err_roll = slice(7, 8)
-        self.slice_err_pitch = slice(8, 9)
-        self.slice_err_yaw = slice(9, 10)
-
-        # relative position
-        self.slice_err_planar = slice(11, 13)
-        self.slice_err_z = slice(13, 14)
-        self.slice_err_dist = slice(11, 14)
-        self.slice_trigger = slice(14, 15)
-
-        # relative yaw to goal position
-        self.slice_err_yaw_to_goal = slice(15, 16)
-
-        # relative velocity
-        self.slice_err_vx = slice(20, 21)
-        self.slice_err_vy = slice(21, 22)
-        self.slice_err_vz = slice(22, 23)
-        self.slice_err_vplanar = slice(20, 22)
-
-        self.slice_err_vnorm = slice(19, 20)
-
-        # relative angular velocity
-        self.slice_err_p = slice(26, 27)
-        self.slice_err_q = slice(27, 28)
-        self.slice_err_r = slice(28, 29)
-        self.slice_err_angvel = slice(26, 29)
+        self.slice_prev_act = slice(27, 27 + 3)
 
     def extract(self, s):
         features = []
 
-        robot_RP = s[:, self.slice_rbRP]
-        robot_angVel = s[:, self.slice_rbangvel]
-        robot_v = s[:, self.slice_rbv]
-        robot_thrust = s[:, self.slice_thrust]
-        # robot_act = s[:, self.slice_prev_act]
+        # raw obs
+        robot_angle = s[:, self.slice_rb_angle]
+        robot_angVel = s[:, self.slice_rb_angvel]
+        robot_v = s[:, self.slice_rb_v]
+        robot_prevact = s[:, self.slice_prev_act]
+        robot_thrust = robot_prevact[:, 0:1] + 1
+        robot_headingV, _, _ = globalToLocalRot(
+            robot_angle[:, 0],
+            robot_angle[:, 1],
+            robot_angle[:, 2],
+            robot_v[:, 0],
+            robot_v[:, 1],
+            robot_v[:, 2],
+        )
 
-        error_yaw = s[:, self.slice_err_yaw]
-        error_yaw_to_goal = s[:, self.slice_err_yaw_to_goal]
+        goal_ang = s[:, self.slice_goal_angle]
+        goal_v = s[:, self.slice_goal_v]
+        # goal_angVel = s[:, self.slice_goal_angvel]
+        goal_trigger = s[:, self.slice_goal_trigger]
 
-        error_planar = s[:, self.slice_err_planar]
-        error_posZ = s[:, self.slice_err_z]
-        error_dist = s[:, self.slice_err_dist]
-        trigger = s[:, self.slice_trigger]
+        # prepare feature
+        error_ang = check_angle(robot_angle - goal_ang)  # rel angle
+        error_posNav = s[:, self.slice_err_posNav]
+        error_posHov = s[:, self.slice_err_posHov]
+        error_v = robot_v - goal_v
+        # error_angVel = robot_angVel - goal_angVel
 
-        error_vx = s[:, self.slice_err_vx]
-        error_vy = s[:, self.slice_err_vy]
-        error_vz = s[:, self.slice_err_vz]
-        error_vnorm = s[:, self.slice_err_vnorm]
+        error_navHeading = check_angle(
+            compute_heading(yaw=robot_angle[:, 2:3], rel_pos=error_posNav)
+        )
+        error_vnorm = robot_headingV - torch.norm(goal_v[:, 0:2], dim=1, keepdim=True)
 
-        # error_angVel_p = s[:, self.slice_err_p]
-        # error_angVel_q = s[:, self.slice_err_q]
-        # error_angVel_r = s[:, self.slice_err_r]
-        # error_angVel = s[:, self.slice_err_angvel]
-
-        # planar:
-        x = self.compute_featurePosNorm(error_planar) + 10 * trigger
+        # Nav planar:
+        x = self.compute_featurePosNorm(error_posNav[:, 0:2])
         features.append(x)
 
-        # posZ:
-        x = self.compute_featurePosNorm(error_posZ)
+        # Nav z:
+        x = self.compute_featurePosNorm(error_posNav[:, 2:3])
         features.append(x)
 
-        # proxDist:
-        x = self.compute_featureProx(error_dist)
+        # Nav trigger:
+        x = 100.0 * goal_trigger
         features.append(x)
 
-        # vx:
-        x = self.compute_featureVelNorm(error_vx)
+        # Nav yaw_to_goal:
+        x = self.compute_featureAngNorm(error_navHeading)
         features.append(x)
 
-        # vy:
-        x = self.compute_featureVelNorm(error_vy)
+        # Hov proxDist:
+        x = self.compute_featureProx(error_posHov)
         features.append(x)
 
-        # vz:
-        x = self.compute_featureVelNorm(error_vz)
+        # Hov yaw:
+        x = self.compute_featureAngNorm(error_ang[:, 2:3])
         features.append(x)
 
-        # vnorm:
+        # Nav/Hov vnorm:
         x = self.compute_featureVelNorm(error_vnorm)
         features.append(x)
 
-        # yaw:
-        x = self.compute_featureAngNorm(error_yaw)
+        # vx:
+        x = self.compute_featureVelNorm(error_v[:, 0:1])
         features.append(x)
 
-        # yaw_to_goal:
-        x = self.compute_featureAngNorm(error_yaw_to_goal)
+        # vy:
+        x = self.compute_featureVelNorm(error_v[:, 1:2])
         features.append(x)
 
-        # regulate_rowandpitch:
-        x = self.compute_featureAngNorm(robot_RP)
+        # vz:
+        x = self.compute_featureVelNorm(error_v[:, 2:3])
         features.append(x)
 
-        # regulate_angvel:
+        # regulate row and pitch:
+        x = self.compute_featureAngNorm(robot_angle[:, 0:2])
+        features.append(x)
+
+        # regulate angvel:
         x = self.compute_featureAngVelNorm(robot_angVel)
         features.append(x)
 
@@ -383,13 +383,13 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # regulate robot thrust: rescale to [0, 2], similar to angle scale
-        x = self.compute_featureAngNorm(robot_thrust + 1)
+        x = self.compute_featureAngNorm(robot_thrust)
         features.append(x)
 
         f = torch.concatenate(features, 1)
         if self.verbose:
             print(
-                "[Feature] features [planar, Z, proximity, vx, vy, vz, yaw, yaw2goal, regRP, regPQR, regV, regThrust]"
+                "[Feature] features [planar, Z, trigger, yaw2goal, proximity, yaw, vnorm, vx, vy, vz,  regRP, regAngVel, regV, regThrust]"
             )
             print(f)
         return f

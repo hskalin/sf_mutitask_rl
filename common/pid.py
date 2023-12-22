@@ -1,4 +1,5 @@
 import torch
+from common.torch_jit_utils import *
 
 
 class PIDController:
@@ -77,6 +78,10 @@ class BlimpPositionControl:
             **self.ctrl_cfg["vel"],
         )
 
+        self.slice_rb_angle = slice(0, 0 + 3)
+        self.slice_goal_angle = slice(3, 3 + 3)
+        self.slice_err_posNav = slice(8, 8 + 3)
+
     def act_on_stack(self, s_stack, k=2):  # [N, S, K]
         self.clear()
         for i in reversed(range(k)):
@@ -94,12 +99,16 @@ class BlimpPositionControl:
         return a
 
     def parse_state(self, s):
-        err_planar = s[:, 11:13]
-        err_z = s[:, 13]
-        err_yaw = s[:, 14]
+        error_posNav = s[:, self.slice_err_posNav]
+        robot_angle = s[:, self.slice_rb_angle]
 
-        err_planar = torch.norm(err_planar, p=2, dim=1, keepdim=True)
-        return err_yaw, err_planar, err_z
+        error_navHeading = check_angle(
+            compute_heading(yaw=robot_angle[:, 2], rel_pos=error_posNav)
+        )
+        err_planar = error_posNav[:, 0:2]
+        err_planar = torch.norm(err_planar, dim=1, keepdim=True)
+        err_z = error_posNav[:, 2]
+        return error_navHeading, err_planar, err_z
 
     def clear(self):
         self.yaw_ctrl.clear()
@@ -107,7 +116,7 @@ class BlimpPositionControl:
         self.vel_ctrl.clear()
 
 
-class BlimpHoverControl:
+class BlimpHoverControl(BlimpPositionControl):
     ctrl_cfg = {
         "yaw": {
             "pid_param": torch.tensor([1.0, 0.01, 0.025]),
@@ -124,6 +133,8 @@ class BlimpHoverControl:
     }
 
     def __init__(self, device):
+        super().__init__(device)
+
         delta_t = 0.1
 
         self.yaw_ctrl = PIDController(
@@ -141,12 +152,6 @@ class BlimpHoverControl:
             delta_t=delta_t,
             **self.ctrl_cfg["vel"],
         )
-
-    def act_on_stack(self, s_stack, k=2):  # [N, S, K]
-        self.clear()
-        for i in reversed(range(k)):
-            a = self.act(s_stack[:, :, -i - 1])
-        return a
 
     def act(self, s):
         err_yaw, err_planar, err_z = self.parse_state(s)
@@ -167,16 +172,3 @@ class BlimpHoverControl:
 
         a = torch.concat([vel_ctrl, yaw_ctrl, thrust_vec, alt_ctrl], dim=1)
         return a
-
-    def parse_state(self, s):
-        err_planar = s[:, 11:13]
-        err_z = s[:, 13]
-        err_yaw = s[:, 14]
-
-        err_planar = torch.norm(err_planar, p=2, dim=1, keepdim=True)
-        return err_yaw, err_planar, err_z
-
-    def clear(self):
-        self.yaw_ctrl.clear()
-        self.alt_ctrl.clear()
-        self.vel_ctrl.clear()

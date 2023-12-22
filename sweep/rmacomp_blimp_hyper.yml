@@ -46,7 +46,7 @@ parameters:
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
-    values: [True, False]
+    values: [True]
   agent.sf_net_kwargs.layernorm:
     values: [True]
   buffer.framestacked_replay:

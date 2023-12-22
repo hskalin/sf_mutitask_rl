@@ -5,6 +5,7 @@ import wandb
 
 from common.agent import IsaacAgent
 from common.pid import PIDController
+from common.torch_jit_utils import *
 
 
 class BlimpPositionController(IsaacAgent):
@@ -44,6 +45,10 @@ class BlimpPositionController(IsaacAgent):
             **self.ctrl_cfg["vel"],
         )
 
+        self.slice_rb_angle = slice(0, 0 + 3)
+        self.slice_goal_angle = slice(3, 3 + 3)
+        self.slice_err_posNav = slice(8, 8 + 3)
+
     # def explore(self, s, w):
     #     err_yaw, err_planar, err_z = self.parse_state(s)
 
@@ -57,9 +62,9 @@ class BlimpPositionController(IsaacAgent):
     #     return a
 
     def explore(self, s, w):
-        err_yaw, err_planar, err_z = self.parse_state(s)
+        err_heading, err_planar, err_z = self.parse_state(s)
 
-        yaw_ctrl = -self.yaw_ctrl.action(err_yaw)
+        yaw_ctrl = -self.yaw_ctrl.action(err_heading)
         alt_ctrl = self.alt_ctrl.action(err_z)
 
         vel_ctrl = torch.where(
@@ -80,12 +85,16 @@ class BlimpPositionController(IsaacAgent):
         return self.explore(s, w)
 
     def parse_state(self, s):
-        err_planar = s[:, 11:13]
-        err_z = s[:, 13]
-        err_yaw = s[:, 14]
+        error_posNav = s[:, self.slice_err_posNav]
+        robot_angle = s[:, self.slice_rb_angle]
 
-        err_planar = torch.norm(err_planar, p=2, dim=1, keepdim=True)
-        return err_yaw, err_planar, err_z
+        error_navHeading = check_angle(
+            compute_heading(yaw=robot_angle[:, 2], rel_pos=error_posNav)
+        )
+        err_planar = error_posNav[:, 0:2]
+        err_planar = torch.norm(err_planar, dim=1, keepdim=True)
+        err_z = error_posNav[:, 2]
+        return error_navHeading, err_planar, err_z
 
     def learn(self):
         pass

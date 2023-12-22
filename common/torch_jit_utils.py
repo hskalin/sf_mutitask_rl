@@ -9,6 +9,7 @@ def copysign(a, b):
     a = torch.tensor(a, device=b.device, dtype=torch.float).repeat(b.shape[0])
     return torch.abs(a) * torch.sign(b)
 
+
 @torch.jit.script
 def copysignMulti(a, b):
     # type: (float, Tensor) -> Tensor
@@ -46,6 +47,7 @@ def get_euler_xyz(q):
     yaw = torch.atan2(siny_cosp, cosy_cosp)
 
     return roll % (2 * np.pi), pitch % (2 * np.pi), yaw % (2 * np.pi)
+
 
 @torch.jit.script
 def get_euler_xyz_multi(q):
@@ -130,6 +132,7 @@ def globalToLocalRot(roll, pitch, yaw, x, y, z):
 
     return xp, yp, zp
 
+
 @torch.jit.script
 def quat_from_euler_xyz(roll, pitch, yaw):
     cy = torch.cos(yaw * 0.5)
@@ -145,6 +148,19 @@ def quat_from_euler_xyz(roll, pitch, yaw):
     qz = sy * cr * cp - cy * sr * sp
 
     return torch.stack([qx, qy, qz, qw], dim=-1)
+
+
+@torch.jit.script
+def check_angle(ang):
+    ang = torch.where(ang > torch.pi, ang - 2 * torch.pi, ang)
+    ang = torch.where(ang < -torch.pi, ang + 2 * torch.pi, ang)
+    return ang
+
+
+@torch.jit.script
+def compute_heading(yaw, rel_pos):
+    # type: (Tensor, Tensor) -> Tensor
+    return torch.arctan2(rel_pos[:, 1], rel_pos[:, 0]) - torch.pi - yaw
 
 
 @torch.jit.script

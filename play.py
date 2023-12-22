@@ -130,8 +130,8 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     # print_dict(wandb_dict)
     update_dict(cfg_dict, wandb_dict)
-    cfg_dict["agent"]["norm_task_by_sf"] = True
-    cfg_dict["agent"]["phase"] = 2
+    cfg_dict["agent"]["norm_task_by_sf"] = False
+    cfg_dict["agent"]["phase"] = 1
 
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
     cfg_dict["buffer"]["min_n_experience"] = 0
@@ -143,14 +143,14 @@ def launch_rlg_hydra(cfg: DictConfig):
     cfg_dict["env"]["sim"]["headless"] = False
     cfg_dict["env"]["num_envs"] = 1
 
-    cfg_dict["env"]["aero"]["wind_mag"] = 0
-    cfg_dict["env"]["task"]["domain_rand"] = False
+    cfg_dict["env"]["aero"]["wind_mag"] = 1
+    cfg_dict["env"]["task"]["domain_rand"] = True
     print_dict(cfg_dict)
 
     torch.manual_seed(456)
     np.random.seed(456)
 
-    model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-21-01-50-43/model90"
+    model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-21-22-39-36/model90"
 
     playob = PlayUI(cfg_dict, model_path)
     playob.play()

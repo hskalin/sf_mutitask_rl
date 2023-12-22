@@ -182,7 +182,12 @@ class FixWayPoints:
             device=self.device,
             dtype=torch.float32,
         )
-        self.pos = torch.tile(wps, (self.num_envs, 1, 1))
+        self.pos_nav = torch.tile(wps, (self.num_envs, 1, 1))
+
+        self.pos_hov = torch.tile(
+            torch.tensor([0, 0, 20], device=self.device, dtype=torch.float32),
+            (self.num_envs, 1),
+        )
 
         self.vel = torch.tile(
             torch.tensor([5, 0, 0], device=self.device, dtype=torch.float32),
@@ -201,13 +206,21 @@ class FixWayPoints:
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
 
-    def get_pos(self):
-        return self.pos[range(self.num_envs), self.idx.squeeze()]
+    def sample(self, env_ids):
+        pass
 
-    def update_state(self, rb_pos, hover_task=None):
+    def get_pos_nav(self, idx=None):
+        if idx is not None:
+            return self.pos_nav[range(self.num_envs), self.check_idx(idx).squeeze()]
+        else:
+            return self.pos_nav[
+                range(self.num_envs), self.check_idx(self.idx).squeeze()
+            ]
+
+    def update_state(self, rb_pos):
         """check if robot is close to waypoint"""
         dist = torch.norm(
-            rb_pos - self.get_pos(),
+            rb_pos - self.get_pos_nav(self.idx),
             p=2,
             dim=1,
             keepdim=True,
@@ -216,9 +229,6 @@ class FixWayPoints:
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        if hover_task is not None:
-            self.idx = torch.where(hover_task[:, None] == True, 0, self.idx)
-
         self.update_vel(rb_pos)
         return trigger
 
@@ -226,16 +236,14 @@ class FixWayPoints:
         self.idx[env_ids] = 0
 
     def update_vel(self, rbpos, Kv=0.5):
-        prev_pos = self.pos[
-            range(self.num_envs), self.check_idx(self.idx - 1).squeeze()
-        ]  # [N, 3]
-
-        path = self.get_pos() - prev_pos
+        prev_pos = self.get_pos_nav(self.idx - 1)
+        path = self.get_pos_nav() - prev_pos
 
         k = torch.einsum("ij,ij->i", rbpos - prev_pos, path) / torch.einsum(
             "ij,ij->i", path, path
         )
         k = torch.where(k > 1, 1 - k, k)
+
         self.vel = Kv * (path + prev_pos + k[:, None] * path - rbpos)
 
     def check_idx(self, idx):

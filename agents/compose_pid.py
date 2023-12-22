@@ -582,7 +582,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 a_pid = self.controllers[i].act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
                 imi_loss[:, i] = torch.abs(a_pid - a_heads[:, i])
 
-            policy_loss = policy_loss + self.alpha * self.imitation_coeff * imi_loss
+            policy_loss = policy_loss + self.imitation_coeff * imi_loss  # * self.alpha
             info["imitation_loss"] = imi_loss.mean().detach().item()
 
         policy_loss = torch.mean(policy_loss)
