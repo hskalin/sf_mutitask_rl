@@ -148,22 +148,33 @@ class SmartTask:
                 print("[Task] Eval Task Counts: ", torch.bincount(self.Eval.id))
                 print("\n")
 
-    def adapt_task(self, episode_r):
+    def trainTaskR(self, episode_r):
+        self.trainTaskReturn = self.get_taskR(self.Train, episode_r)
+        return self.trainTaskReturn
+
+    def evalTaskR(self, episode_r):
+        self.EvalTaskReturn = self.get_taskR(self.Eval, episode_r)
+        return self.EvalTaskReturn
+
+    def get_taskR(self, taskObj, episode_r):
+        taskRatio = taskObj.taskRatio
+        id = taskObj.id
+        return taskRatio.index_add(
+            dim=0, index=id, source=episode_r.float()
+        ) / torch.bincount(id)
+
+    def adapt_task(self):
         """
         Update task ratio based on reward.
         The more reward the less likely for a task to be sampled.
         """
-        task_performance = self.Train.taskRatio.index_add(
-            dim=0, index=self.Train.id, source=episode_r.float()
-        ) / torch.bincount(self.Train.id)
-
-        new_ratio = task_performance**-1
+        new_ratio = self.trainTaskReturn**-1
         new_ratio /= new_ratio.norm(1, keepdim=True)
         self.Train.taskRatio = new_ratio
 
         if self.verbose:
             print(
-                f"[Task] updated task ratio: {new_ratio} \n as inverse of return {task_performance} \n"
+                f"[Task] updated task ratio: {new_ratio} \n as inverse of return {self.trainTaskReturn} \n"
             )
 
     def add_task(self, w: torch.tensor):

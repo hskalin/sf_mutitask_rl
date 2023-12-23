@@ -2,7 +2,7 @@ program: run.py
 method: bayes
 metric:
   goal: maximize
-  name: reward/eval
+  name: reward/phase2_eval
 
 parameters:
   agent.lr:
@@ -29,7 +29,7 @@ parameters:
   agent.use_imitation_loss:
     values: [True]
   agent.imitation_coeff:
-    min: 0.1
+    min: 0.01
     max: 10.0
   agent.lr_schedule:
     values: [True, False]
@@ -57,6 +57,8 @@ parameters:
     values: [5, 10]
   env.num_envs:
     values: [1024]
+  env.task.domain_rand:
+    values: [False]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:

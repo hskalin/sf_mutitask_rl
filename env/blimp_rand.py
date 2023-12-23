@@ -6,6 +6,7 @@ from common.torch_jit_utils import *
 from env.base.vec_env import VecEnv
 from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
+from common.pid import BlimpPositionControl, BlimpHoverControl, BlimpVelocityControl
 
 from .base.vec_env import VecEnv
 from .base.goal import RandomWayPoints, FixWayPoints
@@ -18,7 +19,7 @@ class BlimpRand(VecEnv):
         self.num_act = 4
 
         # domain randomization
-        self.num_latent = 30
+        self.num_latent = 42
         self.num_obs += self.num_latent
 
         self.reset_dist = cfg["blimp"].get("reset_dist", 50)  # when to reset [m]
@@ -59,30 +60,13 @@ class BlimpRand(VecEnv):
         self.domain_rand = cfg["task"].get("domain_rand", True)
 
         if self.domain_rand:
-            ra0, ra1 = [0.8, 1.25]
-            rb0, rb1 = [0.6, 1.7]
+            range_a = cfg["task"].get("range_a", [0.8, 1.25])
+            range_b = cfg["task"].get("range_b", [0.6, 1.7])
         else:
-            ra0, ra1 = [1.0, 1.0]
-            rb0, rb1 = [1.0, 1.0]
+            range_a = [1.0, 1.0]
+            range_b = [1.0, 1.0]
 
-        self.range_effort_thrust = [self.effort_thrust * rb0, self.effort_thrust * rb1]
-        self.range_effort_botthrust = [
-            self.effort_botthrust * rb0,
-            self.effort_botthrust * rb1,
-        ]
-        self.range_ema_smooth = [self.ema_smooth * rb0, self.ema_smooth * rb1]
-        self.range_body_areas0 = [self.body_areas[0] * ra0, self.body_areas[0] * ra1]
-        self.range_body_areas1 = [self.body_areas[1] * ra0, self.body_areas[1] * ra1]
-        self.range_body_areas2 = [self.body_areas[2] * ra0, self.body_areas[2] * ra1]
-        self.range_drag_coefs0 = [self.drag_coefs[0] * ra0, self.drag_coefs[0] * ra1]
-        self.range_drag_coefs1 = [self.drag_coefs[1] * ra0, self.drag_coefs[1] * ra1]
-        self.range_wind_mag = [self.wind_mag * rb0, self.wind_mag * rb1]
-        self.range_wind_std = [self.wind_std * ra0, self.wind_std * ra1]
-        self.range_blimp_mass = [self.blimp_mass * ra0, self.blimp_mass * ra1]
-        self.range_body_torque_coeff = [
-            self.body_torque_coeff * ra0,
-            self.body_torque_coeff * ra1,
-        ]
+        self.set_latent_range(range_a, range_b)
 
         self.k_effort_thrust = torch.zeros(self.num_envs, device=self.sim_device)
         self.k_effort_botthrust = torch.zeros(self.num_envs, device=self.sim_device)
@@ -181,8 +165,37 @@ class BlimpRand(VecEnv):
             dtype=torch.float,
         )
 
+        # hint from PID controllers
+        self.controllers = []
+        self.controllers.append(BlimpPositionControl(device=self.device))
+        self.controllers.append(BlimpHoverControl(device=self.device))
+        self.controllers.append(BlimpVelocityControl(device=self.device))
+
         # step simulation to initialise tensor buffers
         self.reset()
+
+    def set_latent_range(self, range_a, range_b):
+        ra0, ra1 = range_a
+        rb0, rb1 = range_b
+
+        self.range_effort_thrust = [self.effort_thrust * rb0, self.effort_thrust * rb1]
+        self.range_effort_botthrust = [
+            self.effort_botthrust * rb0,
+            self.effort_botthrust * rb1,
+        ]
+        self.range_ema_smooth = [self.ema_smooth * rb0, self.ema_smooth * rb1]
+        self.range_body_areas0 = [self.body_areas[0] * ra0, self.body_areas[0] * ra1]
+        self.range_body_areas1 = [self.body_areas[1] * ra0, self.body_areas[1] * ra1]
+        self.range_body_areas2 = [self.body_areas[2] * ra0, self.body_areas[2] * ra1]
+        self.range_drag_coefs0 = [self.drag_coefs[0] * ra0, self.drag_coefs[0] * ra1]
+        self.range_drag_coefs1 = [self.drag_coefs[1] * ra0, self.drag_coefs[1] * ra1]
+        self.range_wind_mag = [self.wind_mag * rb0, self.wind_mag * rb1]
+        self.range_wind_std = [self.wind_std * ra0, self.wind_std * ra1]
+        self.range_blimp_mass = [self.blimp_mass * ra0, self.blimp_mass * ra1]
+        self.range_body_torque_coeff = [
+            self.body_torque_coeff * ra0,
+            self.body_torque_coeff * ra1,
+        ]
 
     def create_envs(self):
         # add ground plane
@@ -350,6 +363,19 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 3]
 
         # ==== include env_latent to the observation ====#
+
+        # pid hint
+        for controller in self.controllers:
+            a = controller.act(self.obs_buf)
+
+            d += 1
+            self.obs_buf[env_ids, d] = a[env_ids, 0]
+            d += 1
+            self.obs_buf[env_ids, d] = a[env_ids, 1]
+            d += 1
+            self.obs_buf[env_ids, d] = a[env_ids, 2]
+            d += 1
+            self.obs_buf[env_ids, d] = a[env_ids, 3]
 
         # robot actuator states
         # thrust vectoring angle
@@ -554,6 +580,10 @@ class BlimpRand(VecEnv):
 
         # domain randomization
         self.randomize_latent(env_ids)
+
+        # clear controller states
+        for ctrl in self.controllers:
+            ctrl.clear()
 
         # selectively reset the environments
         env_ids_int32 = env_ids.to(dtype=torch.int32)

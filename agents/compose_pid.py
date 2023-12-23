@@ -1,6 +1,6 @@
 import copy
 from pathlib import Path
-
+import numpy as np
 import isaacgym
 import torch
 import torch.nn as nn
@@ -163,6 +163,8 @@ class RMACompPIDAgent(MultitaskAgent):
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
         self.imitation_coeff = self.agent_cfg["imitation_coeff"]
 
+        self.curriculum = self.agent_cfg["curriculum_learning"]
+
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
@@ -213,11 +215,6 @@ class RMACompPIDAgent(MultitaskAgent):
             n_heads=self.n_heads,
             **self.policy_net_kwargs,
         ).to(self.device)
-
-        self.controllers = []
-        self.controllers.append(BlimpPositionControl(device=self.device))
-        self.controllers.append(BlimpHoverControl(device=self.device))
-        self.controllers.append(BlimpVelocityControl(device=self.device))
 
         self.encoder = ENVEncoder(
             in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
@@ -313,28 +310,55 @@ class RMACompPIDAgent(MultitaskAgent):
             device=self.device,
         )
 
+        if self.curriculum:
+            self.curri_stage = 0
+            self.total_curistages = 20
+            self.curri_epi = np.linspace(
+                0, self.total_episodes - 1, num=self.total_curistages
+            )
+            self.lat_ra = self.env_cfg["task"].get("range_a", [0.8, 1.25])
+            self.lat_rb = self.env_cfg["task"].get("range_b", [0.6, 1.7])
+
     def run(self):
         print(f"============= start phase {self.phase} =============")
         while True:
             self.train_episode()
-            wandb.log({f"reward/train_phase{self.phase}": self.game_rewards.get_mean()})
-            wandb.log(
-                {
-                    f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()
-                }
-            )
 
             if self.eval and (self.episodes % self.eval_interval == 0):
-                returns = self.evaluate()
-                wandb.log(
-                    {f"reward/eval_phase{self.phase}": torch.mean(returns).item()}
-                )
+                self.evaluate()
 
                 if self.save_model:
                     self.save_torch_model()
 
             if self.episodes >= self.total_episodes:
                 break
+
+            if self.curriculum and self.episodes >= int(
+                self.curri_epi[self.curri_stage]
+            ):
+                self.curri_stage += 1
+
+                step_size_a = (
+                    1
+                    / self.total_curistages
+                    * (self.lat_ra[1] - self.lat_ra[0])
+                    * self.curri_stage
+                )
+                step_size_b = (
+                    1
+                    / self.total_curistages
+                    * (self.lat_rb[1] - self.lat_rb[0])
+                    * self.curri_stage
+                )
+
+                range_a = [1 - step_size_a, 1 + step_size_a]
+                range_b = [1 - step_size_b, 1 + step_size_b]
+
+                self.env.set_latent_range(range_a, range_b)
+
+                print("curriculum stage = ", self.curri_stage)
+                print("curriculum range_a = ", range_a)
+                print("curriculum range_b = ", range_b)
 
         if self.rma:
             self.phase = 2
@@ -343,25 +367,15 @@ class RMACompPIDAgent(MultitaskAgent):
             grad_false(self.sf_target)
             grad_false(self.policy)
             grad_false(self.encoder)
-            grad_false(self.decoder)
+            if self.use_decoder:
+                grad_false(self.decoder)
 
             print(f"============= start phase {self.phase} =============")
             while True:
                 self.train_episode()
-                wandb.log(
-                    {f"reward/train_phase{self.phase}": self.game_rewards.get_mean()}
-                )
-                wandb.log(
-                    {
-                        f"reward/episode_length_phase{self.phase}": self.game_lengths.get_mean()
-                    }
-                )
 
                 if self.eval and (self.episodes % self.eval_interval == 0):
-                    returns = self.evaluate()
-                    wandb.log(
-                        {f"reward/eval_phase{self.phase}": torch.mean(returns).item()}
-                    )
+                    self.evaluate()
 
                     if self.save_model:
                         self.save_torch_model()
@@ -370,6 +384,112 @@ class RMACompPIDAgent(MultitaskAgent):
                     break
 
         print(f"============= finish =============")
+
+    def train_episode(self, gui_app=None, gui_rew=None):
+        self.episodes += 1
+        episode_r = episode_steps = trigger_wp = 0
+        done = False
+
+        print("episode = ", self.episodes)
+        self.task.rand_task(self.episodes)
+
+        s = self.reset_env()
+        for _ in range(self.episode_max_step):
+            episodeLen = self.env.progress_buf.clone()
+
+            s_next, r, done = self.step(episode_steps, s)
+
+            s = s_next
+            self.steps += self.n_env
+            trigger_wp += s[:, 7].sum()
+            episode_steps += 1
+            episode_r += r
+
+            done_ids = done.nonzero(as_tuple=False).squeeze(-1)
+            if done_ids.size()[0]:
+                self.game_rewards.update(episode_r[done_ids])
+                self.game_lengths.update(episodeLen[done_ids])
+
+            # call gui update loop
+            if gui_app:
+                gui_app.update_idletasks()
+                gui_app.update()
+                self.avgStepRew.update(r)
+                gui_rew.set(self.avgStepRew.get_mean())
+
+            if episode_steps >= self.episode_max_step:
+                break
+
+        task_return = self.task.trainTaskR(episode_r)
+
+        if self.adaptive_task:
+            self.task.adapt_task()
+
+        wandb.log(
+            {
+                f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
+                f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
+                f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
+            }
+        )
+        task_return = task_return.detach().tolist()
+        for i in range(len(task_return)):
+            wandb.log(
+                {
+                    f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                }
+            )
+
+        return episode_r, episode_steps, {"task_return": task_return}
+
+    def evaluate(self):
+        episodes = int(self.eval_episodes)
+        if episodes == 0:
+            return
+
+        print(
+            f"===== evaluate at episode: {self.episodes} for {self.episode_max_step} steps ===="
+        )
+
+        returns = torch.zeros((episodes,), dtype=torch.float32)
+        for i in range(episodes):
+            episode_r = 0.0
+            trigger_wp = 0
+
+            s = self.reset_env()
+            for _ in range(self.episode_max_step):
+                a = self.act(s, self.task.Eval, "exploit")
+                self.env.step(a)
+                s_next = self.env.obs_buf.clone()
+                self.env.reset()
+
+                r = self.calc_reward(s_next, self.task.Eval.W)
+
+                s = s_next
+                episode_r += r
+                trigger_wp += s[:, 7].sum()
+
+            returns[i] = torch.mean(episode_r).item()
+
+        print(f"===== finish evaluate ====")
+
+        task_return = self.task.evalTaskR(episode_r)
+
+        wandb.log(
+            {
+                f"reward/phase{self.phase}_eval": torch.mean(returns).item(),
+                f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
+            }
+        )
+        task_return = task_return.detach().tolist()
+        for i in range(len(task_return)):
+            wandb.log(
+                {
+                    f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                }
+            )
+
+        return returns, {"task_return": task_return}
 
     def step(self, episode_steps, s):
         assert not torch.isnan(
@@ -634,16 +754,15 @@ class RMACompPIDAgent(MultitaskAgent):
             info["continuity_loss"] = continuity_loss.mean().detach().item()
 
         if self.use_imitation_loss:
+            controllers = [e[:, 0:4], e[:, 4 : 4 + 4], e[:, 8 : 8 + 4]]
+
             imi_loss = torch.zeros_like(policy_loss)  # [N, H, A]
-            for i in range(len(self.controllers)):
-                a_pid = self.controllers[i].act_on_stack(s_stack)  # [N, A] <-- [N,S,K]
-                imi_loss[:, i] = torch.abs(a_pid - a_heads[:, i])
+            for i in range(len(controllers)):
+                imi_loss[:, i] = torch.abs(controllers[i] - a_heads[:, i])
+                info[f"imitation_loss{i}"] = imi_loss[:, i].mean().detach().item()
+            info["imitation_loss"] = imi_loss.mean().detach().item()
 
             policy_loss = policy_loss + self.imitation_coeff * imi_loss  # * self.alpha
-            info["imitation_loss"] = imi_loss.mean().detach().item()
-            info["imitation_loss0"] = imi_loss[:, 0].mean().detach().item()
-            info["imitation_loss1"] = imi_loss[:, 1].mean().detach().item()
-            info["imitation_loss2"] = imi_loss[:, 2].mean().detach().item()
 
         policy_loss = torch.mean(policy_loss)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)

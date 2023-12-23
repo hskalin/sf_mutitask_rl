@@ -158,7 +158,7 @@ class IsaacAgent(AbstractAgent):
             if episode_steps >= self.episode_max_step:
                 break
 
-        return episode_r, episode_steps
+        return episode_r, episode_steps, {}
 
     def step(self, episode_steps, s):
         assert not torch.isnan(
@@ -239,7 +239,7 @@ class IsaacAgent(AbstractAgent):
             returns[i] = torch.mean(episode_r).item()
 
         print(f"===== finish evaluate ====")
-        return returns
+        return returns, {"episode_r": episode_r}
 
     def act(self, s, task, mode="explore"):
         s = check_obs(s, self.observation_dim)
@@ -292,11 +292,49 @@ class MultitaskAgent(IsaacAgent):
 
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
-    def train_episode(self, gui_app=None, gui_rew=None):
-        episode_r, _ = super().train_episode(gui_app=gui_app, gui_rew=gui_rew)
+    def train_episode(self, phase=None, gui_app=None, gui_rew=None):
+        episode_r, episode_steps, info = super().train_episode(gui_app, gui_rew)
+
+        task_return = self.task.trainTaskR(episode_r)
 
         if self.adaptive_task:
-            self.task.adapt_task(episode_r)
+            self.task.adapt_task()
+
+        wandb.log(
+            {
+                f"reward/phase{phase}_train": self.game_rewards.get_mean(),
+                f"reward/phase{phase}_episode_length": self.game_lengths.get_mean(),
+            }
+        )
+
+        task_return = task_return.detach().tolist()
+        for i in range(len(task_return)):
+            wandb.log(
+                {
+                    f"reward/phase{phase}_task_return{i}": task_return[i],
+                }
+            )
+
+        info["task_return"] = task_return
+        return episode_r, episode_steps, info
+
+    def evaluate(self, phase=None):
+        returns, episode_r = super().evaluate()
+        task_return = self.task.evalTaskR(episode_r)
+
+        print(f"===== finish evaluate ====")
+
+        wandb.log({f"reward/phase{phase}_eval": torch.mean(returns).item()})
+
+        task_return = task_return.detach().tolist()
+        for i in range(len(task_return)):
+            wandb.log(
+                {
+                    f"reward/phase{phase}_task_return{i}": task_return[i],
+                }
+            )
+
+        return returns, {"task_return": task_return}
 
     def _act(self, s, task, mode):
         with torch.no_grad():
