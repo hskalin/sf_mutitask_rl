@@ -1,4 +1,4 @@
-capacity : 1500000 
+capacity : 1000000 
 mini_batch_size : 2048
 min_n_experience : 1024
 multi_step : 1 # not implemented

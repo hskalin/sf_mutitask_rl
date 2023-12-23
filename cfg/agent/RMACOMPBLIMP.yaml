@@ -24,14 +24,14 @@ continuity_coeff: 0.01
 use_imitation_loss: True
 imitation_coeff: 10.0
 sf_net_kwargs: 
-    hidden_dim: 64
+    hidden_dim: 128
     num_layers: 4
     resnet: True
     layernorm: True
-    fta: True
+    fta: False
     max_nheads: 30
 policy_net_kwargs: 
-    hidden_dim: 32
+    hidden_dim: 64
     num_layers: 4
     resnet: True
     layernorm: True

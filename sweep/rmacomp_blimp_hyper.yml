@@ -51,6 +51,8 @@ parameters:
     values: [True]
   agent.sf_net_kwargs.layernorm:
     values: [True]
+  agent.curriculum_learning:
+    values: [True, False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:

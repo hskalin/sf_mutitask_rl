@@ -9,7 +9,6 @@ import wandb
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
-from common.pid import BlimpPositionControl, BlimpHoverControl, BlimpVelocityControl
 from common.policy import MultiheadGaussianPolicy, weights_init_
 from common.util import (
     check_act,
@@ -189,7 +188,7 @@ class RMACompPIDAgent(MultitaskAgent):
         ), f"number of task {self.n_heads} exceed the maximum"
 
         # define models
-        self.latent_dim = int(self.observation_dim // 2)  # Z = S/2
+        self.latent_dim = int(self.env_latent_dim // 2)  # Z = E/2
         self.sf = MultiheadSFNetwork(
             observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
