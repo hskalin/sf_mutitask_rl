@@ -33,8 +33,6 @@ parameters:
     max: 10.0
   agent.lr_schedule:
     values: [True, False]
-  env.task.adaptive_task:
-    values: [False]
   agent.norm_task_by_sf:
     values: [False]
   agent.use_decoder:
@@ -48,7 +46,7 @@ parameters:
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
-    values: [True]
+    values: [True, False]
   agent.sf_net_kwargs.layernorm:
     values: [True]
   agent.curriculum_learning:
@@ -59,8 +57,10 @@ parameters:
     values: [5, 10]
   env.num_envs:
     values: [1024]
-  env.task.domain_rand:
+  env.task.adaptive_task:
     values: [False]
+  env.task.domain_rand:
+    values: [True]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:

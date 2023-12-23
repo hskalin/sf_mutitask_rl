@@ -429,6 +429,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
                 f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
                 f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
+                "reward/curriculum_stage": self.curri_stage,
             }
         )
         task_return = task_return.detach().tolist()
