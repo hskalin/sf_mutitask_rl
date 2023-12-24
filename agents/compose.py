@@ -256,7 +256,7 @@ class CompositionAgent(MultitaskAgent):
         errors = torch.mean(torch.abs(curr_sf1.detach() - target_sf), (1, 2))
 
         # update sf scale
-        self.comp.update_sf_norm(curr_sf1.mean([0, 1]).abs())
+        # self.comp.update_sf_norm(curr_sf1.mean([0, 1]).abs())
 
         # log means to monitor training.
         sf_loss = sf_loss.detach().item()

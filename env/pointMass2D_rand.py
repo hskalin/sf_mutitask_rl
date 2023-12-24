@@ -209,12 +209,12 @@ class PointMass2DRand(VecEnv):
 
         rotations = torch.zeros((len(env_ids), 3), device=self.sim_device)
 
-        if self.train and self.rand_vel_targets:
-            self.goal_lvel[env_ids, :] = (
-                2
-                * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
-                * self.goal_vel_lim
-            )
+        # if self.train and self.rand_vel_targets:
+        #     self.goal_lvel[env_ids, :] = (
+        #         2
+        #         * (torch.rand((len(env_ids), 3), device=self.sim_device) - 0.5)
+        #         * self.goal_vel_lim
+        #     )
 
         # set random pos, rot, vels
         self.rb_pos[env_ids, :] = positions[:]
