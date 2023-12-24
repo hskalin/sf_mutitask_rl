@@ -2,6 +2,8 @@ import isaacgym
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import argparse
+import json
 from common.util import (
     omegaconf_to_dict,
     print_dict,
@@ -18,6 +20,22 @@ import numpy as np
 import wandb
 
 from tkinter import *
+
+# Initialize parser
+parser = argparse.ArgumentParser()
+
+# Adding optional argument
+parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
+parser.add_argument(
+    "-c",
+    "--checkpoint",
+    help="specific saved model e.g. model10",
+    type=str,
+    required=True,
+)
+
+# Read arguments from command line
+args = parser.parse_args()
 
 
 class PlayUI:
@@ -121,16 +139,7 @@ class PlayUI:
                     self.rew.set(avgStepRew.get_mean())
 
 
-@hydra.main(config_name="config", config_path="./cfg")
-def launch_rlg_hydra(cfg: DictConfig):
-    cfg_dict = omegaconf_to_dict(cfg)
-
-    wandb.init(mode="disabled")
-    wandb_dict = fix_wandb(wandb.config)
-
-    # print_dict(wandb_dict)
-    update_dict(cfg_dict, wandb_dict)
-
+def modify_cfg(cfg_dict):
     # don't change these
     cfg_dict["agent"]["norm_task_by_sf"] = False
     cfg_dict["env"]["save_model"] = False
@@ -146,14 +155,28 @@ def launch_rlg_hydra(cfg: DictConfig):
     # change these
     cfg_dict["env"]["num_envs"] = 1
     cfg_dict["agent"]["phase"] = 1  # phase1: encoder, phase2: adaptor
-    cfg_dict["env"]["aero"]["wind_mag"] = 0
-    cfg_dict["env"]["task"]["domain_rand"] = False
+    if "aero" in cfg_dict["env"]:
+        cfg_dict["env"]["aero"]["wind_mag"] = 0
+    if "domain_rand" in cfg_dict["env"]["task"]:
+        cfg_dict["env"]["task"]["domain_rand"] = False
     cfg_dict["agent"]["exploit_method"] = "sfgpi"
 
     print_dict(cfg_dict)
 
-    torch.manual_seed(456)
-    np.random.seed(456)
+    return cfg_dict
+
+
+@hydra.main(config_name="config", config_path="./cfg")
+def launch_rlg_hydra(cfg: DictConfig):
+    cfg_dict = omegaconf_to_dict(cfg)
+
+    wandb.init(mode="disabled")
+    wandb_dict = fix_wandb(wandb.config)
+
+    # print_dict(wandb_dict)
+    update_dict(cfg_dict, wandb_dict)
+
+    cfg_dict = modify_cfg(cfg_dict)
 
     model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-23-17-42-40/model15"
 
@@ -163,5 +186,27 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb.finish()
 
 
+def launch_play():
+    model_folder = args.path
+    model_checkpoint = args.checkpoint
+
+    cfg_path = model_folder + "/cfg"
+    model_path = model_folder + "/" + model_checkpoint + "/"
+
+    cfg_dict = None
+    with open(cfg_path) as f:
+        cfg_dict = json.load(f)
+
+    cfg_dict = modify_cfg(cfg_dict)
+    print(cfg_dict)
+
+    playob = PlayUI(cfg_dict, model_path)
+    playob.play()
+
+
 if __name__ == "__main__":
-    launch_rlg_hydra()
+    torch.manual_seed(456)
+    np.random.seed(456)
+
+    # launch_rlg_hydra()
+    launch_play()
