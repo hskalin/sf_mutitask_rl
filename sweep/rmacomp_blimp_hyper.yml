@@ -9,8 +9,8 @@ parameters:
     min: 0.0002
     max: 0.01
   agent.policy_lr:
-    min: 0.0002
-    max: 0.01
+    min: 0.00005
+    max: 0.0025
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
@@ -29,8 +29,8 @@ parameters:
   agent.use_imitation_loss:
     values: [True]
   agent.imitation_coeff:
-    min: 0.01
-    max: 10.0
+    min: 1.0
+    max: 100.0
   agent.lr_schedule:
     values: [True, False]
   agent.norm_task_by_sf:
@@ -41,16 +41,12 @@ parameters:
     values: [True]
   agent.policy_net_kwargs.fta:
     values: [True]
-  agent.policy_net_kwargs.layernorm:
-    values: [True]
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
     values: [True, False]
-  agent.sf_net_kwargs.layernorm:
-    values: [True]
   agent.curriculum_learning:
-    values: [True, False]
+    values: [False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
@@ -60,7 +56,7 @@ parameters:
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:
-    values: [True]
+    values: [False]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:

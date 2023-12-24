@@ -322,6 +322,9 @@ class MultitaskAgent(IsaacAgent):
         returns, episode_r = super().evaluate()
         task_return = self.task.evalTaskR(episode_r)
 
+        print("returns:", returns)
+        print("task returns:", task_return)
+
         print(f"===== finish evaluate ====")
 
         wandb.log({f"reward/phase{phase}_eval": torch.mean(returns).item()})

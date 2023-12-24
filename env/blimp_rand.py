@@ -15,7 +15,7 @@ from .base.goal import RandomWayPoints, FixWayPoints
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 32
+        self.num_obs = 33
         self.num_act = 4
 
         # domain randomization
@@ -327,8 +327,11 @@ class BlimpRand(VecEnv):
         d += 1
         self.obs_buf[env_ids, d] = self.wp.vel[env_ids, 2]
 
+        d += 1
+        self.obs_buf[env_ids, d] = self.wp.velnorm[env_ids, 0]
+
         # robot angular velocities
-        d += 1  # 20
+        d += 1  # 21
         self.id_angvel[0] = d
         self.obs_buf[env_ids, d] = self.rb_avels[env_ids, body_id, 0]
         d += 1
@@ -339,7 +342,7 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.rb_avels[env_ids, body_id, 2]
 
         # goal ang vel
-        d += 1  # 23
+        d += 1  # 24
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 1]
@@ -347,13 +350,13 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 2]
 
         # prev thrusts
-        d += 1  # 26
+        d += 1  # 27
         self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 1]
 
         # previous actions
-        d += 1  # 28
+        d += 1  # 29
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 1]

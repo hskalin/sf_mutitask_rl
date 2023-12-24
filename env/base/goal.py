@@ -176,12 +176,12 @@ class FixWayPoints:
 
         self.pos_lim = pos_lim
 
-        self.kWayPt = 4
         wps = torch.tensor(
-            [[[20, -20, 15], [20, 20, 15], [-20, 20, 15], [-20, -20, 15]]],
+            [[[10, -10, 20], [10, 10, 20], [-10, 10, 20], [-10, -10, 20]]],
             device=self.device,
             dtype=torch.float32,
         )
+        self.kWayPt = wps.squeeze().shape[0]
         self.pos_nav = torch.tile(wps, (self.num_envs, 1, 1))
 
         self.pos_hov = torch.tile(
@@ -190,7 +190,11 @@ class FixWayPoints:
         )
 
         self.vel = torch.tile(
-            torch.tensor([10, 0, 0], device=self.device, dtype=torch.float32),
+            torch.tensor([0, 0, 0], device=self.device, dtype=torch.float32),
+            (self.num_envs, 1),
+        )
+        self.velnorm = torch.tile(
+            torch.tensor([5], device=self.device, dtype=torch.float32),
             (self.num_envs, 1),
         )
 

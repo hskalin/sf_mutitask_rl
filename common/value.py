@@ -179,6 +179,15 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             self.ln1_8 = nn.LayerNorm(in_dim, elementwise_affine=True)
             self.ln2_8 = nn.LayerNorm(in_dim, elementwise_affine=True)
 
+        if fta:
+            self.fta_ln = nn.LayerNorm(
+                observation_dim + action_dim, elementwise_affine=False
+            )
+            self.fta = FTA(delta=fta_delta)
+
+            next_dim = (observation_dim + action_dim) * self.fta.nbins
+            self.fta_l = nn.Linear(next_dim, observation_dim + action_dim)
+
         self.l1_1 = nn.Linear(observation_dim + action_dim, hidden_dim)
         self.l2_1 = nn.Linear(observation_dim + action_dim, hidden_dim)
 
@@ -206,15 +215,6 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
             self.l2_7 = nn.Linear(in_dim, hidden_dim)
             self.l2_8 = nn.Linear(in_dim, hidden_dim)
 
-        if fta:
-            self.ln_l1 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
-            self.fta_l1 = FTA(delta=fta_delta)
-
-            self.ln_l2 = nn.LayerNorm(hidden_dim, elementwise_affine=False)
-            self.fta_l2 = FTA(delta=fta_delta)
-
-            hidden_dim *= self.fta_l1.nbins
-
         self.out1 = nn.Linear(hidden_dim, out_dim)
         self.out2 = nn.Linear(hidden_dim, out_dim)
 
@@ -222,6 +222,11 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
 
     def forward(self, state, action):
         xu = torch.cat([state, action], 1)
+
+        if self.fta:
+            xu = self.fta_ln(xu)
+            xu = self.fta(xu)
+            xu = self.fta_l(xu)
 
         x1 = F.relu(self.l1_1(xu))
         x2 = F.relu(self.l2_1(xu))
@@ -293,13 +298,6 @@ class MultiheadSFNetworkBuilder(BaseNetwork):
 
             x1 = F.relu(self.l1_8(x1))
             x2 = F.relu(self.l2_8(x2))
-
-        if self.fta:
-            x1 = self.ln_l1(x1)
-            x1 = self.fta_l1(x1)
-
-            x2 = self.ln_l2(x2)
-            x2 = self.fta_l2(x2)
 
         x1 = self.out1(x1).view(-1, self.max_nheads, self.feature_dim)
         x2 = self.out2(x2).view(-1, self.max_nheads, self.feature_dim)

@@ -162,7 +162,11 @@ class RMACompPIDAgent(MultitaskAgent):
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
         self.imitation_coeff = self.agent_cfg["imitation_coeff"]
 
-        self.curriculum = self.agent_cfg["curriculum_learning"]
+        self.curriculum = (
+            self.agent_cfg["curriculum_learning"]
+            if self.env_cfg["task"]["domain_rand"]
+            else False
+        )
 
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
@@ -310,13 +314,13 @@ class RMACompPIDAgent(MultitaskAgent):
         )
 
         if self.curriculum:
-            self.curri_stage = 0
             self.total_curistages = 20
+            self.curri_stage = 0
             self.curri_epi = np.linspace(
                 0, self.total_episodes - 1, num=self.total_curistages
             )
-            self.lat_ra = self.env_cfg["task"].get("range_a", [0.8, 1.25])
-            self.lat_rb = self.env_cfg["task"].get("range_b", [0.6, 1.7])
+            self.lat_ra = self.env_cfg["task"]["range_a"]
+            self.lat_rb = self.env_cfg["task"]["range_b"]
 
     def run(self):
         print(f"============= start phase {self.phase} =============")
@@ -354,10 +358,6 @@ class RMACompPIDAgent(MultitaskAgent):
                 range_b = [1 - step_size_b, 1 + step_size_b]
 
                 self.env.set_latent_range(range_a, range_b)
-
-                print("curriculum stage = ", self.curri_stage)
-                print("curriculum range_a = ", range_a)
-                print("curriculum range_b = ", range_b)
 
         if self.rma:
             self.phase = 2
@@ -734,7 +734,7 @@ class RMACompPIDAgent(MultitaskAgent):
         qs = self._calc_qs_from_sf(s, a_heads)  # [N,H]<--[N, S+Z], [N, H, A]
         qs = qs.unsqueeze(2)  # [N,H,1]
 
-        policy_loss = -qs - self.alpha * entropies
+        policy_loss = -qs - self.alpha * entropies  # [N,H,1]
         policy_loss_record = policy_loss.mean().detach().item()
 
         # monitor
@@ -757,9 +757,11 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.use_imitation_loss:
             controllers = [e[:, 0:4], e[:, 4 : 4 + 4], e[:, 8 : 8 + 4]]
 
-            imi_loss = torch.zeros_like(policy_loss)  # [N, H, A]
+            imi_loss = torch.zeros_like(policy_loss)  # [N, H, 1]
             for i in range(len(controllers)):
-                imi_loss[:, i] = torch.abs(controllers[i] - a_heads[:, i])
+                imi_loss[:, i] = torch.norm(
+                    controllers[i] - a_heads[:, i], dim=1, keepdim=True
+                )
                 info[f"imitation_loss{i}"] = imi_loss[:, i].mean().detach().item()
             info["imitation_loss"] = imi_loss.mean().detach().item()
 
@@ -787,9 +789,9 @@ class RMACompPIDAgent(MultitaskAgent):
         return adaptor_loss.detach().item()
 
     def _calc_entropy_loss(self, entropy):
+        # [N, H, 1] <--  [N, H, 1], [N,1,1]
         loss = self.log_alpha * (self.target_entropy - entropy).detach()
 
-        # [N, H, 1] <--  [N, H, 1], [N,1,1]
         entropy_loss = -torch.mean(loss)
         return entropy_loss
 

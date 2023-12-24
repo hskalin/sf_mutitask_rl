@@ -284,18 +284,19 @@ class BlimpFeature(FeatureAbstract):
 
         # goal vel
         self.slice_goal_v = slice(17, 17 + 3)
+        self.slice_goal_vnorm = slice(20, 20 + 1)
 
         # robot ang vel
-        self.slice_rb_angvel = slice(20, 20 + 3)
+        self.slice_rb_angvel = slice(21, 21 + 3)
 
         # goal ang vel
-        self.slice_goal_angvel = slice(23, 23 + 3)
+        self.slice_goal_angvel = slice(24, 24 + 3)
 
         # robot thrust
-        self.slice_actuators = slice(26, 26 + 1)
+        self.slice_actuators = slice(27, 27 + 1)
 
         # robot actions
-        self.slice_prev_act = slice(28, 28 + 3)
+        self.slice_prev_act = slice(29, 29 + 3)
 
     def extract(self, s):
         features = []
@@ -314,9 +315,7 @@ class BlimpFeature(FeatureAbstract):
             robot_v[:, 1],
             robot_v[:, 2],
         )
-
         goal_ang = s[:, self.slice_goal_angle]
-        goal_v = s[:, self.slice_goal_v]
         # goal_angVel = s[:, self.slice_goal_angvel]
         # goal_trigger = s[:, self.slice_goal_trigger]
 
@@ -325,12 +324,11 @@ class BlimpFeature(FeatureAbstract):
         error_posNav = s[:, self.slice_err_posNav]
         # error_posHov = s[:, self.slice_err_posHov]
         error_v = s[:, self.slice_rb_v] - s[:, self.slice_goal_v]
+        error_vnorm = robot_headingV - s[:, self.slice_goal_vnorm]
         # error_angVel = robot_angVel - goal_angVel
-
         error_navHeading = check_angle(
             compute_heading(yaw=robot_angle[:, 2:3], rel_pos=error_posNav)
         )
-        error_vnorm = robot_headingV - torch.norm(goal_v[:, 0:2], dim=1, keepdim=True)
 
         # Nav planar:
         x = self.compute_featurePosNorm(error_posNav[:, 0:2])
@@ -341,7 +339,7 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Nav trigger:
-        x = 10000.0 * s[:, self.slice_goal_trigger]
+        x = 100.0 * s[:, self.slice_goal_trigger]
         features.append(x)
 
         # Nav yaw_to_goal:

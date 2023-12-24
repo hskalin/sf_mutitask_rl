@@ -130,27 +130,32 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     # print_dict(wandb_dict)
     update_dict(cfg_dict, wandb_dict)
-    cfg_dict["agent"]["norm_task_by_sf"] = False
-    cfg_dict["agent"]["phase"] = 1
 
+    # don't change these
+    cfg_dict["agent"]["norm_task_by_sf"] = False
+    cfg_dict["env"]["save_model"] = False
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
     cfg_dict["buffer"]["min_n_experience"] = 0
-
-    # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
     cfg_dict["env"]["task"]["rand_task"] = False
     cfg_dict["env"]["task"]["rand_vel_targets"] = False
     cfg_dict["env"]["mode"] = "play"
     cfg_dict["env"]["sim"]["headless"] = False
-    cfg_dict["env"]["num_envs"] = 1
 
+    # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
+
+    # change these
+    cfg_dict["env"]["num_envs"] = 1
+    cfg_dict["agent"]["phase"] = 1  # phase1: encoder, phase2: adaptor
     cfg_dict["env"]["aero"]["wind_mag"] = 0
     cfg_dict["env"]["task"]["domain_rand"] = False
+    cfg_dict["agent"]["exploit_method"] = "sfgpi"
+
     print_dict(cfg_dict)
 
     torch.manual_seed(456)
     np.random.seed(456)
 
-    model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-23-07-15-08/model90"
+    model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-23-17-42-40/model15"
 
     playob = PlayUI(cfg_dict, model_path)
     playob.play()
