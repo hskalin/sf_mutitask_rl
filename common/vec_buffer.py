@@ -224,7 +224,7 @@ class FrameStackedReplayBuffer:
         obses = self.obses[idx1, idx2]  # [B, F] <-- [N, NE, F]
         stacked_obs = self.stack_data(self.obses, idx1, idx2)  # [B, F, S]
         features = self.features[idx1, idx2]
-        actions = self.actions[idx1, idx2]
+        actions = self.actions[idx1, idx2]  # [B,A]
         stacked_act = self.stack_data(self.actions, idx1, idx2)  # [B, F, S]
         rewards = self.rewards[idx1, idx2]
         next_obses = self.next_obses[idx1, idx2]

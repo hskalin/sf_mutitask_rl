@@ -1,11 +1,14 @@
 import copy
 from pathlib import Path
-import numpy as np
+
 import isaacgym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
+from torch.distributions import Normal
+
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
 from common.feature_extractor import TCN
@@ -21,6 +24,7 @@ from common.util import (
     update_params,
 )
 from common.value import MultiheadSFNetwork
+from common.vec_buffer import FrameStackedReplayBuffer
 from torch.optim import Adam
 
 
@@ -161,6 +165,8 @@ class RMACompPIDAgent(MultitaskAgent):
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
         self.imitation_coeff = self.agent_cfg["imitation_coeff"]
+        self.use_kl_loss = self.agent_cfg["use_kl_loss"]
+        self.kl_coeff = self.agent_cfg["kl_coeff"]
 
         self.curriculum = (
             self.agent_cfg["curriculum_learning"]
@@ -190,6 +196,15 @@ class RMACompPIDAgent(MultitaskAgent):
         assert (
             self.n_heads <= self.sf_net_kwargs["max_nheads"]
         ), f"number of task {self.n_heads} exceed the maximum"
+
+        self.replay_buffer = FrameStackedReplayBuffer(
+            obs_shape=self.observation_shape,
+            action_shape=self.action_shape,
+            feature_shape=self.feature_shape,
+            n_heads=self.n_heads,
+            device=self.device,
+            **self.buffer_cfg,
+        )
 
         # define models
         self.latent_dim = int(self.env_latent_dim // 2)  # Z = E/2
@@ -311,6 +326,15 @@ class RMACompPIDAgent(MultitaskAgent):
             traj_dim=self.observation_dim,
             stack_size=self.stack_size - 1,
             device=self.device,
+        )
+
+        self.dist = Normal(
+            torch.zeros(
+                self.mini_batch_size, self.n_heads, self.action_dim, device=self.device
+            ),
+            torch.ones(
+                self.mini_batch_size, self.n_heads, self.action_dim, device=self.device
+            ),
         )
 
         if self.curriculum:
@@ -525,7 +549,7 @@ class RMACompPIDAgent(MultitaskAgent):
     def act(self, o, task, mode="explore"):
         o = check_obs(o, self.observation_dim + self.env_latent_dim)
 
-        # [N, A] <-- [N, S+E]
+        # [N, A], [N, H, A] <-- [N, S+E]
         a = self._act(o, task, mode)
 
         a = check_act(a, self.action_dim)
@@ -550,8 +574,8 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def explore(self, o, w, id):
         s, s_raw = self.encode_state(o)  # [N, S+Z], [N, S] <-- [N, S+E]
-        # [N, A] <-- [N, S+Z]
-        a = self.comp.act(s, w, id, "explore", self.explore_method)
+        # [N, A], [N,H,A] <-- [N, S+Z]
+        a, _ = self.comp.act(s, w, id, "explore", self.explore_method)
 
         if self.phase is not 1:
             self.prev_traj.add(s_raw)
@@ -559,7 +583,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def exploit(self, o, w, id):
         s, s_raw = self.encode_state(o)  # [N, S+Z], [N, S] <-- [N, S+E]
-        a = self.comp.act(s, w, id, "exploit", self.exploit_method)
+        a, _ = self.comp.act(s, w, id, "exploit", self.exploit_method)
 
         if self.phase is not 1:
             self.prev_traj.add(s_raw)
@@ -627,6 +651,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 "loss/imitation_loss0": info_pi.get("imitation_loss0", 0),
                 "loss/imitation_loss1": info_pi.get("imitation_loss1", 0),
                 "loss/imitation_loss2": info_pi.get("imitation_loss2", 0),
+                "loss/approx_kl": info_pi.get("approx_kl", 0),
                 "state/mean_SF1": info_sf["curr_sf1"],
                 "state/mean_SF2": info_sf["curr_sf2"],
                 "state/target_sf": info_sf["target_sf"],
@@ -721,7 +746,7 @@ class RMACompPIDAgent(MultitaskAgent):
         return sf_loss.detach().item(), info
 
     def update_policy(self, batch):
-        s_stack = batch["stacked_obs"]
+        s_stack, a_stack = batch["stacked_obs"], batch["stacked_act"]
 
         s = s_stack[:, :, 0]
         s_raw, e = self.parse_state(s)  # [N, S], [N, E]
@@ -729,7 +754,7 @@ class RMACompPIDAgent(MultitaskAgent):
         s = torch.concat([s_raw, z], dim=1)
 
         # [N,H,A], [N, H, 1] <-- [N,S+Z]
-        a_heads, entropies, _ = self.policy.sample(s)
+        a_heads, entropies, dist, _ = self.policy.sample(s)
 
         qs = self._calc_qs_from_sf(s, a_heads)  # [N,H]<--[N, S+Z], [N, H, A]
         qs = qs.unsqueeze(2)  # [N,H,1]
@@ -743,7 +768,7 @@ class RMACompPIDAgent(MultitaskAgent):
         info["action_norm"] = action_norm.mean().detach().item()
 
         if self.use_continuity_loss:
-            prev_a = batch["stacked_act"][..., 1]  # [N, A] <-- [N, A, K]
+            prev_a = a_stack[..., 1]  # [N, A] <-- [N, A, K]
 
             # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
@@ -766,6 +791,19 @@ class RMACompPIDAgent(MultitaskAgent):
             info["imitation_loss"] = imi_loss.mean().detach().item()
 
             policy_loss = policy_loss + self.imitation_coeff * imi_loss  # * self.alpha
+
+        if self.use_kl_loss:
+            with torch.no_grad():
+                prev_logp = self.dist.log_prob(a_heads)
+                self.dist = dist
+
+            logratio = dist.log_prob(a_heads) - prev_logp  # [N, H, A]
+            logratio = torch.clamp(logratio, -0.22, 0.18)
+            approx_kl = (logratio.exp() - 1) - logratio
+
+            policy_loss = policy_loss + self.kl_coeff * approx_kl
+
+            info["approx_kl"] = approx_kl.mean().detach().item()
 
         policy_loss = torch.mean(policy_loss)
         update_params(self.policy_optimizer, self.policy, policy_loss, self.grad_clip)
@@ -816,7 +854,7 @@ class RMACompPIDAgent(MultitaskAgent):
         return qs
 
     def _calc_target_sf(self, f, s, dones):
-        _, _, a = self.policy.sample(s)  # [N, H, A] <-- [N, S+Z]
+        _, _, _, a = self.policy.sample(s)  # [N, H, A] <-- [N, S+Z]
 
         with torch.no_grad():
             # [NHa, S+Z], [NHa, A] <-- [N, S+Z], [N, Ha, A]
@@ -894,6 +932,19 @@ class RMACompPIDAgent(MultitaskAgent):
 
         if self.entropy_tuning:
             self._create_entropy_tuner()
+
+    def setup_replaybuffer(self):
+        super().setup_replaybuffer()
+
+        if self.buffer_cfg["framestacked_replay"]:
+            self.replay_buffer = FrameStackedReplayBuffer(
+                obs_shape=self.observation_shape,
+                action_shape=self.action_shape,
+                feature_shape=self.feature_shape,
+                device=self.device,
+                n_heads=self.n_heads,
+                **self.buffer_cfg,
+            )
 
     def save_torch_model(self):
         path = self.log_path + f"model{self.episodes}/"

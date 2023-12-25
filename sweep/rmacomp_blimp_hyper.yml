@@ -6,8 +6,8 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.0002
-    max: 0.01
+    min: 0.0004
+    max: 0.02
   agent.policy_lr:
     min: 0.00005
     max: 0.0025
@@ -31,12 +31,17 @@ parameters:
   agent.imitation_coeff:
     min: 1.0
     max: 100.0
+  agent.use_kl_loss:
+    values: [True]
+  agent.kl_coeff:
+    min: 0.0001
+    max: 0.1
   agent.lr_schedule:
-    values: [True, False]
+    values: [False]
   agent.norm_task_by_sf:
     values: [False]
   agent.use_decoder:
-    values: [True, False]
+    values: [True]
   agent.policy_net_kwargs.resnet:
     values: [True]
   agent.policy_net_kwargs.fta:
@@ -44,7 +49,7 @@ parameters:
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
-    values: [True, False]
+    values: [False]
   agent.curriculum_learning:
     values: [False]
   buffer.framestacked_replay:

@@ -62,7 +62,19 @@ class IsaacAgent(AbstractAgent):
         self.feature_shape = [self.feature_dim]
         self.action_shape = [self.action_dim]
 
-        self.setup_replaybuffer()
+        if self.buffer_cfg["prioritized_replay"]:
+            self.replay_buffer = VecPrioritizedReplayBuffer(
+                device=self.device,
+                **self.buffer_cfg,
+            )
+        else:
+            self.replay_buffer = VectorizedReplayBuffer(
+                self.observation_shape,
+                self.action_shape,
+                self.feature_shape,
+                device=self.device,
+                **self.buffer_cfg,
+            )
         self.mini_batch_size = int(self.buffer_cfg["mini_batch_size"])
         self.min_n_experience = int(self.buffer_cfg["min_n_experience"])
 
@@ -92,21 +104,6 @@ class IsaacAgent(AbstractAgent):
         self.game_rewards = AverageMeter(1, self.games_to_track).to(self.device)
         self.game_lengths = AverageMeter(1, self.games_to_track).to(self.device)
         self.avgStepRew = AverageMeter(1, 20).to(self.device)
-
-    def setup_replaybuffer(self):
-        if self.buffer_cfg["prioritized_replay"]:
-            self.replay_buffer = VecPrioritizedReplayBuffer(
-                device=self.device,
-                **self.buffer_cfg,
-            )
-        else:
-            self.replay_buffer = VectorizedReplayBuffer(
-                self.observation_shape,
-                self.action_shape,
-                self.feature_shape,
-                device=self.device,
-                **self.buffer_cfg,
-            )
 
     def run(self):
         while True:
@@ -290,6 +287,15 @@ class MultitaskAgent(IsaacAgent):
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
 
+        # if self.buffer_cfg["framestacked_replay"]:
+        #     self.replay_buffer = FrameStackedReplayBuffer(
+        #         obs_shape=self.observation_shape,
+        #         action_shape=self.action_shape,
+        #         feature_shape=self.feature_shape,
+        #         device=self.device,
+        #         **self.buffer_cfg,
+        #     )
+
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
     def train_episode(self, phase=None, gui_app=None, gui_rew=None):
@@ -355,15 +361,3 @@ class MultitaskAgent(IsaacAgent):
             elif mode == "exploit":
                 a = self.exploit(s, w, id)
         return a
-
-    def setup_replaybuffer(self):
-        super().setup_replaybuffer()
-
-        if self.buffer_cfg["framestacked_replay"]:
-            self.replay_buffer = FrameStackedReplayBuffer(
-                obs_shape=self.observation_shape,
-                action_shape=self.action_shape,
-                feature_shape=self.feature_shape,
-                device=self.device,
-                **self.buffer_cfg,
-            )

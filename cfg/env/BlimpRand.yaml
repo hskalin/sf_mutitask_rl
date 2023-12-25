@@ -56,7 +56,7 @@ log_path: "logs/"  # config, video, model log path
 log_interval: 5 # wandb log
 
 blimp:
-  spawn_height: 15
+  spawn_height: 20
   reset_dist: 70
 
   mass: 8.907
@@ -92,16 +92,16 @@ aero:
 goal: 
   type: "fix" # rand, fix
 
-  # rand goal
-  # position trajectory
   pos_lim: 30
   vel_lim: 5
   avel_lim: 0.5
-  min_z: 5
 
+  # rand goal
+  # position trajectory
   kWayPt: 4
   wp_dist: 15
   trigger_dist: 3
+  min_z: 5
 
   rand_pos_targets: True
   rand_ang_targets: True

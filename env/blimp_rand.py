@@ -22,7 +22,7 @@ class BlimpRand(VecEnv):
         self.num_latent = 42
         self.num_obs += self.num_latent
 
-        self.reset_dist = cfg["blimp"].get("reset_dist", 50)  # when to reset [m]
+        self.reset_dist = cfg["blimp"].get("reset_dist", 40)  # when to reset [m]
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
 
         super().__init__(cfg=cfg)
@@ -985,11 +985,19 @@ def compute_point_reward(
     return_buf += reward
 
     # reset
+    # reset = torch.where(
+    #     torch.abs(sqr_dist) > reset_dist**2, torch.ones_like(reset_buf), reset_buf
+    # )
     reset = torch.where(
-        torch.abs(sqr_dist) > reset_dist**2, torch.ones_like(reset_buf), reset_buf
+        torch.abs(x_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
+    )
+    reset = torch.where(
+        torch.abs(y_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
+    )
+    reset = torch.where(
+        torch.abs(z_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
-    reset = torch.where(z_abs > 50, torch.ones_like(reset_buf), reset)
 
     reset = torch.where(
         torch.abs(ang_velx) > torch.pi / 3, torch.ones_like(reset_buf), reset

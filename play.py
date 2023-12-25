@@ -21,21 +21,21 @@ import wandb
 
 from tkinter import *
 
-# Initialize parser
-parser = argparse.ArgumentParser()
+# # Initialize parser
+# parser = argparse.ArgumentParser()
 
-# Adding optional argument
-parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
-parser.add_argument(
-    "-c",
-    "--checkpoint",
-    help="specific saved model e.g. model10",
-    type=str,
-    required=True,
-)
+# # Adding optional argument
+# parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
+# parser.add_argument(
+#     "-c",
+#     "--checkpoint",
+#     help="specific saved model e.g. model10",
+#     type=str,
+#     required=True,
+# )
 
-# Read arguments from command line
-args = parser.parse_args()
+# # Read arguments from command line
+# args = parser.parse_args()
 
 
 class PlayUI:
@@ -154,7 +154,7 @@ def modify_cfg(cfg_dict):
 
     # change these
     cfg_dict["env"]["num_envs"] = 1
-    cfg_dict["agent"]["phase"] = 1  # phase1: encoder, phase2: adaptor
+    cfg_dict["agent"]["phase"] = 2  # phase1: encoder, phase2: adaptor
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0
     if "domain_rand" in cfg_dict["env"]["task"]:
@@ -173,12 +173,20 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb.init(mode="disabled")
     wandb_dict = fix_wandb(wandb.config)
 
+    model_folder = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-25-10-11-12/"
+    model_checkpoint = "model90"
+
+    cfg_path = model_folder + "/cfg"
+    model_path = model_folder + "/" + model_checkpoint + "/"
+
+    cfg_dict = None
+    with open(cfg_path) as f:
+        cfg_dict = json.load(f)
+
     # print_dict(wandb_dict)
     update_dict(cfg_dict, wandb_dict)
 
     cfg_dict = modify_cfg(cfg_dict)
-
-    model_path = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-23-17-42-40/model15"
 
     playob = PlayUI(cfg_dict, model_path)
     playob.play()
@@ -208,5 +216,5 @@ if __name__ == "__main__":
     torch.manual_seed(456)
     np.random.seed(456)
 
-    # launch_rlg_hydra()
-    launch_play()
+    launch_rlg_hydra()
+    # launch_play()
