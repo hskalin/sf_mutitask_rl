@@ -154,11 +154,11 @@ class BlimpRand(VecEnv):
             device=self.sim_device,
             dtype=torch.float,
         )
-        self.actions_tensor_prev = torch.zeros(
-            (self.num_envs, self.num_bodies, 3),
-            device=self.sim_device,
-            dtype=torch.float,
-        )
+        # self.actions_tensor_prev = torch.zeros(
+        #     (self.num_envs, self.num_bodies, 3),
+        #     device=self.sim_device,
+        #     dtype=torch.float,
+        # )
         self.torques_tensor = torch.zeros(
             (self.num_envs, self.num_bodies, 3),
             device=self.sim_device,
@@ -349,11 +349,11 @@ class BlimpRand(VecEnv):
         d += 1
         self.obs_buf[env_ids, d] = self.wp.angvel[env_ids, 2]
 
-        # prev thrusts
+        # prev actuators
         d += 1  # 27
-        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 0]
+        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 0]  # thrust
         d += 1
-        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 1]
+        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 1]  # stick
 
         # previous actions
         d += 1  # 29

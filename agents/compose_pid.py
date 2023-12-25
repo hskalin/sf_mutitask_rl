@@ -328,14 +328,21 @@ class RMACompPIDAgent(MultitaskAgent):
             device=self.device,
         )
 
-        self.dist = Normal(
-            torch.zeros(
-                self.mini_batch_size, self.n_heads, self.action_dim, device=self.device
-            ),
-            torch.ones(
-                self.mini_batch_size, self.n_heads, self.action_dim, device=self.device
-            ),
-        )
+        if self.use_kl_loss:
+            self.dist = Normal(
+                torch.zeros(
+                    self.mini_batch_size,
+                    self.n_heads,
+                    self.action_dim,
+                    device=self.device,
+                ),
+                torch.ones(
+                    self.mini_batch_size,
+                    self.n_heads,
+                    self.action_dim,
+                    device=self.device,
+                ),
+            )
 
         if self.curriculum:
             self.total_curistages = 20

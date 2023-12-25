@@ -24,8 +24,7 @@ parameters:
   agent.use_continuity_loss:
     values: [True]
   agent.continuity_coeff:
-    min: 0.00005
-    max: 0.005
+    values: [0.0001]
   agent.use_imitation_loss:
     values: [True]
   agent.imitation_coeff:
@@ -35,7 +34,7 @@ parameters:
     values: [True]
   agent.kl_coeff:
     min: 0.0001
-    max: 0.1
+    max: 0.01
   agent.lr_schedule:
     values: [False]
   agent.norm_task_by_sf:
@@ -51,17 +50,17 @@ parameters:
   agent.sf_net_kwargs.fta:
     values: [False]
   agent.curriculum_learning:
-    values: [False]
+    values: [True, False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [5, 10]
+    values: [10, 20]
   env.num_envs:
     values: [1024]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:
-    values: [False]
+    values: [True]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:
