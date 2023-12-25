@@ -15,7 +15,7 @@ from .base.goal import RandomWayPoints, FixWayPoints
 class BlimpRand(VecEnv):
     def __init__(self, cfg):
         # task-specific parameters
-        self.num_obs = 33
+        self.num_obs = 34
         self.num_act = 4
 
         # domain randomization
@@ -143,7 +143,7 @@ class BlimpRand(VecEnv):
             dtype=torch.float,
         )
         self.prev_actuator = torch.zeros(
-            (self.num_envs, 2),
+            (self.num_envs, 3),
             device=self.sim_device,
             dtype=torch.float,
         )
@@ -354,9 +354,11 @@ class BlimpRand(VecEnv):
         self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 0]  # thrust
         d += 1
         self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 1]  # stick
+        d += 1
+        self.obs_buf[env_ids, d] = self.prev_actuator[env_ids, 2]  # bot thrust
 
         # previous actions
-        d += 1  # 29
+        d += 1  # 30
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 0]
         d += 1
         self.obs_buf[env_ids, d] = self.prev_actions[env_ids, 1]
@@ -624,9 +626,13 @@ class BlimpRand(VecEnv):
         actions[:, 2] = actions[:, 2] * self.k_ema_smooth[:, 1] + self.prev_actuator[
             :, 1
         ] * (1 - self.k_ema_smooth[:, 1])
+        bot_thrust = actions[:, 1] * self.k_ema_smooth[:, 0] + self.prev_actuator[
+            :, 2
+        ] * (1 - self.k_ema_smooth[:, 1])
 
         self.prev_actuator[:, 0] = actions[:, 0]
         self.prev_actuator[:, 1] = actions[:, 2]
+        self.prev_actuator[:, 2] = bot_thrust
 
         # zeroing out any prev action
         self.actions_tensor[:] = 0.0
@@ -639,7 +645,7 @@ class BlimpRand(VecEnv):
             self.k_effort_thrust * (actions[:, 0] + 1) / 2
         )  # propeller
         self.actions_tensor[:, 7, 1] = (
-            self.k_effort_botthrust * actions[:, 1]
+            self.k_effort_botthrust * bot_thrust
         )  # bot propeller
 
         # buoyancy

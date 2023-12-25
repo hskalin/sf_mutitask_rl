@@ -296,7 +296,7 @@ class BlimpFeature(FeatureAbstract):
         self.slice_actuators = slice(27, 27 + 1)
 
         # robot actions
-        self.slice_prev_act = slice(29, 29 + 3)
+        self.slice_prev_act = slice(30, 30 + 3)
 
     def extract(self, s):
         features = []
