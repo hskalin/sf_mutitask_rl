@@ -194,7 +194,7 @@ class FixWayPoints:
             (self.num_envs, 1),
         )
         self.velnorm = torch.tile(
-            torch.tensor([7], device=self.device, dtype=torch.float32),
+            torch.tensor([8], device=self.device, dtype=torch.float32),
             (self.num_envs, 1),
         )
 

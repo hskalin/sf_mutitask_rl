@@ -153,7 +153,7 @@ def modify_cfg(cfg_dict):
     # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
 
     # change these
-    cfg_dict["env"]["num_envs"] = 1
+    cfg_dict["env"]["num_envs"] = 10
     cfg_dict["agent"]["phase"] = 2  # phase1: encoder, phase2: adaptor
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0
