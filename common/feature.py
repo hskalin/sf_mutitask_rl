@@ -339,7 +339,7 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Nav trigger:
-        x = 10.0 * s[:, self.slice_goal_trigger]
+        x = 1.0 * s[:, self.slice_goal_trigger]
         features.append(x)
 
         # Nav yaw_to_goal:

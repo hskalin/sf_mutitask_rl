@@ -91,7 +91,9 @@ class ENVDecoder(nn.Module):
 
 
 class AdaptationModule(nn.Module):
-    def __init__(self, in_dim, out_dim, stack_size, kernel_size=5) -> None:
+    def __init__(
+        self, in_dim, out_dim, stack_size, kernel_size=5, hidden_dim=256
+    ) -> None:
         super().__init__()
         self.tcn = TCN(
             in_dim=in_dim,
@@ -100,9 +102,13 @@ class AdaptationModule(nn.Module):
             stack_size=stack_size,
             kernel_size=kernel_size,
         )
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(out_dim, out_dim, hidden_dim),
+            example_inputs=torch.rand(1, out_dim),
+        )
 
     def forward(self, x):
-        return self.tcn(x)
+        return self.model(self.tcn(x))
 
     def save(self, path):
         torch.save(self.state_dict(), path)
@@ -653,13 +659,7 @@ class RMACompPIDAgent(MultitaskAgent):
             metrics = {
                 "loss/SF": sf_loss,
                 "loss/policy": policy_loss,
-                "loss/action_norm": info_pi.get("action_norm", 0),
-                "loss/action_continuity": -info_pi.get("continuity_loss", 0),
-                "loss/imitation_loss": info_pi.get("imitation_loss", 0),
-                "loss/imitation_loss0": info_pi.get("imitation_loss0", 0),
-                "loss/imitation_loss1": info_pi.get("imitation_loss1", 0),
-                "loss/imitation_loss2": info_pi.get("imitation_loss2", 0),
-                "loss/approx_kl": info_pi.get("approx_kl", 0),
+                "loss/action_norm": info_pi["action_norm"],
                 "state/mean_SF1": info_sf["curr_sf1"],
                 "state/mean_SF2": info_sf["curr_sf2"],
                 "state/target_sf": info_sf["target_sf"],
@@ -672,6 +672,33 @@ class RMACompPIDAgent(MultitaskAgent):
                 metrics.update(
                     {
                         "loss/decoder_loss": info_sf["decoder_loss"],
+                    }
+                )
+            if self.use_auxiliary_task:
+                metrics.update(
+                    {
+                        "loss/auxiliary_loss": info_sf["auxiliary_loss"],
+                    }
+                )
+            if self.use_imitation_loss:
+                metrics.update(
+                    {
+                        "loss/imitation_loss": info_pi["imitation_loss"],
+                        "loss/imitation_loss0": info_pi["imitation_loss0"],
+                        "loss/imitation_loss1": info_pi["imitation_loss1"],
+                        "loss/imitation_loss2": info_pi["imitation_loss2"],
+                    }
+                )
+            if self.use_kl_loss:
+                metrics.update(
+                    {
+                        "loss/approx_kl": info_pi["approx_kl"],
+                    }
+                )
+            if self.use_continuity_loss:
+                metrics.update(
+                    {
+                        "loss/action_continuity": -info_pi["continuity_loss"],
                     }
                 )
 
@@ -725,7 +752,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
         # compute sf loss
         curr_sf1, curr_sf2 = self.sf(s, a)  # [N, Hsf, F] <--[N, S+Z], [N,A]
-        target_sf = self._calc_target_sf(f, s_next, dones)  # [N, Hsf, F]
+        target_sf = self._calc_target_sf(f, s_next, dones)  # [N, Ha, F]
 
         if self.use_auxiliary_task:
             f_next = self.feature.extract(s_next)
@@ -735,15 +762,12 @@ class RMACompPIDAgent(MultitaskAgent):
             auxiliary_loss = torch.mean((f_next_pred1 - f_next).pow(2)) + torch.mean(
                 (f_next_pred2 - f_next).pow(2)
             )
-            sf_loss = torch.mean(
-                (curr_sf1[:, : -self.n_auxTask] - target_sf).pow(2)
-            ) + torch.mean(
-                (curr_sf2[:, : -self.n_auxTask] - target_sf).pow(2)
-            )  # R <-- [N, H, F]
-        else:
-            sf_loss = torch.mean((curr_sf1 - target_sf).pow(2)) + torch.mean(
-                (curr_sf2 - target_sf).pow(2)
-            )  # R <-- [N, H, F]
+            curr_sf1 = curr_sf1[:, : -self.n_auxTask]  # [N, Ha, F]
+            curr_sf2 = curr_sf2[:, : -self.n_auxTask]  # [N, Ha, F]
+
+        sf_loss = torch.mean((curr_sf1 - target_sf).pow(2)) + torch.mean(
+            (curr_sf2 - target_sf).pow(2)
+        )  # R <-- [N, H, F]
 
         # compute encoder decoder loss
         if self.use_decoder:
@@ -766,6 +790,8 @@ class RMACompPIDAgent(MultitaskAgent):
         info["target_sf"] = target_sf.detach().mean().item()
         if self.use_decoder:
             info["decoder_loss"] = decoder_loss.detach().item()
+        if self.use_auxiliary_task:
+            info["auxiliary_loss"] = auxiliary_loss.detach().item()
 
         return sf_loss.detach().item(), info
 
@@ -791,10 +817,10 @@ class RMACompPIDAgent(MultitaskAgent):
         action_norm = torch.norm(a_heads, p=1, dim=2, keepdim=True) / self.action_dim
         info["action_norm"] = action_norm.mean().detach().item()
 
-        if self.use_continuity_loss:
+        if self.use_continuity_loss:  # encourage continuous action
             prev_a = a_stack[..., 1]  # [N, A] <-- [N, A, K]
 
-            # encourage continuous action, [N,H,1] <-- [N,1,A] - [N,H,A]
+            # [N,H,1] <-- [N,1,A] - [N,H,A]
             continuity_loss = torch.norm(
                 prev_a[:, None, :] - a_heads, dim=2, keepdim=True
             )
@@ -890,13 +916,13 @@ class RMACompPIDAgent(MultitaskAgent):
             # [N, Ha, F] <-- [NHa, Hsf, F]
             next_sf = self._process_sfs(next_sf1, next_sf2)
 
-        # [N,H,F] <-- [N,F]
+        # [N,Ha,F] <-- [N,F]
         f = torch.tile(f[:, None, :], (self.n_heads, 1))
 
-        # [N, H, F] <-- [N, H, F] + [N, H, F]
+        # [N, Ha, F] <-- [N, Ha, F] + [N, Ha, F]
         target_sf = f + torch.einsum("ijk,il->ijk", next_sf, (~dones) * self.gamma)
 
-        return target_sf  # [N, H, F]
+        return target_sf  # [N, Ha, F]
 
     def _process_sfs(self, sf1, sf2):
         sf = torch.min(sf1, sf2)  # [NHa, Hsf, F]
