@@ -287,15 +287,6 @@ class MultitaskAgent(IsaacAgent):
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
 
-        # if self.buffer_cfg["framestacked_replay"]:
-        #     self.replay_buffer = FrameStackedReplayBuffer(
-        #         obs_shape=self.observation_shape,
-        #         action_shape=self.action_shape,
-        #         feature_shape=self.feature_shape,
-        #         device=self.device,
-        #         **self.buffer_cfg,
-        #     )
-
         self.adaptive_task = self.env_cfg["task"]["adaptive_task"]
 
     def train_episode(self, phase=None, gui_app=None, gui_rew=None):

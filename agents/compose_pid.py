@@ -161,6 +161,7 @@ class RMACompPIDAgent(MultitaskAgent):
         self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
 
         self.use_decoder = self.agent_cfg["use_decoder"]
+        self.use_auxiliary_task = self.agent_cfg["use_auxiliary_task"]
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
@@ -207,12 +208,18 @@ class RMACompPIDAgent(MultitaskAgent):
         )
 
         # define models
+        if self.use_auxiliary_task:
+            self.n_auxTask = 1
+            self.n_sfhead = self.n_heads + self.n_auxTask
+        else:
+            self.n_sfhead = self.n_heads
+
         self.latent_dim = int(self.env_latent_dim // 2)  # Z = E/2
         self.sf = MultiheadSFNetwork(
             observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
-            n_heads=self.n_heads,
+            n_heads=self.n_sfhead,
             **self.sf_net_kwargs,
         ).to(self.device)
 
@@ -220,7 +227,7 @@ class RMACompPIDAgent(MultitaskAgent):
             observation_dim=self.observation_dim + self.latent_dim,
             feature_dim=self.feature_dim,
             action_dim=self.action_dim,
-            n_heads=self.n_heads,
+            n_heads=self.n_sfhead,
             **self.sf_net_kwargs,
         ).to(self.device)
 
@@ -235,14 +242,16 @@ class RMACompPIDAgent(MultitaskAgent):
         ).to(self.device)
 
         self.encoder = ENVEncoder(
-            in_dim=self.env_latent_dim, out_dim=self.latent_dim, hidden_dim=256
+            in_dim=self.env_latent_dim,
+            out_dim=self.latent_dim,
+            hidden_dim=self.sf_net_kwargs["hidden_dim"],
         ).to(self.device)
 
         if self.use_decoder:
             self.decoder = ENVDecoder(
                 in_dim=self.observation_dim + self.latent_dim,
                 out_dim=self.env_latent_dim,
-                hidden_dim=256,
+                hidden_dim=self.sf_net_kwargs["hidden_dim"],
             ).to(self.device)
 
         self.adaptor = AdaptationModule(
@@ -252,26 +261,18 @@ class RMACompPIDAgent(MultitaskAgent):
         ).to(self.device)
         self.adaptor_loss = nn.MSELoss()
 
+        params = [
+            {"params": self.sf.parameters()},
+            {"params": self.encoder.parameters()},
+        ]
         if self.use_decoder:
-            self.sf_optimizer = Adam(
-                [
-                    {"params": self.sf.parameters()},
-                    {"params": self.encoder.parameters()},
-                    {"params": self.decoder.parameters()},
-                ],
-                lr=self.lr,
-                betas=[0.9, 0.999],
-            )
-        else:
-            self.sf_optimizer = Adam(
-                [
-                    {"params": self.sf.parameters()},
-                    {"params": self.encoder.parameters()},
-                ],
-                lr=self.lr,
-                betas=[0.9, 0.999],
-            )
+            params.append({"params": self.decoder.parameters()})
 
+        self.sf_optimizer = Adam(
+            params,
+            lr=self.lr,
+            betas=[0.9, 0.999],
+        )
         self.policy_optimizer = Adam(
             self.policy.parameters(),
             lr=self.policy_lr,
@@ -723,12 +724,26 @@ class RMACompPIDAgent(MultitaskAgent):
         s_next = torch.concat([s_next, z_next], dim=1)  # [N, S+Z]
 
         # compute sf loss
-        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, H, F] <--[N, S+Z], [N,A]
-        target_sf = self._calc_target_sf(f, s_next, dones)  # [N, H, F]
+        curr_sf1, curr_sf2 = self.sf(s, a)  # [N, Hsf, F] <--[N, S+Z], [N,A]
+        target_sf = self._calc_target_sf(f, s_next, dones)  # [N, Hsf, F]
 
-        sf_loss = torch.mean((curr_sf1 - target_sf).pow(2)) + torch.mean(
-            (curr_sf2 - target_sf).pow(2)
-        )  # R <-- [N, H, F]
+        if self.use_auxiliary_task:
+            f_next = self.feature.extract(s_next)
+            f_next_pred1 = curr_sf1[:, -1]
+            f_next_pred2 = curr_sf2[:, -1]
+
+            auxiliary_loss = torch.mean((f_next_pred1 - f_next).pow(2)) + torch.mean(
+                (f_next_pred2 - f_next).pow(2)
+            )
+            sf_loss = torch.mean(
+                (curr_sf1[:, : -self.n_auxTask] - target_sf).pow(2)
+            ) + torch.mean(
+                (curr_sf2[:, : -self.n_auxTask] - target_sf).pow(2)
+            )  # R <-- [N, H, F]
+        else:
+            sf_loss = torch.mean((curr_sf1 - target_sf).pow(2)) + torch.mean(
+                (curr_sf2 - target_sf).pow(2)
+            )  # R <-- [N, H, F]
 
         # compute encoder decoder loss
         if self.use_decoder:
@@ -739,6 +754,8 @@ class RMACompPIDAgent(MultitaskAgent):
         self.sf_optimizer.zero_grad()
         if self.use_decoder:
             decoder_loss.backward(retain_graph=True)
+        if self.use_auxiliary_task:
+            auxiliary_loss.backward(retain_graph=True)
         sf_loss.backward()
         self.sf_optimizer.step()
 
@@ -883,6 +900,9 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def _process_sfs(self, sf1, sf2):
         sf = torch.min(sf1, sf2)  # [NHa, Hsf, F]
+
+        if self.use_auxiliary_task:
+            sf = sf[:, : -self.n_auxTask]  # [NHa, Hsf-k, F]
 
         # [NHa, F] <-- [NHa, Hsf, F], [NHa, Hsf, F]
         sf = torch.masked_select(sf, self.mask)

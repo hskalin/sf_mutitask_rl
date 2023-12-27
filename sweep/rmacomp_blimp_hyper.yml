@@ -6,11 +6,11 @@ metric:
 
 parameters:
   agent.lr:
-    min: 0.0004
-    max: 0.02
+    min: 0.0001
+    max: 0.005
   agent.policy_lr:
-    min: 0.00005
-    max: 0.0025
+    min: 0.000025
+    max: 0.00125
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
@@ -41,10 +41,16 @@ parameters:
     values: [False]
   agent.use_decoder:
     values: [True]
+  agent.use_auxiliary_task:
+    values: [True, False]
+  agent.policy_net_kwargs.hidden_dim:
+    values: [128, 256]
   agent.policy_net_kwargs.resnet:
     values: [True]
   agent.policy_net_kwargs.fta:
     values: [True]
+  agent.sf_net_kwargs.hidden_dim:
+    values: [256, 512]
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
@@ -55,6 +61,8 @@ parameters:
     values: [True]
   buffer.stack_size:
     values: [10, 20]
+  buffer.mini_batch_size:
+    values: [2048]
   env.num_envs:
     values: [1024]
   env.task.adaptive_task:

@@ -21,21 +21,21 @@ import wandb
 
 from tkinter import *
 
-# # Initialize parser
-# parser = argparse.ArgumentParser()
+# Initialize parser
+parser = argparse.ArgumentParser()
 
-# # Adding optional argument
-# parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
-# parser.add_argument(
-#     "-c",
-#     "--checkpoint",
-#     help="specific saved model e.g. model10",
-#     type=str,
-#     required=True,
-# )
+# Adding optional argument
+parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
+parser.add_argument(
+    "-c",
+    "--checkpoint",
+    help="specific saved model e.g. model10",
+    type=str,
+    required=True,
+)
 
-# # Read arguments from command line
-# args = parser.parse_args()
+# Read arguments from command line
+args = parser.parse_args()
 
 
 class PlayUI:
@@ -173,8 +173,8 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb.init(mode="disabled")
     wandb_dict = fix_wandb(wandb.config)
 
-    model_folder = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-25-10-11-12/"
-    model_checkpoint = "model90"
+    model_folder = "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-27-10-07-48/"
+    model_checkpoint = "model70"
 
     cfg_path = model_folder + "/cfg"
     model_path = model_folder + "/" + model_checkpoint + "/"
@@ -216,5 +216,5 @@ if __name__ == "__main__":
     torch.manual_seed(456)
     np.random.seed(456)
 
-    launch_rlg_hydra()
-    # launch_play()
+    # launch_rlg_hydra()
+    launch_play()

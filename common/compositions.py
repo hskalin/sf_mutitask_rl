@@ -8,7 +8,15 @@ Epsilon = 1e-6
 
 class Compositions:
     def __init__(
-        self, agent_cfg, policy, sf, n_env, n_heads, action_dim, feature_dim, device
+        self,
+        agent_cfg,
+        policy,
+        sf,
+        n_env,
+        n_heads,
+        action_dim,
+        feature_dim,
+        device,
     ) -> None:
         self.policy = policy
         self.sf = sf
@@ -19,6 +27,8 @@ class Compositions:
         self.device = device
 
         self.norm_task_by_sf = agent_cfg["norm_task_by_sf"]
+        self.use_auxiliary_task = agent_cfg["use_auxiliary_task"]
+        self.n_auxTask = agent_cfg["n_auxTask"]
 
         self.record_impact = False
         self.impact_x_idx = []  # record primitive impact on x-axis
@@ -191,6 +201,9 @@ class Compositions:
         # [NHa, Hsf, F] <-- [NHa, S], [NHa, A]
         sf1, sf2 = sf_model(s_tiled, a_tiled)
         sf = torch.min(sf1, sf2)
+
+        if self.use_auxiliary_task:
+            sf = sf[:, : -self.n_auxTask]
 
         # [N, Ha, Hsf, F]
         sf = sf.view(-1, self.n_heads, self.n_heads, self.feature_dim)

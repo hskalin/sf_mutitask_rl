@@ -19,7 +19,7 @@ class BlimpRand(VecEnv):
         self.num_act = 4
 
         # domain randomization
-        self.num_latent = 42
+        self.num_latent = 44
         self.num_obs += self.num_latent
 
         self.reset_dist = cfg["blimp"].get("reset_dist", 40)  # when to reset [m]
@@ -384,8 +384,16 @@ class BlimpRand(VecEnv):
 
         # robot actuator states
         # thrust vectoring angle
+        ang = self.dof_pos[env_ids, 0]
+
         d += 1  # 32
-        self.obs_buf[env_ids, d] = self.dof_pos[env_ids, 0]
+        self.obs_buf[env_ids, d] = ang
+
+        d += 1
+        self.obs_buf[env_ids, d] = torch.sin(ang)
+
+        d += 1
+        self.obs_buf[env_ids, d] = torch.cos(ang)
 
         # rudder
         d += 1

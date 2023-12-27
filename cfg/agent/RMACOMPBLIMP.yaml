@@ -17,7 +17,9 @@ updates_per_step: 1
 reward_scale: 1.0
 grad_clip: null
 norm_task_by_sf: True
-use_decoder: False
+use_decoder: True
+use_auxiliary_task: True
+n_auxTask: 1
 curriculum_learning: True
 use_continuity_loss: True
 continuity_coeff: 0.01
@@ -27,14 +29,14 @@ use_kl_loss: True
 kl_coeff: 0.01
 
 sf_net_kwargs: 
-    hidden_dim: 128
+    hidden_dim: 512
     num_layers: 4
     resnet: True
     layernorm: True
-    fta: True
+    fta: False
     max_nheads: 30
 policy_net_kwargs: 
-    hidden_dim: 64
+    hidden_dim: 256
     num_layers: 4
     resnet: True
     layernorm: True
