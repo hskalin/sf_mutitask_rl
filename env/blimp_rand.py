@@ -48,10 +48,10 @@ class BlimpRand(VecEnv):
         )
         self.blimp_mass = cfg["blimp"]["mass"]
         self.body_torque_coeff = torch.tensor(
-            [0.47, 1.29, 270.0, 10.0, 3], device=self.sim_device
+            [0.47, 1.29, 270.0, 10.0, 4], device=self.sim_device
         )  # [coef, p, BL4, balance torque, fin torque coef]
 
-        self.effort_thrust = 5.0
+        self.effort_thrust = 10.0  # 5.0
         self.effort_botthrust = 3.0
 
         # wind
@@ -64,7 +64,7 @@ class BlimpRand(VecEnv):
 
         if self.domain_rand:
             range_a = cfg["task"].get("range_a", [0.8, 1.25])
-            range_b = cfg["task"].get("range_b", [0.6, 1.7])
+            range_b = cfg["task"].get("range_b", [0.8, 1.25])
         else:
             range_a = [1.0, 1.0]
             range_b = [1.0, 1.0]
@@ -188,7 +188,7 @@ class BlimpRand(VecEnv):
         self.range_body_areas2 = [self.body_areas[2] * ra0, self.body_areas[2] * ra1]
         self.range_drag_coefs0 = [self.drag_coefs[0] * ra0, self.drag_coefs[0] * ra1]
         self.range_drag_coefs1 = [self.drag_coefs[1] * ra0, self.drag_coefs[1] * ra1]
-        self.range_wind_mag = [self.wind_mag * rb0, self.wind_mag * rb1]
+        self.range_wind_mag = [self.wind_mag * ra0, self.wind_mag * ra1]
         self.range_wind_std = [self.wind_std * ra0, self.wind_std * ra1]
         self.range_blimp_mass = [self.blimp_mass * ra0, self.blimp_mass * ra1]
         self.range_body_torque_coeff = [

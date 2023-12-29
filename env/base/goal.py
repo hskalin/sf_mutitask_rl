@@ -177,7 +177,7 @@ class FixWayPoints:
         self.pos_lim = pos_lim
 
         wps = torch.tensor(
-            [[[10, -10, 20], [10, 10, 20], [-10, 10, 20], [-10, -10, 20]]],
+            [[[15, -15, 20], [15, 15, 20], [-15, 15, 20], [-15, -15, 20]]],
             device=self.device,
             dtype=torch.float32,
         )
@@ -194,7 +194,7 @@ class FixWayPoints:
             (self.num_envs, 1),
         )
         self.velnorm = torch.tile(
-            torch.tensor([2], device=self.device, dtype=torch.float32),
+            torch.tensor([2.0], device=self.device, dtype=torch.float32),
             (self.num_envs, 1),
         )
 

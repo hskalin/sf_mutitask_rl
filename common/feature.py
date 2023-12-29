@@ -325,6 +325,7 @@ class BlimpFeature(FeatureAbstract):
         # error_posHov = s[:, self.slice_err_posHov]
         error_v = s[:, self.slice_rb_v] - s[:, self.slice_goal_v]
         error_vnorm = robot_headingV - s[:, self.slice_goal_vnorm]
+        print(robot_headingV)
         # error_angVel = robot_angVel - goal_angVel
         error_navHeading = check_angle(
             compute_heading(yaw=robot_angle[:, 2:3], rel_pos=error_posNav)
@@ -386,10 +387,10 @@ class BlimpFeature(FeatureAbstract):
             print(f)
         return f
 
-    def compute_featurePosNorm(self, x, scale=20):
+    def compute_featurePosNorm(self, x, scale=10):
         return self.compute_gaussDist(x, self.Kp, scale)
 
-    def compute_featureProx(self, x, scale=20):
+    def compute_featureProx(self, x, scale=10):
         d = torch.norm(x, dim=1, keepdim=True) ** 2
         prox = self.proxScale * torch.exp(scale * -d / self.Kp**2)
         return torch.where(d > self.ProxThresh, prox, 1)
