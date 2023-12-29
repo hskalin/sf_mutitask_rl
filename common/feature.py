@@ -325,7 +325,7 @@ class BlimpFeature(FeatureAbstract):
         # error_posHov = s[:, self.slice_err_posHov]
         error_v = s[:, self.slice_rb_v] - s[:, self.slice_goal_v]
         error_vnorm = robot_headingV - s[:, self.slice_goal_vnorm]
-        print(robot_headingV)
+        # print(robot_headingV)
         # error_angVel = robot_angVel - goal_angVel
         error_navHeading = check_angle(
             compute_heading(yaw=robot_angle[:, 2:3], rel_pos=error_posNav)
