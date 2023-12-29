@@ -102,14 +102,13 @@ class AdaptationModule(nn.Module):
             stack_size=stack_size,
             kernel_size=kernel_size,
         )
-        # self.model = torch.jit.trace(
-        #     ENVEncoderBuilder(out_dim, out_dim, hidden_dim),
-        #     example_inputs=torch.rand(1, out_dim),
-        # )
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(out_dim, out_dim, hidden_dim),
+            example_inputs=torch.rand(1, out_dim),
+        )
 
     def forward(self, x):
-        # return self.model(self.tcn(x))
-        return self.tcn(x)
+        return self.model(self.tcn(x))
 
     def save(self, path):
         torch.save(self.state_dict(), path)

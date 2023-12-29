@@ -18,7 +18,7 @@ class VecEnv:
         self.headless = cfg["sim"].get("headless", False)
 
         self.num_envs = cfg.get("num_envs", 512)
-        self.max_episode_length = cfg.get("max_episode_length", 500)
+        self.max_episode_length = cfg.get("episode_max_step", 500)
 
         self.train = cfg.get("mode", "train")
 

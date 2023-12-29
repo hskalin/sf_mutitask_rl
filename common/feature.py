@@ -339,7 +339,7 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Nav trigger:
-        x = 1.0 * s[:, self.slice_goal_trigger]
+        x = s[:, self.slice_goal_trigger]
         features.append(x)
 
         # Nav yaw_to_goal:
@@ -386,10 +386,10 @@ class BlimpFeature(FeatureAbstract):
             print(f)
         return f
 
-    def compute_featurePosNorm(self, x, scale=25):
+    def compute_featurePosNorm(self, x, scale=20):
         return self.compute_gaussDist(x, self.Kp, scale)
 
-    def compute_featureProx(self, x, scale=25):
+    def compute_featureProx(self, x, scale=20):
         d = torch.norm(x, dim=1, keepdim=True) ** 2
         prox = self.proxScale * torch.exp(scale * -d / self.Kp**2)
         return torch.where(d > self.ProxThresh, prox, 1)
@@ -397,7 +397,7 @@ class BlimpFeature(FeatureAbstract):
     def compute_featureVelNorm(self, x, scale=30):
         return self.compute_gaussDist(x, self.Kv, scale)
 
-    def compute_featureAngNorm(self, x, scale=50):
+    def compute_featureAngNorm(self, x, scale=40):
         return self.compute_gaussDist(x, self.Ka, scale)
 
     def compute_featureAngVelNorm(self, x, scale=50):

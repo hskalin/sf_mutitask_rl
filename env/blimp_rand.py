@@ -22,10 +22,13 @@ class BlimpRand(VecEnv):
         self.num_latent = 44
         self.num_obs += self.num_latent
 
+        super().__init__(cfg=cfg)
+
+        self.pos_lim = cfg["goal"].get("pos_lim", 20)
+        self.vel_lim = cfg["goal"].get("vel_lim", 5)
+        self.avel_lim = cfg["goal"].get("avel_lim", 0.5)
         self.reset_dist = cfg["blimp"].get("reset_dist", 40)  # when to reset [m]
         self.spawn_height = cfg["blimp"].get("spawn_height", 15)
-
-        super().__init__(cfg=cfg)
 
         self.id_absZ = 0
         self.id_relpos = [0, 0, 0]
@@ -45,7 +48,7 @@ class BlimpRand(VecEnv):
         )
         self.blimp_mass = cfg["blimp"]["mass"]
         self.body_torque_coeff = torch.tensor(
-            [0.47, 1.29, 270.0, 3.0, 2.5], device=self.sim_device
+            [0.47, 1.29, 270.0, 10.0, 3], device=self.sim_device
         )  # [coef, p, BL4, balance torque, fin torque coef]
 
         self.effort_thrust = 5.0
@@ -83,10 +86,6 @@ class BlimpRand(VecEnv):
         )
 
         self.randomize_latent()
-
-        self.pos_lim = cfg["goal"].get("pos_lim", 20)
-        self.vel_lim = cfg["goal"].get("vel_lim", 5)
-        self.avel_lim = cfg["goal"].get("avel_lim", 0.5)
 
         if "fix" in cfg["goal"]["type"].lower():
             self.wp = FixWayPoints(
@@ -517,7 +516,7 @@ class BlimpRand(VecEnv):
         self.k_blimp_mass[env_ids] = sample_from_range(self.range_blimp_mass)[0]
         self.k_bouyancy[env_ids] = torch.normal(
             mean=-self.sim_params.gravity.z * (self.k_blimp_mass[env_ids] - 0.5),
-            std=0.3,
+            std=0.1,
         )
 
     def get_reward(self):
@@ -1009,7 +1008,7 @@ def compute_point_reward(
         torch.abs(y_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(
-        torch.abs(z_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
+        torch.abs(z_pos) > 2 * reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
 

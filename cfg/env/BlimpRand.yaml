@@ -57,7 +57,7 @@ log_interval: 5 # wandb log
 
 blimp:
   spawn_height: 20
-  reset_dist: 40
+  reset_dist: 20
 
   mass: 8.907
   ema_smooth: [0.3, 0.3] # [thrust, stick]
@@ -86,13 +86,13 @@ blimp:
 
 aero:
   wind_dirs: [1.0, 1.0, 0.25]
-  wind_mag: 0.1
-  wind_std: 0.01
+  wind_mag: 1.0
+  wind_std: 0.05
 
 goal: 
   type: "fix" # rand, fix
 
-  pos_lim: 30
+  pos_lim: 20
   vel_lim: 5
   avel_lim: 0.5
 
@@ -121,7 +121,7 @@ task:
   init_vel: True
   
   domain_rand: True # randomize env latent
-  range_a: [0.9, 1.1] # type a var range
+  range_a: [0.8, 1.25] # type a var range
   range_b: [0.8, 1.25] # type b var range
 
   # proximity reward
@@ -130,7 +130,7 @@ task:
   # specify initial task weight
   taskLabels:  ['planar', 'Z', 'trigger', 'yaw2goal', 'proximity', 'yaw','vnorm',  'vx', 'vy', 'vz', 'regPR', 'regThrust']
   task_wTrain: [1,.5,1,.1, 0,0,0, 0,0,0, 0,0]
-  task_wEval:  [0,0,0,0, 1,.5,0, 0,0,0, 0,0]
+  task_wEval:  [0,0,0,0, 1,0,0, 0,0,0, 0,0]
 
   # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
   taskSet_train: "achievable"
@@ -158,12 +158,12 @@ task:
 
     achievable:   [
       # controller
-      [1,1,100,1, 0,0,1, 0,0,0, 0,0],
+      [1,1,10,1, 0,0,1, 0,0,0, 0,0],
       [0,0,0,0, 1,0,0, 0,0,0, 0,0],
-      [0,0,0,0, 0,0,0, 1,1,.5, 0,0],
+      [0,0,10,0, 0,0,0, 1,1,1, 0,0],
 
       # navigation
-      [1,1,100,1, 0,0,1, 0,0,0, 0,0],
+      [1,1,10,1, 0,0,1, 0,0,0, 0,0],
       # [0,0,1,0, 0,0,0, 0,0,0, 0,0],
       # [1,.5,.5,.5, 0,0,1, 0,0,0, .1,0],
       # hover
@@ -171,7 +171,7 @@ task:
       # [0,0,0,0, 1,5,0, 0,0,0, 0,0],
       # [0,0,0,0, 1,0,1, 0,0,0, .1,0],
       # path follow
-      [0,0,0,0, 0,0,0, 1,1,.5, 0,0],
+      [0,0,10,0, 0,0,0, 1,1,1, 0,0],
       # [0,0,0,0, 0,0,0, 1,1,1, .1,0],
       ]
 
