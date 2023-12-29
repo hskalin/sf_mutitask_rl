@@ -182,7 +182,7 @@ feature:
 
   
 sim:
-  dt: 0.05
+  dt: 0.1
   substeps: 2
   gravity: [0.0, 0.0, -9.8]
   sim_device: "cuda:0"
