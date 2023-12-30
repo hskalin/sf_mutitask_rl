@@ -2,7 +2,7 @@ program: run.py
 method: bayes
 metric:
   goal: maximize
-  name: reward/phase1_ntriggers
+  name: reward/phase1_eval_unbiased_metrics
 
 parameters:
   agent.lr:

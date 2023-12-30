@@ -43,7 +43,7 @@ env_name: "BlimpRand"
 num_envs: 1024
 
 episode_max_step: 500
-total_episodes: 100
+total_episodes: 200
 
 mode: "train" # train or test
 
@@ -60,7 +60,7 @@ blimp:
   reset_dist: 20
 
   mass: 8.907
-  ema_smooth: [0.3, 0.3] # [thrust, stick]
+  ema_smooth: [0.2, 0.3] # [thrust, stick]
   # indices of blimp bodies for which aerodynamics is calculated
   drag_body_idxs: [0, 7, 8, 9, 10, 11, 12, 13, 14]
   # approx (x,y,z) components of area for the above bodies (in m^2)
@@ -125,7 +125,7 @@ task:
   range_b: [0.5, 2.0] # type b var range
 
   # proximity reward
-  proximity_threshold: 7 # [m]
+  proximity_threshold: 10 # [m]
 
   # specify initial task weight
   taskLabels:  ['planar', 'Z', 'trigger', 'yaw2goal', 'proximity', 'yaw','vnorm',  'vx', 'vy', 'vz', 'regPR', 'regThrust']

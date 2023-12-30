@@ -22,6 +22,7 @@ from common.util import (
     pile_sa_pairs,
     soft_update,
     update_params,
+    check_samples,
 )
 from common.value import MultiheadSFNetwork
 from common.vec_buffer import FrameStackedReplayBuffer
@@ -465,12 +466,17 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.adaptive_task:
             self.task.adapt_task()
 
+        trigger_wp /= self.n_env
+        hover_time /= self.n_env
+        unbiased_metrics = trigger_wp + hover_time / 25
+
         wandb.log(
             {
                 f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
                 f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
                 f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
                 f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
+                f"reward/phase{self.phase}_unbiased_metrics": unbiased_metrics.detach().item(),
             }
         )
         if self.curriculum:
@@ -520,16 +526,20 @@ class RMACompPIDAgent(MultitaskAgent):
 
         print(f"===== finish evaluate ====")
 
-        task_return = self.task.evalTaskR(episode_r)
+        trigger_wp /= self.n_env
+        hover_time /= self.n_env
+        unbiased_metrics = trigger_wp + hover_time / 25
 
         wandb.log(
             {
                 f"reward/phase{self.phase}_eval": torch.mean(returns).item(),
-                f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
-                f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
+                f"reward/phase{self.phase}_eval_ntriggers": trigger_wp.detach().item(),
+                f"reward/phase{self.phase}_eval_hovertime": hover_time.detach().item(),
+                f"reward/phase{self.phase}_eval_unbiased_metrics": unbiased_metrics.detach().item(),
             }
         )
         if self.wandb_verbose:
+            task_return = self.task.evalTaskR(episode_r)
             task_return = task_return.detach().tolist()
             for i in range(len(task_return)):
                 wandb.log(
@@ -571,7 +581,10 @@ class RMACompPIDAgent(MultitaskAgent):
         return s_next, r, done
 
     def act(self, o, task, mode="explore"):
-        o = check_obs(o, self.observation_dim + self.env_latent_dim)
+        try:
+            o = check_obs(o, self.observation_dim + self.env_latent_dim)
+        except:
+            o = check_obs(o, self.observation_dim)
 
         # [N, A], [N, H, A] <-- [N, S+E]
         a = self._act(o, task, mode)
@@ -631,6 +644,7 @@ class RMACompPIDAgent(MultitaskAgent):
             s, e = s[:, : self.env_latent_idx - 1], s[:, self.env_latent_idx - 1 :]
         else:
             e = None
+
         return s, e
 
     def reset_env(self):

@@ -176,13 +176,7 @@ class BlimpRand(VecEnv):
     def set_latent_range(self, range_a, range_b):
         ra0, ra1 = range_a
         rb0, rb1 = range_b
-
-        self.range_effort_thrust = [self.effort_thrust * rb0, self.effort_thrust * rb1]
-        self.range_effort_botthrust = [
-            self.effort_botthrust * rb0,
-            self.effort_botthrust * rb1,
-        ]
-        self.range_ema_smooth = [self.ema_smooth * rb0, self.ema_smooth * rb1]
+        
         self.range_body_areas0 = [self.body_areas[0] * ra0, self.body_areas[0] * ra1]
         self.range_body_areas1 = [self.body_areas[1] * ra0, self.body_areas[1] * ra1]
         self.range_body_areas2 = [self.body_areas[2] * ra0, self.body_areas[2] * ra1]
@@ -195,6 +189,13 @@ class BlimpRand(VecEnv):
             self.body_torque_coeff * ra0,
             self.body_torque_coeff * ra1,
         ]
+
+        self.range_effort_thrust = [self.effort_thrust * rb0, self.effort_thrust * rb1]
+        self.range_effort_botthrust = [
+            self.effort_botthrust * rb0,
+            self.effort_botthrust * rb1,
+        ]
+        self.range_ema_smooth = [self.ema_smooth * rb0, self.ema_smooth * rb1]
 
     def create_envs(self):
         # add ground plane
