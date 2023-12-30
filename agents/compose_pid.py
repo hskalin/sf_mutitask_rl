@@ -184,6 +184,8 @@ class RMACompPIDAgent(MultitaskAgent):
         self.explore_method = self.agent_cfg.get("explore_method", "null")
         self.exploit_method = self.agent_cfg.get("exploit_method", "sfgpi")
 
+        self.wandb_verbose = self.agent_cfg.get("wandb_verbose", False)
+
         self.env_latent_dim = self.env.num_latent  # E
         self.observation_dim -= self.env_latent_dim  # S = O-E
         self.env_latent_idx = self.observation_dim + 1
@@ -471,17 +473,19 @@ class RMACompPIDAgent(MultitaskAgent):
                 f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
             }
         )
-        task_return = task_return.detach().tolist()
-        for i in range(len(task_return)):
-            wandb.log(
-                {
-                    f"reward/phase{self.phase}_task_return{i}": task_return[i],
-                }
-            )
         if self.curriculum:
             wandb.log({"reward/curriculum_stage": self.curri_stage})
 
-        return episode_r, episode_steps, {"task_return": task_return}
+        if self.wandb_verbose:
+            task_return = task_return.detach().tolist()
+            for i in range(len(task_return)):
+                wandb.log(
+                    {
+                        f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                    }
+                )
+
+        return episode_r, episode_steps, {}
 
     def evaluate(self):
         episodes = int(self.eval_episodes)
@@ -525,15 +529,16 @@ class RMACompPIDAgent(MultitaskAgent):
                 f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
             }
         )
-        task_return = task_return.detach().tolist()
-        for i in range(len(task_return)):
-            wandb.log(
-                {
-                    f"reward/phase{self.phase}_task_return{i}": task_return[i],
-                }
-            )
+        if self.wandb_verbose:
+            task_return = task_return.detach().tolist()
+            for i in range(len(task_return)):
+                wandb.log(
+                    {
+                        f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                    }
+                )
 
-        return returns, {"task_return": task_return}
+        return returns, {}
 
     def step(self, episode_steps, s):
         assert not torch.isnan(

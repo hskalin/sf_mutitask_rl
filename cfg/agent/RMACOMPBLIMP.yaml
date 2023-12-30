@@ -18,7 +18,7 @@ reward_scale: 1.0
 grad_clip: null
 norm_task_by_sf: True
 use_decoder: True
-use_auxiliary_task: True
+use_auxiliary_task: False
 n_auxTask: 1
 curriculum_learning: True
 use_continuity_loss: True
@@ -27,6 +27,7 @@ use_imitation_loss: True
 imitation_coeff: 10.0
 use_kl_loss: True
 kl_coeff: 0.01
+wandb_verbose: False
 
 sf_net_kwargs: 
     hidden_dim: 512
