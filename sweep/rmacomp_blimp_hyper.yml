@@ -2,15 +2,15 @@ program: run.py
 method: bayes
 metric:
   goal: maximize
-  name: reward/phase2_eval
+  name: reward/phase1_ntriggers
 
 parameters:
   agent.lr:
-    min: 0.0001
-    max: 0.005
+    min: 0.0002
+    max: 0.01
   agent.policy_lr:
-    min: 0.000025
-    max: 0.00125
+    min: 0.00002
+    max: 0.001
   agent.updates_per_step:
     values: [1]
   agent.td_target_update_interval:
@@ -20,7 +20,7 @@ parameters:
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [True]
+    values: [False]
   agent.use_continuity_loss:
     values: [False]
   agent.continuity_coeff:
@@ -33,8 +33,8 @@ parameters:
   agent.use_kl_loss:
     values: [True]
   agent.kl_coeff:
-    min: 10.0
-    max: 1000.0
+    min: 1.0
+    max: 100.0
   agent.lr_schedule:
     values: [False]
   agent.norm_task_by_sf:
@@ -42,33 +42,39 @@ parameters:
   agent.use_decoder:
     values: [True]
   agent.use_auxiliary_task:
-    values: [True, False]
+    values: [False]
   agent.policy_net_kwargs.hidden_dim:
-    values: [128, 256]
+    values: [256]
   agent.policy_net_kwargs.resnet:
     values: [True]
   agent.policy_net_kwargs.fta:
     values: [True]
   agent.sf_net_kwargs.hidden_dim:
-    values: [256, 512]
+    values: [512]
   agent.sf_net_kwargs.resnet:
     values: [True]
   agent.sf_net_kwargs.fta:
     values: [False]
   agent.curriculum_learning:
-    values: [True, False]
+    values: [False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [10, 20]
+    values: [10]
   buffer.mini_batch_size:
     values: [2048]
-  env.num_envs:
-    values: [1024]
+  env.feature.scale_pos:
+    values: [5, 10, 20]
+  env.feature.scale_prox:
+    values: [5, 10, 20]
+  env.feature.scale_ang:
+    values: [30, 40, 50]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:
     values: [True]
+  env.num_envs:
+    values: [1024]
   env.task.taskSet_train:
     values: ["achievable"] # "redundant"
   env.task.taskSet_eval:

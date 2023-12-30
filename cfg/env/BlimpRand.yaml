@@ -42,8 +42,8 @@
 env_name: "BlimpRand"
 num_envs: 1024
 
-episode_max_step: 1000
-total_episodes: 70
+episode_max_step: 500
+total_episodes: 100
 
 mode: "train" # train or test
 
@@ -100,7 +100,7 @@ goal:
   # position trajectory
   kWayPt: 4
   wp_dist: 15
-  trigger_dist: 3
+  trigger_dist: 5
   min_z: 5
 
   rand_pos_targets: True
@@ -125,7 +125,7 @@ task:
   range_b: [0.5, 2.0] # type b var range
 
   # proximity reward
-  proximity_threshold: 5 # [m]
+  proximity_threshold: 7 # [m]
 
   # specify initial task weight
   taskLabels:  ['planar', 'Z', 'trigger', 'yaw2goal', 'proximity', 'yaw','vnorm',  'vx', 'vy', 'vz', 'regPR', 'regThrust']
@@ -158,12 +158,12 @@ task:
 
     achievable:   [
       # controller
-      [1,1,10,1, 0,0,.1, 0,0,0, 0,0],
+      [1,1,20,1, 0,0,.1, 0,0,0, 0,0],
       [0,0,0,0, 1,0,0, 0,0,0, 0,0],
-      [0,0,10,0, 0,0,0, 1,1,1, 0,0],
+      [0,0,20,0, 0,0,0, 1,1,1, 0,0],
 
       # navigation
-      [1,1,10,1, 0,0,.1, 0,0,0, 0,0],
+      [1,1,20,1, 0,0,.1, 0,0,0, 0,0],
       # [0,0,1,0, 0,0,0, 0,0,0, 0,0],
       # [1,.5,.5,.5, 0,0,1, 0,0,0, .1,0],
       # hover
@@ -171,7 +171,7 @@ task:
       # [0,0,0,0, 1,.5,0, 0,0,0, 0,0],
       # [0,0,0,0, 1,0,1, 0,0,0, .1,0],
       # path follow
-      [0,0,10,0, 0,0,0, 1,1,1, 0,0],
+      [0,0,20,0, 0,0,0, 1,1,1, 0,0],
       # [0,0,0,0, 0,0,0, 1,1,1, .1,0],
       ]
 
@@ -179,6 +179,10 @@ task:
 
 feature: 
   verbose: False
+
+  scale_pos: 20
+  scale_prox: 20
+  scale_ang: 50
 
   
 sim:

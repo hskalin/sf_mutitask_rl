@@ -424,7 +424,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def train_episode(self, gui_app=None, gui_rew=None):
         self.episodes += 1
-        episode_r = episode_steps = trigger_wp = 0
+        episode_r = episode_steps = trigger_wp = hover_time = 0
         done = False
 
         print("episode = ", self.episodes)
@@ -439,6 +439,7 @@ class RMACompPIDAgent(MultitaskAgent):
             s = s_next
             self.steps += self.n_env
             trigger_wp += s[:, 7].sum()
+            hover_time += (torch.norm(s[:, 8 : 8 + 3], dim=1) < 7).sum()
             episode_steps += 1
             episode_r += r
 
@@ -467,6 +468,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
                 f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
                 f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
+                f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
             }
         )
         task_return = task_return.detach().tolist()
@@ -494,6 +496,7 @@ class RMACompPIDAgent(MultitaskAgent):
         for i in range(episodes):
             episode_r = 0.0
             trigger_wp = 0
+            hover_time = 0
 
             s = self.reset_env()
             for _ in range(self.episode_max_step):
@@ -507,6 +510,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 s = s_next
                 episode_r += r
                 trigger_wp += s[:, 7].sum()
+                hover_time += (torch.norm(s[:, 8 : 8 + 3], dim=1) < 7).sum()
 
             returns[i] = torch.mean(episode_r).item()
 
@@ -518,6 +522,7 @@ class RMACompPIDAgent(MultitaskAgent):
             {
                 f"reward/phase{self.phase}_eval": torch.mean(returns).item(),
                 f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
+                f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
             }
         )
         task_return = task_return.detach().tolist()

@@ -235,6 +235,10 @@ class BlimpFeature(FeatureAbstract):
         self.feature_cfg = self.env_cfg["feature"]
         self.device = device
 
+        self.scale_pos = self.feature_cfg.get("scale_pos", 20)
+        self.scale_prox = self.feature_cfg.get("scale_prox", 20)
+        self.scale_ang = self.feature_cfg.get("scale_ang", 40)
+
         self.verbose = self.feature_cfg.get("verbose", False)
 
         self.Kp = torch.tensor(
@@ -332,11 +336,11 @@ class BlimpFeature(FeatureAbstract):
         )
 
         # Nav planar:
-        x = self.compute_featurePosNorm(error_posNav[:, 0:2])
+        x = self.compute_featurePosNorm(error_posNav[:, 0:2], scale=self.scale_pos)
         features.append(x)
 
         # Nav z:
-        x = self.compute_featurePosNorm(error_posNav[:, 2:3])
+        x = self.compute_featurePosNorm(error_posNav[:, 2:3], scale=self.scale_pos)
         features.append(x)
 
         # Nav trigger:
@@ -344,11 +348,11 @@ class BlimpFeature(FeatureAbstract):
         features.append(x)
 
         # Nav yaw_to_goal:
-        x = self.compute_featureAngNorm(error_navHeading)
+        x = self.compute_featureAngNorm(error_navHeading, scale=self.scale_ang)
         features.append(x)
 
         # Hov proxDist:
-        x = self.compute_featureProx(s[:, self.slice_err_posHov])
+        x = self.compute_featureProx(s[:, self.slice_err_posHov], scale=self.scale_prox)
         features.append(x)
 
         # Hov yaw:
@@ -387,10 +391,10 @@ class BlimpFeature(FeatureAbstract):
             print(f)
         return f
 
-    def compute_featurePosNorm(self, x, scale=10):
+    def compute_featurePosNorm(self, x, scale=20):
         return self.compute_gaussDist(x, self.Kp, scale)
 
-    def compute_featureProx(self, x, scale=10):
+    def compute_featureProx(self, x, scale=20):
         d = torch.norm(x, dim=1, keepdim=True) ** 2
         prox = self.proxScale * torch.exp(scale * -d / self.Kp**2)
         return torch.where(d > self.ProxThresh, prox, 1)
@@ -398,7 +402,7 @@ class BlimpFeature(FeatureAbstract):
     def compute_featureVelNorm(self, x, scale=30):
         return self.compute_gaussDist(x, self.Kv, scale)
 
-    def compute_featureAngNorm(self, x, scale=40):
+    def compute_featureAngNorm(self, x, scale=50):
         return self.compute_gaussDist(x, self.Ka, scale)
 
     def compute_featureAngVelNorm(self, x, scale=50):

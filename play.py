@@ -154,7 +154,7 @@ def modify_cfg(cfg_dict):
 
     # change these
     cfg_dict["env"]["num_envs"] = 20
-    cfg_dict["agent"]["phase"] = 2  # phase1: encoder, phase2: adaptor
+    cfg_dict["agent"]["phase"] = 1  # phase1: encoder, phase2: adaptor
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0.01
     if "domain_rand" in cfg_dict["env"]["task"]:
