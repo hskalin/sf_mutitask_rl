@@ -466,10 +466,7 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.adaptive_task:
             self.task.adapt_task()
 
-        trigger_wp /= self.n_env
-        hover_time /= self.n_env
         unbiased_metrics = trigger_wp + hover_time / 25
-
         wandb.log(
             {
                 f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
@@ -526,8 +523,6 @@ class RMACompPIDAgent(MultitaskAgent):
 
         print(f"===== finish evaluate ====")
 
-        trigger_wp /= self.n_env
-        hover_time /= self.n_env
         unbiased_metrics = trigger_wp + hover_time / 25
 
         wandb.log(
