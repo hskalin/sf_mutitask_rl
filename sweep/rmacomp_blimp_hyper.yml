@@ -20,13 +20,13 @@ parameters:
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [True, False]
+    values: [True]
   agent.use_continuity_loss:
     values: [False]
   agent.continuity_coeff:
     values: [0.0001]
   agent.use_imitation_loss:
-    values: [True]
+    values: [True, False]
   agent.imitation_coeff:
     values: [50.0]
   agent.use_kl_loss:

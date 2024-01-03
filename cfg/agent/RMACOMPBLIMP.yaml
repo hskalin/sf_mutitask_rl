@@ -2,7 +2,7 @@ name: "rmacompblimp"
 explore_method: "null"
 exploit_method: "sfgpi"
 rma: True
-phase: 2  # phase: [encoder, adaptor, fine-tune, deploy]
+phase: 1  # phase: [encoder, adaptor, fine-tune, deploy]
 entropy_tuning: True
 alpha: 1.0
 alpha_lr: 3e-4
@@ -28,7 +28,7 @@ imitation_coeff: 10.0
 use_kl_loss: True
 kl_coeff: 0.01
 wandb_verbose: False
-load_model: True
+load_model: False
 model_path: "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"
 
 sf_net_kwargs: 

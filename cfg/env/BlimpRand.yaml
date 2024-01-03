@@ -43,7 +43,7 @@ env_name: "BlimpRand"
 num_envs: 1024
 
 episode_max_step: 500
-total_episodes: 200
+total_episodes: 70
 
 mode: "train" # train or test
 
@@ -90,7 +90,7 @@ aero:
   wind_std: 0.05
 
 goal: 
-  type: "fix" # rand, fix
+  type: "rand" # rand, fix
 
   pos_lim: 20
   vel_lim: 5
