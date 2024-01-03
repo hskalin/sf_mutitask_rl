@@ -16,25 +16,23 @@ parameters:
   agent.td_target_update_interval:
     values: [1]
   agent.explore_method:
-    values: ["null"]
+    values: ["null", "sfgpi"]
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [False]
+    values: [True, False]
   agent.use_continuity_loss:
     values: [False]
   agent.continuity_coeff:
     values: [0.0001]
   agent.use_imitation_loss:
-    values: [True]
+    values: [True, False]
   agent.imitation_coeff:
-    min: 1.0
-    max: 100.0
+    values: [50.0]
   agent.use_kl_loss:
-    values: [True]
+    values: [True, False]
   agent.kl_coeff:
-    min: 1.0
-    max: 100.0
+    values: [100.0]
   agent.lr_schedule:
     values: [False]
   agent.norm_task_by_sf:
@@ -57,6 +55,8 @@ parameters:
     values: [False]
   agent.curriculum_learning:
     values: [False]
+  agent.load_model:
+    values: [True, False]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
@@ -64,11 +64,13 @@ parameters:
   buffer.mini_batch_size:
     values: [2048]
   env.feature.scale_pos:
-    values: [5, 10, 20]
+    values: [20]
   env.feature.scale_prox:
-    values: [5, 10, 20]
+    values: [20]
   env.feature.scale_ang:
-    values: [30, 40, 50]
+    values: [50]
+  env.goal.type:
+    values: ["rand"]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:

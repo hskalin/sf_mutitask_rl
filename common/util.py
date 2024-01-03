@@ -11,6 +11,7 @@ from typing import Dict
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 class AverageMeter(nn.Module):
     def __init__(self, in_shape, max_size):
         super(AverageMeter, self).__init__()
@@ -87,8 +88,6 @@ def update_dict(d, u):
         else:
             d[k] = v
     return d
-
-
 
 
 def get_sa_pairs(s: torch.tensor, a: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
@@ -173,6 +172,11 @@ def grad_false(network):
         param.requires_grad = False
 
 
+def grad_true(network):
+    for param in network.parameters():
+        param.requires_grad = True
+
+
 def assert_shape(tensor, expected_shape):
     tensor_shape = tensor.shape
     assert len(tensor_shape) == len(
@@ -181,7 +185,6 @@ def assert_shape(tensor, expected_shape):
     assert all(
         [a == b for a, b in zip(tensor_shape, expected_shape)][1:]
     ), f"expect shape a {tensor_shape}, b {expected_shape}"
-
 
 
 def np2ts(obj: np.ndarray) -> torch.Tensor:

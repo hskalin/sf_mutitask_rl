@@ -17,6 +17,7 @@ from common.util import (
     check_act,
     check_obs,
     grad_false,
+    grad_true,
     hard_update,
     np2ts,
     pile_sa_pairs,
@@ -144,6 +145,9 @@ class RMACompPIDAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 
+        self.load_model = self.agent_cfg.get("load_model", False)
+        self.model_path = self.agent_cfg.get("model_path", None)
+
         self.framestacked_replay = self.buffer_cfg["framestacked_replay"]
         self.stack_size = self.buffer_cfg["stack_size"]
         assert (
@@ -192,13 +196,15 @@ class RMACompPIDAgent(MultitaskAgent):
         self.env_latent_idx = self.observation_dim + 1
 
         # rma: train an adaptor module for sim-to-real
-        # [phase1: train. phase2: train adaptation module. phase3: deploy]
+        # phase: [encoder, adaptor, fine-tune, deploy]
         self.rma = self.agent_cfg["rma"]
         self.phase = self.agent_cfg.get("phase", 1)
-        self.episodes_phase2 = int(self.total_episodes // 3)
-        self.timesteps_phase2 = (
-            self.n_env * self.episode_max_step * self.episodes_phase2
-        )
+        if self.rma:
+            self.episodes_phase2 = int(self.total_episodes // 4)
+            self.episodes_phase3 = int(self.total_episodes // 4)
+        else:
+            self.episodes_phase2 = 0
+            self.episodes_phase3 = int(self.total_episodes // 2)
 
         # define primitive tasks
         self.w_primitive = self.task.Train.taskSet
@@ -269,6 +275,9 @@ class RMACompPIDAgent(MultitaskAgent):
             stack_size=self.stack_size - 1,
         ).to(self.device)
         self.adaptor_loss = nn.MSELoss()
+
+        if self.load_model and self.model_path is not None:
+            self.load_torch_model(self.model_path)
 
         params = [
             {"params": self.sf.parameters()},
@@ -364,6 +373,55 @@ class RMACompPIDAgent(MultitaskAgent):
             self.lat_rb = self.env_cfg["task"]["range_b"]
 
     def run(self):
+        if self.phase == 1:
+            self.train_phase(self.episodes + self.total_episodes, self.curriculum)
+            self.phase += 1
+
+        if self.phase == 2 and self.rma:
+            grad_false(self.sf)
+            grad_false(self.sf_target)
+            grad_false(self.policy)
+            grad_false(self.encoder)
+            if self.use_decoder:
+                grad_false(self.decoder)
+
+            self.train_phase(self.episodes + self.episodes_phase2)
+            self.phase += 1
+
+        if self.phase == 3:
+            grad_true(self.sf)
+            grad_true(self.sf_target)
+            grad_true(self.policy)
+            grad_false(self.encoder)
+            if self.use_decoder:
+                grad_false(self.decoder)
+
+            self.train_phase(self.episodes + self.episodes_phase3)
+
+        print(f"============= finish =============")
+
+    def update_curri_stage(self):
+        self.curri_stage += 1
+
+        step_size_a = (
+            1
+            / self.total_curistages
+            * (self.lat_ra[1] - self.lat_ra[0])
+            * self.curri_stage
+        )
+        step_size_b = (
+            1
+            / self.total_curistages
+            * (self.lat_rb[1] - self.lat_rb[0])
+            * self.curri_stage
+        )
+
+        range_a = [1 - step_size_a, 1 + step_size_a]
+        range_b = [1 - step_size_b, 1 + step_size_b]
+
+        self.env.set_latent_range(range_a, range_b)
+
+    def train_phase(self, episodes, curriculum=False):
         print(f"============= start phase {self.phase} =============")
         while True:
             self.train_episode()
@@ -374,56 +432,11 @@ class RMACompPIDAgent(MultitaskAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.episodes >= self.total_episodes:
+            if self.episodes > episodes:
                 break
 
-            if self.curriculum and self.episodes >= int(
-                self.curri_epi[self.curri_stage]
-            ):
-                self.curri_stage += 1
-
-                step_size_a = (
-                    1
-                    / self.total_curistages
-                    * (self.lat_ra[1] - self.lat_ra[0])
-                    * self.curri_stage
-                )
-                step_size_b = (
-                    1
-                    / self.total_curistages
-                    * (self.lat_rb[1] - self.lat_rb[0])
-                    * self.curri_stage
-                )
-
-                range_a = [1 - step_size_a, 1 + step_size_a]
-                range_b = [1 - step_size_b, 1 + step_size_b]
-
-                self.env.set_latent_range(range_a, range_b)
-
-        if self.rma:
-            self.phase = 2
-
-            grad_false(self.sf)
-            grad_false(self.sf_target)
-            grad_false(self.policy)
-            grad_false(self.encoder)
-            if self.use_decoder:
-                grad_false(self.decoder)
-
-            print(f"============= start phase {self.phase} =============")
-            while True:
-                self.train_episode()
-
-                if self.eval and (self.episodes % self.eval_interval == 0):
-                    self.evaluate()
-
-                    if self.save_model:
-                        self.save_torch_model()
-
-                if self.episodes > self.total_episodes + self.episodes_phase2:
-                    break
-
-        print(f"============= finish =============")
+            if curriculum and self.episodes >= int(self.curri_epi[self.curri_stage]):
+                self.update_curri_stage()
 
     def train_episode(self, gui_app=None, gui_rew=None):
         self.episodes += 1
@@ -650,8 +663,13 @@ class RMACompPIDAgent(MultitaskAgent):
     def learn(self):
         if self.phase == 1:
             self.learn_phase1()
-        else:
+        elif self.phase == 2:
             self.learn_phase2()
+        elif self.phase == 3:
+            self.use_decoder = False
+            self.learn_phase1()
+        else:
+            pass
 
     def learn_phase1(self):
         self.learn_steps += 1
@@ -760,13 +778,20 @@ class RMACompPIDAgent(MultitaskAgent):
             batch["next_obs"],
             batch["done"],
         )
-
         s, e = self.parse_state(s)
-        z = self.encoder(e)
-        s = torch.concat([s, z], dim=1)
-
         s_next, e_next = self.parse_state(s_next)
-        z_next = self.encoder(e_next)
+
+        if self.phase == 3:
+            s_stack, _ = self.parse_state(
+                batch["stacked_obs"]
+            )  # [N,S,K], [N,E,K] <-- [N, S+E, K]
+            z = self.adaptor(s_stack[:, :, 1:])  # [N, S, K-1]
+            z_next = self.adaptor(s_stack[:, :, :-1])  # [N, S, K-1]
+        else:
+            z = self.encoder(e)
+            z_next = self.encoder(e_next)
+
+        s = torch.concat([s, z], dim=1)  # [N, S+Z]
         s_next = torch.concat([s_next, z_next], dim=1)  # [N, S+Z]
 
         # compute sf loss
@@ -816,11 +841,15 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def update_policy(self, batch):
         s_stack, a_stack = batch["stacked_obs"], batch["stacked_act"]
+        s, e = self.parse_state(s_stack[:, :, 0])  # [N, S], [N, E]
 
-        s = s_stack[:, :, 0]
-        s_raw, e = self.parse_state(s)  # [N, S], [N, E]
-        z = self.encoder(e)
-        s = torch.concat([s_raw, z], dim=1)
+        if self.phase == 3:
+            s_stack, _ = self.parse_state(s_stack)  # [N,S,K], [N,E,K] <-- [N, S+E, K]
+            z = self.adaptor(s_stack[:, :, 1:])  # [N, S, K-1]
+        else:
+            z = self.encoder(e)
+
+        s = torch.concat([s, z], dim=1)
 
         # [N,H,A], [N, H, 1] <-- [N,S+Z]
         a_heads, entropies, dist, _ = self.policy.sample(s)

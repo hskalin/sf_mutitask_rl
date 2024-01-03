@@ -262,7 +262,7 @@ class BlimpFeature(FeatureAbstract):
             print("[Feature] dim", self.dim)
 
         self.proxScale = 1 / self.compute_gaussDist(
-            mu=self.ProxThresh[None, None], sigma=self.Kp, scale=25
+            mu=self.ProxThresh[None, None], sigma=self.Kp, scale=self.scale_prox
         )
 
         # robot angle
@@ -336,7 +336,7 @@ class BlimpFeature(FeatureAbstract):
         )
 
         # Nav planar:
-        x = self.compute_featurePosNorm(error_posNav[:, 0:2], scale=self.scale_pos)
+        x = self.compute_featureProx(error_posNav[:, 0:2], scale=self.scale_prox)
         features.append(x)
 
         # Nav z:
