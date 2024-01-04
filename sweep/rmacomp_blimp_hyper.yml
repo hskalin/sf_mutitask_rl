@@ -16,17 +16,17 @@ parameters:
   agent.td_target_update_interval:
     values: [1]
   agent.explore_method:
-    values: ["null", "sfgpi"]
+    values: ["null"]
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [True]
+    values: [False]
   agent.use_continuity_loss:
     values: [False]
   agent.continuity_coeff:
     values: [0.0001]
   agent.use_imitation_loss:
-    values: [True, False]
+    values: [True]
   agent.imitation_coeff:
     values: [50.0]
   agent.use_kl_loss:
@@ -34,7 +34,7 @@ parameters:
   agent.kl_coeff:
     values: [100.0]
   agent.lr_schedule:
-    values: [False]
+    values: [True, False]
   agent.norm_task_by_sf:
     values: [False]
   agent.use_decoder:
@@ -56,14 +56,13 @@ parameters:
   agent.curriculum_learning:
     values: [False]
   agent.load_model:
-    values: [True, False]
+    values: [True]
   agent.model_path: 
-    values: ["/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/", 
-    "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-01-14-27-22/model50/"]
+    values: ["/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
-    values: [10]
+    values: [30]
   buffer.mini_batch_size:
     values: [2048]
   env.feature.scale_pos:

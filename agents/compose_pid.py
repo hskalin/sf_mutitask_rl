@@ -200,11 +200,11 @@ class RMACompPIDAgent(MultitaskAgent):
         self.rma = self.agent_cfg["rma"]
         self.phase = self.agent_cfg.get("phase", 1)
         if self.rma:
-            self.episodes_phase2 = int(self.total_episodes // 4)
-            self.episodes_phase3 = int(self.total_episodes // 4)
+            self.episodes_phase2 = int(self.total_episodes // 3)
+            self.episodes_phase3 = int(self.total_episodes // 3)
         else:
             self.episodes_phase2 = 0
-            self.episodes_phase3 = int(self.total_episodes // 2)
+            self.episodes_phase3 = int(self.total_episodes // 1.5)
 
         # define primitive tasks
         self.w_primitive = self.task.Train.taskSet
@@ -277,6 +277,7 @@ class RMACompPIDAgent(MultitaskAgent):
         self.adaptor_loss = nn.MSELoss()
 
         if self.load_model and self.model_path is not None:
+            print("load model:", self.model_path)
             self.load_torch_model(self.model_path)
 
         params = [
@@ -371,6 +372,8 @@ class RMACompPIDAgent(MultitaskAgent):
             )
             self.lat_ra = self.env_cfg["task"]["range_a"]
             self.lat_rb = self.env_cfg["task"]["range_b"]
+        
+        self.idx_trig = 7
 
     def run(self):
         if self.phase == 1:
@@ -454,7 +457,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
             s = s_next
             self.steps += self.n_env
-            trigger_wp += s[:, 7].sum()
+            trigger_wp += s[:, self.idx_trig].sum()
             hover_time += (torch.norm(s[:, 8 : 8 + 3], dim=1) < 7).sum()
             episode_steps += 1
             episode_r += r
@@ -479,14 +482,14 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.adaptive_task:
             self.task.adapt_task()
 
-        unbiased_metrics = trigger_wp + hover_time / 25
+        metrics = trigger_wp + hover_time / 25
         wandb.log(
             {
                 f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
                 f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
                 f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
                 f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
-                f"reward/phase{self.phase}_unbiased_metrics": unbiased_metrics.detach().item(),
+                f"reward/phase{self.phase}_metrics": metrics.detach().item(),
             }
         )
         if self.curriculum:
@@ -529,21 +532,21 @@ class RMACompPIDAgent(MultitaskAgent):
 
                 s = s_next
                 episode_r += r
-                trigger_wp += s[:, 7].sum()
+                trigger_wp += s[:, self.idx_trig].sum()
                 hover_time += (torch.norm(s[:, 8 : 8 + 3], dim=1) < 7).sum()
 
             returns[i] = torch.mean(episode_r).item()
 
         print(f"===== finish evaluate ====")
 
-        unbiased_metrics = trigger_wp + hover_time / 25
+        metrics = trigger_wp + hover_time / 25
 
         wandb.log(
             {
                 f"reward/phase{self.phase}_eval": torch.mean(returns).item(),
                 f"reward/phase{self.phase}_eval_ntriggers": trigger_wp.detach().item(),
                 f"reward/phase{self.phase}_eval_hovertime": hover_time.detach().item(),
-                f"reward/phase{self.phase}_eval_unbiased_metrics": unbiased_metrics.detach().item(),
+                f"reward/phase{self.phase}_eval_metrics": metrics.detach().item(),
             }
         )
         if self.wandb_verbose:
@@ -580,6 +583,17 @@ class RMACompPIDAgent(MultitaskAgent):
         r = self.calc_reward(s_next, self.task.Train.W)
 
         masked_done = False if episode_steps >= self.episode_max_step else done
+
+        # trigger if not hover task
+        trigger = s_next[:, self.idx_trig]
+        hov_task = self.task.Train.W[:, 4] >0 #TODO: dangerous
+        trigger = torch.where(
+            hov_task, torch.zeros_like(trigger), trigger
+        )
+        masked_done = torch.where(
+            trigger.to(bool), torch.ones_like(trigger), masked_done
+        )
+
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
 
         if self.is_update():

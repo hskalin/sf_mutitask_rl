@@ -142,6 +142,8 @@ class PlayUI:
 def modify_cfg(cfg_dict):
     # don't change these
     cfg_dict["agent"]["norm_task_by_sf"] = False
+    cfg_dict["agent"]["use_decoder"] = False
+    cfg_dict["agent"]["load_model"] = False
     cfg_dict["env"]["save_model"] = False
     cfg_dict["buffer"]["n_env"] = cfg_dict["env"]["num_envs"]
     cfg_dict["buffer"]["min_n_experience"] = 0
@@ -154,7 +156,7 @@ def modify_cfg(cfg_dict):
 
     # change these
     cfg_dict["env"]["num_envs"] = 10
-    cfg_dict["agent"]["phase"] = 4  # phase: [encoder, adaptor, fine-tune, deploy]
+    cfg_dict["agent"]["phase"] = 1  # phase: [encoder, adaptor, fine-tune, deploy]
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0.01
     if "domain_rand" in cfg_dict["env"]["task"]:
@@ -174,9 +176,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb_dict = fix_wandb(wandb.config)
 
     model_folder = (
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-01-14-27-22"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-04-08-23-23"
     )
-    model_checkpoint = "model50"
+    model_checkpoint = "model100"
 
     cfg_path = model_folder + "/cfg"
     model_path = model_folder + "/" + model_checkpoint + "/"

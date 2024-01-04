@@ -20,15 +20,15 @@ norm_task_by_sf: True
 use_decoder: True
 use_auxiliary_task: False
 n_auxTask: 1
-curriculum_learning: True
-use_continuity_loss: True
+curriculum_learning: False
+use_continuity_loss: False
 continuity_coeff: 0.01
 use_imitation_loss: True
-imitation_coeff: 10.0
+imitation_coeff: 50.0
 use_kl_loss: True
-kl_coeff: 0.01
+kl_coeff: 100.0
 wandb_verbose: False
-load_model: False
+load_model: True
 model_path: "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"
 
 sf_net_kwargs: 
