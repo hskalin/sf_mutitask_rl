@@ -135,7 +135,7 @@ class Compositions:
 
         if self.norm_task_by_sf:
             w /= curr_sf.mean([0, 1, 2]).abs()  # normalized by SF scale
-            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
+            w /= (w.norm(1, 1, keepdim=True)+1e-6)  # [N, Ha], H=F
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         qs = torch.einsum("ijkl,il->ijk", curr_sf, w)

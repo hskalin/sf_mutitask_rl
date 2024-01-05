@@ -63,7 +63,7 @@ class TaskObject:
         self.id = id
 
     def normalize_task(self, w):
-        w /= w.norm(1, 1, keepdim=True)
+        w /= (w.norm(1, 1, keepdim=True)+1e-7)
         return w
 
     def sample_taskID(self, ratio):
