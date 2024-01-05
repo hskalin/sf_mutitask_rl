@@ -277,6 +277,7 @@ class RMACompPIDAgent(MultitaskAgent):
         self.adaptor_loss = nn.MSELoss()
 
         if self.load_model and self.model_path is not None:
+            self.model_path = self.env_cfg["log_path"] + self.model_path
             print("load model:", self.model_path)
             self.load_torch_model(self.model_path)
 
@@ -376,11 +377,11 @@ class RMACompPIDAgent(MultitaskAgent):
         self.idx_trig = 7
 
     def run(self):
-        if self.phase == 1:
+        if self.phase == 1: # train everything and encoder, isaacgym
             self.train_phase(self.episodes + self.total_episodes, self.curriculum)
             self.phase += 1
 
-        if self.phase == 2 and self.rma:
+        if self.phase == 2 and self.rma: # train adaptor, isaacgym+gazebo
             grad_false(self.sf)
             grad_false(self.sf_target)
             grad_false(self.policy)
@@ -391,7 +392,7 @@ class RMACompPIDAgent(MultitaskAgent):
             self.train_phase(self.episodes + self.episodes_phase2)
             self.phase += 1
 
-        if self.phase == 3:
+        if self.phase == 3: # train everything without encoder, isaacgym+gazebo
             grad_true(self.sf)
             grad_true(self.sf_target)
             grad_true(self.policy)
@@ -537,9 +538,11 @@ class RMACompPIDAgent(MultitaskAgent):
 
             returns[i] = torch.mean(episode_r).item()
 
+        metrics = trigger_wp + hover_time / 25
+
+        print(f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}")
         print(f"===== finish evaluate ====")
 
-        metrics = trigger_wp + hover_time / 25
 
         wandb.log(
             {

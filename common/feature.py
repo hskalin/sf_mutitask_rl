@@ -237,7 +237,7 @@ class BlimpFeature(FeatureAbstract):
 
         self.scalePos = self.feature_cfg.get("scale_pos", 20)
         self.scaleProx = self.feature_cfg.get("scale_prox", 20)
-        self.scaleAng = self.feature_cfg.get("scale_ang", 40)
+        self.scaleAng = self.feature_cfg.get("scale_ang", 50)
 
         self.verbose = self.feature_cfg.get("verbose", False)
 
@@ -402,7 +402,7 @@ class BlimpFeature(FeatureAbstract):
     def compute_featureProx(self, x, proxScale, threshold, scale=20):
         d = torch.norm(x, dim=1, keepdim=True) 
         prox = proxScale * torch.exp(scale * -d** 2 / self.Kp**2)
-        return torch.where(d > threshold, prox, 1)
+        return torch.clip(torch.where(d > threshold, prox, 1), 0, 1)
 
     def compute_featureVelNorm(self, x, scale=30):
         return self.compute_gaussDist(x, self.Kv, scale)

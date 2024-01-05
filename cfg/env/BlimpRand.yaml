@@ -57,7 +57,7 @@ log_interval: 5 # wandb log
 
 blimp:
   spawn_height: 20
-  reset_dist: 30
+  reset_dist: 25
 
   mass: 8.907
   ema_smooth: [0.2, 0.3] # [thrust, stick]
@@ -98,10 +98,10 @@ goal:
 
   # rand goal
   # position trajectory
-  kWayPt: 4
-  wp_dist: 15
+  kWayPt: 3
+  wp_dist: 13
   trigger_dist: 4
-  min_z: 10
+  min_z: 5
 
   rand_pos_targets: True
   rand_ang_targets: True

@@ -3,6 +3,10 @@ import math
 import numpy as np
 
 
+def PointsInCircum(r,z,n=10):
+    pi = math.pi
+    return [(math.cos(2*pi/n*x)*r,math.sin(2*pi/n*x)*r, z) for x in range(0,n+1)]
+
 class FixWayPoints:
     """fixed waypoints"""
 
@@ -20,8 +24,10 @@ class FixWayPoints:
 
         self.pos_lim = pos_lim
 
+        self.Kv = 0.1
+
         wps = torch.tensor(
-            [[[15, -15, 20], [15, 15, 20], [-15, 15, 20], [-15, -15, 20]]],
+            [[[10, -10, 20], [10, 0, 20], [10, 10, 20], [0, 10, 20], [-10, 10, 20], [-10, 0, 20], [-10, -10, 20], [0, -10, 20]]],
             device=self.device,
             dtype=torch.float32,
         )
@@ -77,7 +83,7 @@ class FixWayPoints:
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        self.update_vel(rb_pos)
+        self.update_vel(rb_pos, Kv=self.Kv)
         return trigger
 
     def reset(self, env_ids):
@@ -152,6 +158,13 @@ class RandomWayPoints(FixWayPoints):
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
 
+        wps = torch.tensor(
+            PointsInCircum(self.pos_lim/2, self.pos_lim, self.kWayPt-1),
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self.pos_nav = torch.tile(wps, (self.num_envs, 1, 1))
+
         if init_pos is not None:
             self.init_pos = init_pos
             self.pos_hov = torch.tile(
@@ -201,7 +214,7 @@ class RandomWayPoints(FixWayPoints):
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        self.update_vel(rb_pos)
+        self.update_vel(rb_pos, Kv=self.Kv)
         return trigger
 
     def sample(self, env_ids):
@@ -212,8 +225,8 @@ class RandomWayPoints(FixWayPoints):
 
         if self.rand_vel:
             self.velnorm[env_ids] = torch.abs(
-                self._sample((len(env_ids), 1), self.vel_lim)
-            )
+                self._sample((len(env_ids), 1), self.vel_lim-1)
+            ) + 1 # min 1 [m/s]
 
         if self.rand_ang:
             self.ang[env_ids] = self._sample((len(env_ids), 3), math.pi)
@@ -226,29 +239,22 @@ class RandomWayPoints(FixWayPoints):
 
     def _sample_on_distance(self, size, scale, kWP, dist):
         """next wp is spawned [dist] from prev wp"""
-        pos = self._sample((size, kWP, 3), scale)
+        # pos = self._sample((size, kWP, 3), scale)
+        pos = torch.zeros(size=(size, kWP, 3), device=self.device)
+        pos[..., 2] = self.pos_lim
         for i in range(kWP - 1):
             x = self._sample((size, 3))
             x = dist * x / torch.norm(x, dim=1, keepdim=True)
             pos[:, i + 1] = pos[:, i] + x
 
-        pos[..., 0] = torch.where(
-            pos[..., 0] >= self.reset_dist, self.pos_lim, pos[..., 0]
-        )
-        pos[..., 0] = torch.where(
-            pos[..., 0] <= -self.reset_dist, -self.pos_lim, pos[..., 0]
-        )
-        pos[..., 1] = torch.where(
-            pos[..., 1] >= self.reset_dist, self.pos_lim, pos[..., 1]
-        )
-        pos[..., 1] = torch.where(
-            pos[..., 1] <= -self.reset_dist, -self.pos_lim, pos[..., 1]
-        )
         pos[..., 2] = torch.where(
             pos[..., 2] <= self.min_z, self.pos_lim, pos[..., 2]
         )
-
+        pos[..., 2] = torch.where(
+            pos[..., 2] >= 2*self.pos_lim, self.pos_lim, pos[..., 2]
+        )
         return pos
+
 
     def reset(self, env_ids):
         self.idx[env_ids] = 0
