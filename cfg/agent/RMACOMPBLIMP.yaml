@@ -28,8 +28,8 @@ imitation_coeff: 50.0
 use_kl_loss: True
 kl_coeff: 100.0
 wandb_verbose: False
-load_model: True
-model_path: "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"
+load_model: False
+model_path: None
 
 sf_net_kwargs: 
     hidden_dim: 512

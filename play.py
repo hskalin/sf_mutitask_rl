@@ -156,7 +156,8 @@ def modify_cfg(cfg_dict):
 
     # change these
     cfg_dict["env"]["num_envs"] = 10
-    cfg_dict["agent"]["phase"] = 1  # phase: [encoder, adaptor, fine-tune, deploy]
+    cfg_dict["agent"]["phase"] = 3  # phase: [encoder, adaptor, fine-tune, deploy]
+    # cfg_dict["env"]["goal"]["trigger_dist"] = 5
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0.01
     if "domain_rand" in cfg_dict["env"]["task"]:
@@ -176,9 +177,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb_dict = fix_wandb(wandb.config)
 
     model_folder = (
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-04-08-23-23"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-04-14-01-32"
     )
-    model_checkpoint = "model100"
+    model_checkpoint = "model125"
 
     cfg_path = model_folder + "/cfg"
     model_path = model_folder + "/" + model_checkpoint + "/"

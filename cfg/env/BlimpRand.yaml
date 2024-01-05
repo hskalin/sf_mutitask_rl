@@ -43,7 +43,7 @@ env_name: "BlimpRand"
 num_envs: 1024
 
 episode_max_step: 500
-total_episodes: 100
+total_episodes: 200
 
 mode: "train" # train or test
 
@@ -57,7 +57,7 @@ log_interval: 5 # wandb log
 
 blimp:
   spawn_height: 20
-  reset_dist: 20
+  reset_dist: 30
 
   mass: 8.907
   ema_smooth: [0.2, 0.3] # [thrust, stick]
@@ -99,14 +99,14 @@ goal:
   # rand goal
   # position trajectory
   kWayPt: 4
-  wp_dist: 10
+  wp_dist: 15
   trigger_dist: 4
   min_z: 10
 
   rand_pos_targets: True
   rand_ang_targets: True
   rand_vel_targets: True
-  rand_avel_targets: True
+  rand_avel_targets: False
 
   # targets for play
   target_pos:     [0, 0, 20] # x, y, z
@@ -158,12 +158,12 @@ task:
 
     achievable:   [
       # controller
-      [1,1,10,1, 0,0,.5, 0,0,0, .1,0],
+      [1,1,100,1, 0,0,.5, 0,0,0, .1,0],
       [0,0,0,0, 10,0,0, 0,0,0, .1,.1],
       [0,0,10,0, 0,0,0, 1,1,1, .1,0],
 
       # navigation
-      [.1,.1,1,.1, 0,0,.1, 0,0,0, .1,0],
+      [.1,.1,10,.1, 0,0,.1, 0,0,0, .1,0],
       # [1,.5,.5,.5, 0,0,1, 0,0,0, .1,0],
       # hover
       [0,0,0,0, 10,.2,0, 0,0,0, .1,.1],

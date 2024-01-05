@@ -485,11 +485,11 @@ class RMACompPIDAgent(MultitaskAgent):
         metrics = trigger_wp + hover_time / 25
         wandb.log(
             {
-                f"reward/phase{self.phase}_train": self.game_rewards.get_mean(),
-                f"reward/phase{self.phase}_episode_length": self.game_lengths.get_mean(),
-                f"reward/phase{self.phase}_ntriggers": trigger_wp.detach().item(),
-                f"reward/phase{self.phase}_hovertime": hover_time.detach().item(),
-                f"reward/phase{self.phase}_metrics": metrics.detach().item(),
+                f"reward_phase{self.phase}/train": self.game_rewards.get_mean(),
+                f"reward_phase{self.phase}/episode_length": self.game_lengths.get_mean(),
+                f"reward_phase{self.phase}/ntriggers": trigger_wp.detach().item(),
+                f"reward_phase{self.phase}/hovertime": hover_time.detach().item(),
+                f"reward_phase{self.phase}/metrics": metrics.detach().item(),
             }
         )
         if self.curriculum:
@@ -500,7 +500,7 @@ class RMACompPIDAgent(MultitaskAgent):
             for i in range(len(task_return)):
                 wandb.log(
                     {
-                        f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                        f"reward_phase{self.phase}/task_return{i}": task_return[i],
                     }
                 )
 
@@ -543,10 +543,10 @@ class RMACompPIDAgent(MultitaskAgent):
 
         wandb.log(
             {
-                f"reward/phase{self.phase}_eval": torch.mean(returns).item(),
-                f"reward/phase{self.phase}_eval_ntriggers": trigger_wp.detach().item(),
-                f"reward/phase{self.phase}_eval_hovertime": hover_time.detach().item(),
-                f"reward/phase{self.phase}_eval_metrics": metrics.detach().item(),
+                f"reward_phase{self.phase}/eval": torch.mean(returns).item(),
+                f"reward_phase{self.phase}/eval_ntriggers": trigger_wp.detach().item(),
+                f"reward_phase{self.phase}/eval_hovertime": hover_time.detach().item(),
+                f"reward_phase{self.phase}/eval_metrics": metrics.detach().item(),
             }
         )
         if self.wandb_verbose:
@@ -555,7 +555,7 @@ class RMACompPIDAgent(MultitaskAgent):
             for i in range(len(task_return)):
                 wandb.log(
                     {
-                        f"reward/phase{self.phase}_task_return{i}": task_return[i],
+                        f"reward_phase{self.phase}/task_return{i}": task_return[i],
                     }
                 )
 
@@ -680,7 +680,6 @@ class RMACompPIDAgent(MultitaskAgent):
         elif self.phase == 2:
             self.learn_phase2()
         elif self.phase == 3:
-            self.use_decoder = False
             self.learn_phase1()
         else:
             pass

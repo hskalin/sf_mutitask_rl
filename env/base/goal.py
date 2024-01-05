@@ -123,6 +123,7 @@ class RandomWayPoints(FixWayPoints):
         wp_dist=10 / np.sqrt(3),  # [m] generate next wp within range
         trigger_dist=2,  # [m] activate next wp if robot within range
         min_z=5,
+        reset_dist=30,
     ) -> None:
         super().__init__(
             device=device,
@@ -147,6 +148,7 @@ class RandomWayPoints(FixWayPoints):
         self.wp_dist = wp_dist
         self.trigger_dist = torch.tensor(trigger_dist).to(self.device)
         self.min_z = min_z
+        self.reset_dist = reset_dist
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
 
@@ -209,7 +211,6 @@ class RandomWayPoints(FixWayPoints):
             )
 
         if self.rand_vel:
-            self.vel[env_ids] = self._sample((len(env_ids), 3), self.vel_lim)
             self.velnorm[env_ids] = torch.abs(
                 self._sample((len(env_ids), 1), self.vel_lim)
             )
@@ -231,10 +232,22 @@ class RandomWayPoints(FixWayPoints):
             x = dist * x / torch.norm(x, dim=1, keepdim=True)
             pos[:, i + 1] = pos[:, i] + x
 
-        pos[..., 2] += self.pos_lim
-        pos[..., 2] = torch.where(
-            pos[..., 2] <= self.min_z, pos[..., 2] + self.min_z, pos[..., 2]
+        pos[..., 0] = torch.where(
+            pos[..., 0] >= self.reset_dist, self.pos_lim, pos[..., 0]
         )
+        pos[..., 0] = torch.where(
+            pos[..., 0] <= -self.reset_dist, -self.pos_lim, pos[..., 0]
+        )
+        pos[..., 1] = torch.where(
+            pos[..., 1] >= self.reset_dist, self.pos_lim, pos[..., 1]
+        )
+        pos[..., 1] = torch.where(
+            pos[..., 1] <= -self.reset_dist, -self.pos_lim, pos[..., 1]
+        )
+        pos[..., 2] = torch.where(
+            pos[..., 2] <= self.min_z, self.pos_lim, pos[..., 2]
+        )
+
         return pos
 
     def reset(self, env_ids):

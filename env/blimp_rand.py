@@ -113,6 +113,7 @@ class BlimpRand(VecEnv):
                 wp_dist=cfg["goal"].get("wp_dist", 10),
                 trigger_dist=cfg["goal"].get("trigger_dist", 2),
                 min_z=cfg["goal"].get("min_z", 5),
+                reset_dist=cfg["blimp"].get("reset_dist", 30),
             )
 
         # initialise envs and state tensors
@@ -1009,7 +1010,7 @@ def compute_point_reward(
         torch.abs(y_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(
-        torch.abs(z_pos) > 2 * reset_dist, torch.ones_like(reset_buf), reset_buf
+        torch.abs(z_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
 
