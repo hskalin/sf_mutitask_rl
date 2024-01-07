@@ -3,9 +3,13 @@ import math
 import numpy as np
 
 
-def PointsInCircum(r,z,n=10):
+def PointsInCircum(r,z,n=8):
     pi = math.pi
     return [(math.cos(2*pi/n*x)*r,math.sin(2*pi/n*x)*r, z) for x in range(0,n+1)]
+
+def PointsInSquare(r,z,n=8):
+    pi = math.pi
+    return [(math.cos(2*pi/n*x)*r, math.sin(2*pi/n*x)*r, z) for x in range(0,n+1)]
 
 class FixWayPoints:
     """fixed waypoints"""
@@ -16,6 +20,7 @@ class FixWayPoints:
         num_envs,
         pos_lim=None,
         trigger_dist=2,
+        style="square",
         **kwargs,
     ) -> None:
         self.num_envs = num_envs
@@ -26,12 +31,20 @@ class FixWayPoints:
 
         self.Kv = 0.1
 
-        wps = torch.tensor(
-            [[[10, -10, 20], [10, 0, 20], [10, 10, 20], [0, 10, 20], [-10, 10, 20], [-10, 0, 20], [-10, -10, 20], [0, -10, 20]]],
-            device=self.device,
-            dtype=torch.float32,
-        )
-        self.kWayPt = wps.squeeze().shape[0]
+        
+        self.kWayPt = 8
+        if style=="square":
+            wps = torch.tensor(
+                [[[10, -10, 20], [10, 0, 20], [10, 10, 20], [0, 10, 20], [-10, 10, 20], [-10, 0, 20], [-10, -10, 20], [0, -10, 20]]],
+                device=self.device,
+                dtype=torch.float32,
+            )
+        else:
+            wps = torch.tensor(
+                PointsInCircum(self.pos_lim/2, self.pos_lim, self.kWayPt-1),
+                device=self.device,
+                dtype=torch.float32,
+            )
         self.pos_nav = torch.tile(wps, (self.num_envs, 1, 1))
 
         self.pos_hov = torch.tile(
@@ -91,7 +104,9 @@ class FixWayPoints:
 
     def update_vel(self, rbpos, Kv=0.1):
         cur_pos = self.get_pos_nav(self.idx)
-        self.vel = Kv*(cur_pos - rbpos)
+        goal_vec = cur_pos - rbpos
+        unit_goal_vec = goal_vec / torch.norm(goal_vec, p=1, keepdim=True)
+        self.vel = Kv*(goal_vec + unit_goal_vec)
 
     def check_idx(self, idx):
         idx = torch.where(idx > self.kWayPt - 1, 0, idx)
