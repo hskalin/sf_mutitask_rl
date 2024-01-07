@@ -57,7 +57,7 @@ log_interval: 5 # wandb log
 
 blimp:
   spawn_height: 20
-  reset_dist: 25
+  reset_dist: 26
 
   mass: 8.907
   ema_smooth: [0.2, 0.3] # [thrust, stick]
@@ -99,7 +99,7 @@ goal:
   # rand goal
   # position trajectory
   kWayPt: 3
-  wp_dist: 13
+  wp_dist: 12
   trigger_dist: 4
   min_z: 5
 
@@ -111,6 +111,7 @@ goal:
   # targets for play
   target_pos:     [0, 0, 20] # x, y, z
   target_vel:     [0, 0, 0] # vx, vy, vz
+  target_velnorm: 2 # [m/s]
   target_ang:     [0, 0, 0] # rpy
   target_angvel:  [0, 0, 0] # wx, wy, wz
 
@@ -158,13 +159,13 @@ task:
 
     achievable:   [
       # controller
-      [1,1,1,1, 0,0,.5, 0,0,0, .1,0],
+      [1,1,1,.5, 0,0,.5, 0,0,0, .1,0],
       [0,0,0,0, 10,0,0, 0,0,0, .1,.1],
       [0,0,10,0, 0,0,0, 1,1,1, .1,0],
 
       # navigation
       [0,.1,1,.1, 0,0,0, 0,0,0, .01,.01],
-      [0,.5,0,1, 0,0,0.5, 0,0,0, .1,0],
+      [0,.5,0,1, 0,0,0.5, 0,0,0, 0,0],
       # hover
       [0,0,0,0, 10,.2,0, 0,0,0, .1,.1],
       # [0,0,0,0, 1,0,1, 0,0,0, .1,0],

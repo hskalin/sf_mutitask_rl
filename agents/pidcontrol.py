@@ -93,8 +93,6 @@ class BlimpPositionController(IsaacAgent):
     def explore(self, s, w):
         err_vx, err_vy, err_vz, err_z = self.parse_state(s)
 
-        print(err_vy)
-
         yaw_ctrl = self.yaw_ctrl.action(err_vy)
         alt_ctrl = 5 * self.alt_ctrl.action(err_vz)
 

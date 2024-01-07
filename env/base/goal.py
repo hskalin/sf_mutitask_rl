@@ -28,9 +28,6 @@ class FixWayPoints:
         self.trigger_dist = trigger_dist
 
         self.pos_lim = pos_lim
-
-        self.Kv = 0.1
-
         
         self.kWayPt = 8
         if style=="square":
@@ -96,7 +93,7 @@ class FixWayPoints:
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        self.update_vel(rb_pos, Kv=self.Kv)
+        self.update_vel(rb_pos, Kv=self.velnorm)
         return trigger
 
     def reset(self, env_ids):
@@ -104,9 +101,9 @@ class FixWayPoints:
 
     def update_vel(self, rbpos, Kv=0.1):
         cur_pos = self.get_pos_nav(self.idx)
-        goal_vec = cur_pos - rbpos
-        unit_goal_vec = goal_vec / torch.norm(goal_vec, p=1, keepdim=True)
-        self.vel = Kv*(goal_vec + unit_goal_vec)
+        target_vec = cur_pos - rbpos
+        target_vec = target_vec / torch.norm(target_vec, p=1, keepdim=True)
+        self.vel = Kv*target_vec
 
     def check_idx(self, idx):
         idx = torch.where(idx > self.kWayPt - 1, 0, idx)
@@ -223,7 +220,7 @@ class RandomWayPoints(FixWayPoints):
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        self.update_vel(rb_pos, Kv=self.Kv)
+        self.update_vel(rb_pos, Kv=self.velnorm)
         return trigger
 
     def sample(self, env_ids):

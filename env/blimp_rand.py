@@ -100,6 +100,7 @@ class BlimpRand(VecEnv):
                 num_envs=self.num_envs,
                 init_pos=cfg["goal"]["target_pos"],
                 init_vel=cfg["goal"]["target_vel"],
+                init_velnorm=cfg["goal"]["target_velnorm"],
                 init_ang=cfg["goal"]["target_ang"],
                 init_angvel=cfg["goal"]["target_angvel"],
                 rand_pos=cfg["goal"].get("rand_pos_targets", True),
