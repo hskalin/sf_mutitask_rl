@@ -220,7 +220,10 @@ class Compositions:
         self.sf = self.sf.eval()
 
         def func(s, a):
-            return torch.min(*self.sf(s, a))  # [NHa, Hsf, F]
+            if self.use_auxiliary_task:
+                return torch.min(*self.sf(s, a))[:, : -self.n_auxTask]  # [NHa, Hsf, F]
+            else:
+                return torch.min(*self.sf(s, a))  # [NHa, Hsf, F]
 
         j = functorch.vmap(functorch.jacrev(func, argnums=1))(s, a)  # [NHa,Hsf,F,A]
         j = j.view(-1, self.n_heads, self.n_heads, self.feature_dim, self.action_dim)

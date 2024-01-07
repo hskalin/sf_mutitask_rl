@@ -181,7 +181,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     model_folder = (
         "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-07-15-52-37"
     )
-    model_checkpoint = "model70" #265
+    model_checkpoint = "model70" 
 
     cfg_path = model_folder + "/cfg"
     model_path = model_folder + "/" + model_checkpoint 
