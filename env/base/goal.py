@@ -90,15 +90,8 @@ class FixWayPoints:
         self.idx[env_ids] = 0
 
     def update_vel(self, rbpos, Kv=0.1):
-        prev_pos = self.get_pos_nav(self.idx - 1)
-        path = self.get_pos_nav() - prev_pos
-
-        k = torch.einsum("ij,ij->i", rbpos - prev_pos, path) / torch.einsum(
-            "ij,ij->i", path, path
-        )
-        k = torch.where(k > 1, 1 - k, k)
-
-        self.vel = Kv * (path + prev_pos + k[:, None] * path - rbpos)
+        cur_pos = self.get_pos_nav(self.idx)
+        self.vel = Kv*(cur_pos - rbpos)
 
     def check_idx(self, idx):
         idx = torch.where(idx > self.kWayPt - 1, 0, idx)
@@ -158,6 +151,7 @@ class RandomWayPoints(FixWayPoints):
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
 
+        assert self.kWayPt > 1, "number of waypoints less than 1"
         wps = torch.tensor(
             PointsInCircum(self.pos_lim/2, self.pos_lim, self.kWayPt-1),
             device=self.device,

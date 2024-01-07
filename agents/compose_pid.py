@@ -173,6 +173,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
         self.use_decoder = self.agent_cfg["use_decoder"]
         self.use_auxiliary_task = self.agent_cfg["use_auxiliary_task"]
+        self.aux_coeff = self.agent_cfg["aux_coeff"]
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
@@ -393,6 +394,18 @@ class RMACompPIDAgent(MultitaskAgent):
             self.phase += 1
 
         if self.phase == 3: # train everything without encoder, isaacgym+gazebo
+            params = [
+                {"params": self.sf.parameters()},
+                {"params": self.adaptor.parameters()},
+            ]
+            if self.use_decoder:
+                params.append({"params": self.decoder.parameters()})
+
+            self.sf_optimizer = Adam(
+                params,
+                lr=self.lr,
+                betas=[0.9, 0.999],
+            )
             grad_true(self.sf)
             grad_true(self.sf_target)
             grad_true(self.policy)
@@ -819,9 +832,9 @@ class RMACompPIDAgent(MultitaskAgent):
             f_next_pred1 = curr_sf1[:, -1]
             f_next_pred2 = curr_sf2[:, -1]
 
-            auxiliary_loss = torch.mean((f_next_pred1 - f_next).pow(2)) + torch.mean(
+            auxiliary_loss = self.aux_coeff*(torch.mean((f_next_pred1 - f_next).pow(2)) + torch.mean(
                 (f_next_pred2 - f_next).pow(2)
-            )
+            ))
             curr_sf1 = curr_sf1[:, : -self.n_auxTask]  # [N, Ha, F]
             curr_sf2 = curr_sf2[:, : -self.n_auxTask]  # [N, Ha, F]
 

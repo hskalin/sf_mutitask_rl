@@ -34,13 +34,13 @@ parameters:
   agent.kl_coeff:
     values: [100.0]
   agent.lr_schedule:
-    values: [True, False]
+    values: [False]
   agent.norm_task_by_sf:
     values: [False]
   agent.use_decoder:
     values: [True]
   agent.use_auxiliary_task:
-    values: [False]
+    values: [True, False]
   agent.policy_net_kwargs.hidden_dim:
     values: [256]
   agent.policy_net_kwargs.resnet:
