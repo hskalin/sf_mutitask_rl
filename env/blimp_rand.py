@@ -1012,7 +1012,7 @@ def compute_point_reward(
         torch.abs(y_pos) > reset_dist, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(
-        z_abs > 2*reset_dist, torch.ones_like(reset_buf), reset_buf
+        z_abs > reset_dist+10, torch.ones_like(reset_buf), reset_buf
     )
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
 

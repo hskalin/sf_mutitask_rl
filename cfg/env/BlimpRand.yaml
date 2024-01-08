@@ -97,7 +97,7 @@ goal:
   avel_lim: 0.5
 
   # fix goal
-  style: "sandglass" # square, sandglass, circle
+  style: "hourglass" # square, sandglass, circle
 
   # rand goal
   # position trajectory
@@ -162,12 +162,12 @@ task:
 
     achievable:   [
       # controller
-      [1,1,1,.5, 0,0,.5, 0,0,0, .1,0],
+      [1,1,10,.5, 0,0,.5, 0,0,0, .1,0],
       [0,0,0,0, 10,0,0, 0,0,0, .1,.1],
       [0,0,10,0, 0,0,0, 1,1,1, .1,0],
 
       # navigation
-      [0,.1,1,.1, 0,0,0, 0,0,0, .01,.01],
+      [0,.1,10,.1, 0,0,0, 0,0,0, .01,.01],
       [0,.5,0,1, 0,0,0.5, 0,0,0, 0,0],
       # hover
       [0,0,0,0, 10,.2,0, 0,0,0, .1,.1],

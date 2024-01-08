@@ -74,7 +74,7 @@ parameters:
   env.goal.type:
     values: ["fix"]
   env.goal.style:
-    values: ["sandglass"]
+    values: ["hourglass"]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:

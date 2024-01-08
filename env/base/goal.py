@@ -21,6 +21,7 @@ class FixWayPoints:
         pos_lim=None,
         trigger_dist=2,
         style="hourglass",
+        vel_update_freq=4,
         **kwargs,
     ) -> None:
         self.num_envs = num_envs
@@ -32,13 +33,13 @@ class FixWayPoints:
         self.kWayPt = 8
         if style=="square":
             wps = torch.tensor(
-                [[[10, -10, 20], [10, 0, 20], [10, 10, 20], [0, 10, 20], [-10, 10, 20], [-10, 0, 20], [-10, -10, 20], [0, -10, 20]]],
+                [[[10, -10, self.pos_lim], [10, 0, self.pos_lim], [10, 10, self.pos_lim], [0, 10, self.pos_lim], [-10, 10, self.pos_lim], [-10, 0, self.pos_lim], [-10, -10, self.pos_lim], [0, -10, self.pos_lim]]],
                 device=self.device,
                 dtype=torch.float32,
             )
         elif style=="hourglass":
             wps = torch.tensor(
-                [[[10, 10, 20], [0, 10, 20], [-10, 10, 20], [0, 0, 20], [10, -10, 20], [0, -10, 20], [-10, -10, 20], [0, 0, 20]]],
+                [[[10, 10, self.pos_lim], [0, 10, self.pos_lim], [-10, 10, self.pos_lim], [0, 0, self.pos_lim], [10, -10, self.pos_lim], [0, -10, self.pos_lim], [-10, -10, self.pos_lim], [0, 0, self.pos_lim]]],
                 device=self.device,
                 dtype=torch.float32,
             )
@@ -51,7 +52,7 @@ class FixWayPoints:
         self.pos_nav = torch.tile(wps, (self.num_envs, 1, 1))
 
         self.pos_hov = torch.tile(
-            torch.tensor([0, 0, 20], device=self.device, dtype=torch.float32),
+            torch.tensor([0, 0, self.pos_lim], device=self.device, dtype=torch.float32),
             (self.num_envs, 1),
         )
 
@@ -74,8 +75,8 @@ class FixWayPoints:
             (self.num_envs, 1),
         )
 
-        self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
-        self.vel_update_freq = 3
+        self.idx = torch.randint(0, self.kWayPt, size=(self.num_envs, 1), device=self.device).to(torch.long)
+        self.vel_update_freq = vel_update_freq
         self.cnt = 0
 
     def sample(self, env_ids):
@@ -98,9 +99,11 @@ class FixWayPoints:
             dim=1,
             keepdim=True,
         )
-        self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
+
+        self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
         self.idx = self.check_idx(self.idx)
+
 
         self.cnt += 1
         if self.cnt%self.vel_update_freq==0:
