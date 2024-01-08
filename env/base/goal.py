@@ -75,6 +75,8 @@ class FixWayPoints:
         )
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
+        self.vel_update_freq = 3
+        self.cnt = 0
 
     def sample(self, env_ids):
         pass
@@ -89,6 +91,7 @@ class FixWayPoints:
 
     def update_state(self, rb_pos):
         """check if robot is close to waypoint"""
+        
         dist = torch.norm(
             rb_pos[:, 0:2] - self.get_pos_nav(self.idx)[:, 0:2],
             p=2,
@@ -99,11 +102,13 @@ class FixWayPoints:
         trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
         self.idx = self.check_idx(self.idx)
 
-        self.update_vel(rb_pos, Kv=self.velnorm)
+        self.cnt += 1
+        if self.cnt%self.vel_update_freq==0:
+            self.update_vel(rb_pos, Kv=self.velnorm)
         return trigger
 
     def reset(self, env_ids):
-        self.idx[env_ids] = 0
+        pass
 
     def update_vel(self, rbpos, Kv=0.1):
         cur_pos = self.get_pos_nav(self.idx)
@@ -213,21 +218,6 @@ class RandomWayPoints(FixWayPoints):
             )
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
-
-    def update_state(self, rb_pos):
-        """check if robot is close to waypoint"""
-        dist = torch.norm(
-            rb_pos[:, 0:2] - self.get_pos_nav(self.idx)[:, 0:2],
-            p=2,
-            dim=1,
-            keepdim=True,
-        )
-        self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
-        trigger = torch.where(dist <= self.trigger_dist, 1.0, 0.0)
-        self.idx = self.check_idx(self.idx)
-
-        self.update_vel(rb_pos, Kv=self.velnorm)
-        return trigger
 
     def sample(self, env_ids):
         if self.rand_pos:
