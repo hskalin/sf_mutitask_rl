@@ -601,14 +601,14 @@ class RMACompPIDAgent(MultitaskAgent):
         masked_done = False if episode_steps >= self.episode_max_step else done
 
         # trigger if not hover task
-        hov_task = self.task.Train.W[:, 4] >0.1 #TODO: dangerous
-        trigger = s_next[:, self.idx_trig]
-        trigger = torch.where(
-            hov_task, torch.zeros_like(trigger), trigger
-        )
-        masked_done = torch.where(
-            trigger.to(bool), torch.ones_like(masked_done), masked_done
-        )
+        # hov_task = self.task.Train.W[:, 4] >0.1 #TODO: dangerous
+        # trigger = s_next[:, self.idx_trig]
+        # trigger = torch.where(
+        #     hov_task, torch.zeros_like(trigger), trigger
+        # )
+        # masked_done = torch.where(
+        #     trigger.to(bool), torch.ones_like(masked_done), masked_done
+        # )
 
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
 
