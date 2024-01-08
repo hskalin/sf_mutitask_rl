@@ -32,7 +32,7 @@ parameters:
   agent.use_kl_loss:
     values: [True]
   agent.kl_coeff:
-    values: [100.0]
+    values: [10.0, 100.0]
   agent.lr_schedule:
     values: [False]
   agent.norm_task_by_sf:
@@ -56,7 +56,7 @@ parameters:
   agent.curriculum_learning:
     values: [False]
   agent.load_model:
-    values: [True, False]
+    values: [True]
   agent.model_path: 
     values: ["rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"]
   buffer.framestacked_replay:

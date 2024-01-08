@@ -97,13 +97,12 @@ goal:
   avel_lim: 0.5
 
   # fix goal
-  style: "hourglass" # square, sandglass, circle
+  style: "hourglass" # square, hourglass, circle
 
   # rand goal
-  # position trajectory
   kWayPt: 3
   wp_dist: 15
-  trigger_dist: 4
+  trigger_dist: 5
   min_z: 10
   max_z: 30
 
@@ -126,7 +125,7 @@ task:
   init_vel: True
   
   domain_rand: True # randomize env latent
-  range_a: [0.85, 1.17] # type a var range
+  range_a: [0.8, 1.25] # type a var range
   range_b: [0.5, 2.0] # type b var range
 
   # proximity reward
@@ -163,18 +162,16 @@ task:
 
     achievable:   [
       # controller
-      [1,1,10,.5, 0,0,.5, 0,0,0, .1,0],
-      [0,0,0,0, 10,0,0, 0,0,0, .1,.1],
-      [0,0,10,0, 0,0,0, 1,1,1, .1,0],
+      [1,1,20,1, 0,0,.1, 0,0,0, 0,0],
+      [0,0,0,0, 1,0,0, 0,0,0, .1,.1],
+      [0,0,20,0, 0,0,0, 1,1,1, 0,0],
 
       # navigation
-      [0,.1,10,.1, 0,0,0, 0,0,0, .01,.01],
-      [0,.5,0,1, 0,0,0.5, 0,0,0, 0,0],
+      [.1,.5,.1,1, 0,0,.5, 0,0,0, .1, .01],
       # hover
-      [0,0,0,0, 10,.2,0, 0,0,0, .1,.1],
-      # [0,0,0,0, 1,0,1, 0,0,0, .1,0],
+      [0,0,0,0, 1,.2,0, 0,0,0, .1,.1],
       # path follow
-      [0,0,0,0, 0,0,0, 1,1,1, 0,0],
+      [0,0,0,0, 0,0,0, 1,1,1, .1, .01],
       ]
 
     single: [[0,0,0,0, 0,0,0, 1,1,1, 0,0,0,0]]

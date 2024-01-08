@@ -151,7 +151,7 @@ def modify_cfg(cfg_dict):
     cfg_dict["env"]["task"]["rand_vel_targets"] = False
     cfg_dict["env"]["mode"] = "play"
     cfg_dict["env"]["sim"]["headless"] = False
-    cfg_dict["env"]["goal"]["target_velnorm"] = [0,0,2]
+    cfg_dict["env"]["goal"]["target_velnorm"] = 2
     # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
 
     # change these
