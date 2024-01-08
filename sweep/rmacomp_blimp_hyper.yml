@@ -40,7 +40,7 @@ parameters:
   agent.use_decoder:
     values: [True]
   agent.use_auxiliary_task:
-    values: [True]
+    values: [True, False]
   agent.policy_net_kwargs.hidden_dim:
     values: [256]
   agent.policy_net_kwargs.resnet:
