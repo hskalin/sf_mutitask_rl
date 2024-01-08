@@ -394,24 +394,24 @@ class RMACompPIDAgent(MultitaskAgent):
             self.phase += 1
 
         if self.phase == 3 and self.rma: # train everything without encoder, isaacgym+gazebo
+            grad_true(self.sf)
+            grad_true(self.sf_target)
+            grad_true(self.policy)
+            grad_false(self.encoder)
+
             params = [
                 {"params": self.sf.parameters()},
                 {"params": self.adaptor.parameters()},
             ]
             if self.use_decoder:
                 params.append({"params": self.decoder.parameters()})
+                grad_true(self.decoder)
 
             self.sf_optimizer = Adam(
                 params,
                 lr=self.lr,
                 betas=[0.9, 0.999],
             )
-            grad_true(self.sf)
-            grad_true(self.sf_target)
-            grad_true(self.policy)
-            grad_false(self.encoder)
-            if self.use_decoder:
-                grad_false(self.decoder)
 
             self.train_phase(self.episodes + self.episodes_phase3)
 
@@ -496,7 +496,7 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.adaptive_task:
             self.task.adapt_task()
 
-        metrics = trigger_wp + hover_time / 25
+        metrics = trigger_wp + hover_time / 100
         wandb.log(
             {
                 f"reward_phase{self.phase}/train": self.game_rewards.get_mean(),
@@ -551,7 +551,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
             returns[i] = torch.mean(episode_r).item()
 
-        metrics = trigger_wp + hover_time / 25
+        metrics = trigger_wp + hover_time / 100
 
         print(f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}")
         print(f"===== finish evaluate ====")
@@ -601,13 +601,13 @@ class RMACompPIDAgent(MultitaskAgent):
         masked_done = False if episode_steps >= self.episode_max_step else done
 
         # trigger if not hover task
-        hov_task = self.task.Train.W[:, 4] >0.5 #TODO: dangerous
+        hov_task = self.task.Train.W[:, 4] >0.1 #TODO: dangerous
         trigger = s_next[:, self.idx_trig]
         trigger = torch.where(
             hov_task, torch.zeros_like(trigger), trigger
         )
         masked_done = torch.where(
-            trigger.to(bool), torch.ones_like(trigger), masked_done
+            trigger.to(bool), torch.ones_like(masked_done), masked_done
         )
 
         self.save_to_buffer(s, a, r, s_next, done, masked_done)
