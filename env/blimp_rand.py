@@ -93,6 +93,7 @@ class BlimpRand(VecEnv):
                 num_envs=self.num_envs,
                 trigger_dist=cfg["goal"].get("trigger_dist", 2),
                 pos_lim=cfg["goal"].get("lim", 10),
+                style=cfg["goal"]["style"],
             )
         else:
             self.wp = RandomWayPoints(

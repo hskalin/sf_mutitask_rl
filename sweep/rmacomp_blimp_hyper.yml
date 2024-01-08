@@ -72,7 +72,9 @@ parameters:
   env.feature.scale_ang:
     values: [50]
   env.goal.type:
-    values: ["rand"]
+    values: ["fix"]
+  env.goal.style:
+    values: ["sandglass"]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:

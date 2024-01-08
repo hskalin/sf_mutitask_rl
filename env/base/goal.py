@@ -20,7 +20,7 @@ class FixWayPoints:
         num_envs,
         pos_lim=None,
         trigger_dist=2,
-        style="square",
+        style="hourglass",
         **kwargs,
     ) -> None:
         self.num_envs = num_envs
@@ -33,6 +33,12 @@ class FixWayPoints:
         if style=="square":
             wps = torch.tensor(
                 [[[10, -10, 20], [10, 0, 20], [10, 10, 20], [0, 10, 20], [-10, 10, 20], [-10, 0, 20], [-10, -10, 20], [0, -10, 20]]],
+                device=self.device,
+                dtype=torch.float32,
+            )
+        elif style=="hourglass":
+            wps = torch.tensor(
+                [[[10, 10, 20], [0, 10, 20], [-10, 10, 20], [0, 0, 20], [10, -10, 20], [0, -10, 20], [-10, -10, 20], [0, 0, 20]]],
                 device=self.device,
                 dtype=torch.float32,
             )

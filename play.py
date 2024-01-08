@@ -179,9 +179,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb_dict = fix_wandb(wandb.config)
 
     model_folder = (
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-07-15-52-37"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-08-01-06-16"
     )
-    model_checkpoint = "model70" 
+    model_checkpoint = "model110" 
 
     cfg_path = model_folder + "/cfg"
     model_path = model_folder + "/" + model_checkpoint 
