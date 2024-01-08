@@ -40,7 +40,7 @@ parameters:
   agent.use_decoder:
     values: [True]
   agent.use_auxiliary_task:
-    values: [True, False]
+    values: [True]
   agent.policy_net_kwargs.hidden_dim:
     values: [256]
   agent.policy_net_kwargs.resnet:
@@ -58,7 +58,7 @@ parameters:
   agent.load_model:
     values: [True, False]
   agent.model_path: 
-    values: ["rmacompblimp/BlimpRand/2024-01-08-12-20-35/model50/"]
+    values: ["rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
@@ -72,9 +72,7 @@ parameters:
   env.feature.scale_ang:
     values: [50]
   env.goal.type:
-    values: ["fix"]
-  env.goal.style:
-    values: ["hourglass"]
+    values: ["rand"]
   env.task.adaptive_task:
     values: [False]
   env.task.domain_rand:

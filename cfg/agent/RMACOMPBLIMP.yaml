@@ -30,7 +30,7 @@ use_kl_loss: True
 kl_coeff: 100.0
 wandb_verbose: False
 load_model: True
-model_path: "rmacompblimp/BlimpRand/2024-01-07-15-52-37/model70/"
+model_path: "rmacompblimp/BlimpRand/2023-12-30-13-12-39/model50/"
 
 sf_net_kwargs: 
     hidden_dim: 512

@@ -115,6 +115,7 @@ class BlimpRand(VecEnv):
                 wp_dist=cfg["goal"].get("wp_dist", 10),
                 trigger_dist=cfg["goal"].get("trigger_dist", 2),
                 min_z=cfg["goal"].get("min_z", 5),
+                max_z=cfg["goal"].get("max_z", 40),
                 reset_dist=cfg["blimp"].get("reset_dist", 30),
             )
 
@@ -1017,13 +1018,13 @@ def compute_point_reward(
     reset = torch.where(z_abs < 2, torch.ones_like(reset_buf), reset)
 
     reset = torch.where(
-        torch.abs(ang_velx) > torch.pi / 3, torch.ones_like(reset_buf), reset
+        torch.abs(ang_velx) > torch.pi / 2, torch.ones_like(reset_buf), reset
     )
     reset = torch.where(
-        torch.abs(ang_vely) > torch.pi / 3, torch.ones_like(reset_buf), reset
+        torch.abs(ang_vely) > torch.pi / 2, torch.ones_like(reset_buf), reset
     )
     reset = torch.where(
-        torch.abs(ang_velz) > torch.pi / 3, torch.ones_like(reset_buf), reset
+        torch.abs(ang_velz) > torch.pi / 2, torch.ones_like(reset_buf), reset
     )
 
     truncated_buf = torch.where(

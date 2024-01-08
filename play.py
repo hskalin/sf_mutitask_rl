@@ -151,7 +151,7 @@ def modify_cfg(cfg_dict):
     cfg_dict["env"]["task"]["rand_vel_targets"] = False
     cfg_dict["env"]["mode"] = "play"
     cfg_dict["env"]["sim"]["headless"] = False
-
+    cfg_dict["env"]["goal"]["target_velnorm"] = [0,0,2]
     # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
 
     # change these
@@ -164,7 +164,7 @@ def modify_cfg(cfg_dict):
         cfg_dict["env"]["aero"]["wind_mag"] = 0.01
     if "domain_rand" in cfg_dict["env"]["task"]:
         cfg_dict["env"]["task"]["domain_rand"] = False
-    cfg_dict["agent"]["exploit_method"] = "sfgpi"  # sfgpi, dacgpi
+    cfg_dict["agent"]["exploit_method"] = "dacgpi"  # sfgpi, dacgpi
 
     print_dict(cfg_dict)
 
@@ -179,7 +179,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     wandb_dict = fix_wandb(wandb.config)
 
     model_folder = (
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-08-12-20-35"
+        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2023-12-30-13-12-39"
     )
     model_checkpoint = "model50" 
 

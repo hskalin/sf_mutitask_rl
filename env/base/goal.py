@@ -145,6 +145,7 @@ class RandomWayPoints(FixWayPoints):
         wp_dist=10 / np.sqrt(3),  # [m] generate next wp within range
         trigger_dist=2,  # [m] activate next wp if robot within range
         min_z=5,
+        max_z=40,
         reset_dist=30,
     ) -> None:
         super().__init__(
@@ -170,6 +171,7 @@ class RandomWayPoints(FixWayPoints):
         self.wp_dist = wp_dist
         self.trigger_dist = torch.tensor(trigger_dist).to(self.device)
         self.min_z = min_z
+        self.max_z = max_z
         self.reset_dist = reset_dist
 
         self.idx = torch.zeros(self.num_envs, 1, device=self.device).to(torch.long)
@@ -250,7 +252,6 @@ class RandomWayPoints(FixWayPoints):
         for i in range(kWP - 1):
             pos[:, i + 1] = self._sample_on_dist(pos[:, i], dist, min_dist)
 
-        print(pos)
         return pos
 
     def _sample_on_dist(self, pos, dist, min_dist):
@@ -272,8 +273,8 @@ class RandomWayPoints(FixWayPoints):
         pos = pos.unsqueeze(2)
         invalid = torch.where(torch.abs(pos[:, 0]) >= self.pos_lim, torch.ones_like(invalid), invalid)
         invalid = torch.where(torch.abs(pos[:, 1]) >= self.pos_lim, torch.ones_like(invalid), invalid)
-        invalid = torch.where(pos[:, 2] >= self.pos_lim*2, torch.ones_like(invalid), invalid)
-        invalid = torch.where(pos[:, 2] <= 3, torch.ones_like(invalid), invalid)
+        invalid = torch.where(pos[:, 2] >= self.max_z, torch.ones_like(invalid), invalid)
+        invalid = torch.where(pos[:, 2] <= self.min_z, torch.ones_like(invalid), invalid)
         return invalid
     
     def _planardist_greater_than_mindist(self, pos, newpos, min_dist, invalid):

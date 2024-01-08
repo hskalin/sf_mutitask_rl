@@ -86,11 +86,11 @@ blimp:
 
 aero:
   wind_dirs: [1.0, 1.0, 0.25]
-  wind_mag: 2.0
+  wind_mag: 1.5
   wind_std: 0.05
 
 goal: 
-  type: "fix" # rand, fix
+  type: "rand" # rand, fix
 
   pos_lim: 20
   vel_lim: 4
@@ -102,9 +102,10 @@ goal:
   # rand goal
   # position trajectory
   kWayPt: 3
-  wp_dist: 12
+  wp_dist: 15
   trigger_dist: 4
-  min_z: 5
+  min_z: 10
+  max_z: 30
 
   rand_pos_targets: True
   rand_ang_targets: True

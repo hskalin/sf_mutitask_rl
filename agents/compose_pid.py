@@ -173,7 +173,7 @@ class RMACompPIDAgent(MultitaskAgent):
 
         self.use_decoder = self.agent_cfg["use_decoder"]
         self.use_auxiliary_task = self.agent_cfg["use_auxiliary_task"]
-        self.aux_coeff = self.agent_cfg["aux_coeff"]
+        self.aux_coeff = self.agent_cfg.get("aux_coeff", 0)
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
