@@ -86,16 +86,13 @@ class FixWayPoints:
         if idx is not None:
             return self.pos_nav[range(self.num_envs), self.check_idx(idx).squeeze()]
         else:
-            return self.pos_nav[
-                range(self.num_envs), self.check_idx(self.idx).squeeze()
-            ]
+            return self.pos_nav[range(self.num_envs), self.check_idx(self.idx).squeeze()]
 
     def update_state(self, rb_pos):
         """check if robot is close to waypoint"""
         
         dist = torch.norm(
             rb_pos[:, 0:2] - self.get_pos_nav(self.idx)[:, 0:2],
-            p=2,
             dim=1,
             keepdim=True,
         )
@@ -104,19 +101,19 @@ class FixWayPoints:
         self.idx = torch.where(dist <= self.trigger_dist, self.idx + 1, self.idx)
         self.idx = self.check_idx(self.idx)
 
-
         self.cnt += 1
         if self.cnt%self.vel_update_freq==0:
-            self.update_vel(rb_pos, Kv=self.velnorm)
+            self.update_vel(rb_pos, Kv=self.velnorm*2)
         return trigger
 
     def reset(self, env_ids):
+        # self.idx[env_ids] = 0
         pass
 
-    def update_vel(self, rbpos, Kv=0.1):
+    def update_vel(self, rbpos, Kv=2):
         cur_pos = self.get_pos_nav(self.idx)
         target_vec = cur_pos - rbpos
-        target_vec = target_vec / torch.norm(target_vec, p=1, keepdim=True)
+        target_vec = target_vec / (torch.norm(target_vec, dim=1, keepdim=True)+1e-6)
         self.vel = Kv*target_vec
 
     def check_idx(self, idx):
@@ -224,8 +221,8 @@ class RandomWayPoints(FixWayPoints):
 
     def sample(self, env_ids):
         if self.rand_pos:
-            self.pos_nav[env_ids] = self._sample_on_distance(
-                len(env_ids), self.pos_lim, kWP=self.kWayPt, dist=self.wp_dist
+            self.pos_nav[env_ids] = self._sample_nav_goals(
+                len(env_ids), self.pos_lim, kWP=self.kWayPt, dist=self.wp_dist, min_dist=self.trigger_dist
             )
 
         if self.rand_vel:
@@ -242,24 +239,50 @@ class RandomWayPoints(FixWayPoints):
     def _sample(self, size, scale=1):
         return scale * 2 * (torch.rand(size, device=self.device) - 0.5)
 
-    def _sample_on_distance(self, size, scale, kWP, dist):
+    def _sample_nav_goals(self, size, scale, kWP, dist, min_dist):
         """next wp is spawned [dist] from prev wp"""
-        # pos = self._sample((size, kWP, 3), scale)
-        pos = torch.zeros(size=(size, kWP, 3), device=self.device)
-        pos[..., 2] = self.pos_lim
-        for i in range(kWP - 1):
-            x = self._sample((size, 3))
-            x = dist * x / torch.norm(x, dim=1, keepdim=True)
-            pos[:, i + 1] = pos[:, i] + x
+        pos = torch.zeros((size, kWP, 3), device=self.device)
+        invalid = torch.ones(size, 1, dtype=torch.bool, device=self.device)
+        while invalid.any():
+            pos[:,0] = torch.where(invalid, self._sample((size, 3), scale), pos[:,0])
+            invalid = self._pos_valid(pos[:, 0])
 
-        pos[..., 2] = torch.where(
-            pos[..., 2] <= self.min_z, self.pos_lim, pos[..., 2]
-        )
-        pos[..., 2] = torch.where(
-            pos[..., 2] >= 2*self.pos_lim, self.pos_lim, pos[..., 2]
-        )
+        for i in range(kWP - 1):
+            pos[:, i + 1] = self._sample_on_dist(pos[:, i], dist, min_dist)
+
+        print(pos)
         return pos
 
+    def _sample_on_dist(self, pos, dist, min_dist):
+        invalid = torch.ones(pos.shape[0], 1, dtype=torch.bool, device=self.device)
+        newpos = torch.zeros_like(pos, device=self.device)
+
+        while invalid.any():
+            x = self._sample(pos.shape)
+            x = dist * x / torch.norm(x, dim=1, keepdim=True)
+            newpos = torch.where(invalid, pos + x, newpos)
+            invalid = self._pos_valid(newpos)
+            invalid = self._planardist_greater_than_mindist(pos, newpos, min_dist, invalid)
+        
+        return newpos
+
+    def _pos_valid(self, pos):
+        invalid = torch.zeros(pos.shape[0], 1, dtype=torch.bool, device=self.device)
+        
+        pos = pos.unsqueeze(2)
+        invalid = torch.where(torch.abs(pos[:, 0]) >= self.pos_lim, torch.ones_like(invalid), invalid)
+        invalid = torch.where(torch.abs(pos[:, 1]) >= self.pos_lim, torch.ones_like(invalid), invalid)
+        invalid = torch.where(pos[:, 2] >= self.pos_lim*2, torch.ones_like(invalid), invalid)
+        invalid = torch.where(pos[:, 2] <= 3, torch.ones_like(invalid), invalid)
+        return invalid
+    
+    def _planardist_greater_than_mindist(self, pos, newpos, min_dist, invalid):
+        if invalid is None:
+            invalid = torch.zeros(pos.shape[0], 1, dtype=torch.bool, device=self.device)
+
+        planar_dist = torch.norm(pos[:, 0:2]-newpos[:, 0:2], dim=1, keepdim=True)
+        invalid = torch.where(planar_dist <= min_dist, torch.ones_like(invalid), invalid)
+        return invalid
 
     def reset(self, env_ids):
         self.idx[env_ids] = 0

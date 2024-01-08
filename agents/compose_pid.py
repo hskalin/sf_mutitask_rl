@@ -393,7 +393,7 @@ class RMACompPIDAgent(MultitaskAgent):
             self.train_phase(self.episodes + self.episodes_phase2)
             self.phase += 1
 
-        if self.phase == 3: # train everything without encoder, isaacgym+gazebo
+        if self.phase == 3 and self.rma: # train everything without encoder, isaacgym+gazebo
             params = [
                 {"params": self.sf.parameters()},
                 {"params": self.adaptor.parameters()},

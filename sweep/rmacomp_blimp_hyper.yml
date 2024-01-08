@@ -20,7 +20,7 @@ parameters:
   agent.exploit_method:
     values: ["sfgpi"]
   agent.rma:
-    values: [True]
+    values: [False]
   agent.use_continuity_loss:
     values: [False]
   agent.continuity_coeff:
@@ -56,9 +56,9 @@ parameters:
   agent.curriculum_learning:
     values: [False]
   agent.load_model:
-    values: [True]
+    values: [True, False]
   agent.model_path: 
-    values: ["rmacompblimp/BlimpRand/2024-01-07-15-52-37/model70/"]
+    values: ["rmacompblimp/BlimpRand/2024-01-08-12-20-35/model50/"]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:

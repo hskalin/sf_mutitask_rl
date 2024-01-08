@@ -57,7 +57,7 @@ log_interval: 5 # wandb log
 
 blimp:
   spawn_height: 20
-  reset_dist: 26
+  reset_dist: 25
 
   mass: 8.907
   ema_smooth: [0.2, 0.3] # [thrust, stick]
